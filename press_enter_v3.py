@@ -210,23 +210,31 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
             label.config(text=f"Target: x={x}, y={y}")
 
     def worker_loop(get_seconds) -> None:
-        while not stop_event.is_set():
-            if not running_event.wait(timeout=0.05):
-                continue
+        while True:
+            # Block until running - zero CPU when idle
+            running_event.wait()
+
+            if stop_event.is_set():
+                break
 
             x, y = state["x"], state["y"]
             if x is None or y is None:
-                time.sleep(0.05)
+                time.sleep(0.1)
                 continue
 
-            do_cycle(x, y, mouse_only)
+            try:
+                do_cycle(x, y, mouse_only)
+            except Exception as e:
+                print(f"[worker] Error during cycle: {e}")
+                continue
 
             interval = max(0.01, float(get_seconds()))
             end = time.monotonic() + interval
             while time.monotonic() < end:
                 if stop_event.is_set() or not running_event.is_set():
                     break
-                time.sleep(0.01)
+                remaining = end - time.monotonic()
+                time.sleep(min(0.1, max(0.01, remaining)))
 
     # Hotkey thread (Windows only)
     hotkey_thread_stop = threading.Event()
@@ -446,7 +454,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
 
     def on_close():
         stop_event.set()
-        running_event.clear()
+        running_event.set()  # Wake worker from blocking wait so it can exit
         stop_hotkeys()
         root.destroy()
 
