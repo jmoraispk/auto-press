@@ -1,0 +1,12 @@
+[project]
+name = "auto-press"
+version = "3.0.0"
+description = "Auto clicker with optional Enter key press, global hotkeys, and calibration"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyautogui>=0.9.54",
+]
+
+[project.scripts]
+auto-press = "press_enter_v3:main"
