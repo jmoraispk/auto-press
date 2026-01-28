@@ -167,7 +167,7 @@ def calibrate_point_hover_console() -> tuple[int, int]:
 # -------------------------
 # UI mode (default)
 # -------------------------
-def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: str, mouse_only: bool) -> None:
+def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only: bool) -> None:
     import tkinter as tk
 
     pyautogui.PAUSE = 0
@@ -240,7 +240,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     hotkey_thread_id = {"tid": None}
     hotkey_ok = {"ok": True, "err": ""}
 
-    def start_hotkeys(on_toggle, on_calibrate, on_quit):
+    def start_hotkeys(on_toggle, on_calibrate):
         if not IS_WINDOWS:
             hotkey_ok["ok"] = False
             hotkey_ok["err"] = "Hotkeys only supported on Windows (UI buttons still work)."
@@ -253,7 +253,6 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
             try:
                 t_mod, t_vk = parse_hotkey(toggle_hk)
                 c_mod, c_vk = parse_hotkey(calibrate_hk)
-                q_mod, q_vk = parse_hotkey(quit_hk)
             except ValueError as e:
                 hotkey_ok["ok"] = False
                 hotkey_ok["err"] = str(e)
@@ -261,7 +260,6 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
 
             ID_TOGGLE = 1
             ID_CALIB = 2
-            ID_QUIT = 3
 
             def reg(hkid, mods, vk) -> bool:
                 return bool(RegisterHotKey(None, hkid, mods | MOD_NOREPEAT, vk))
@@ -274,12 +272,6 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
                 UnregisterHotKey(None, ID_TOGGLE)
                 hotkey_ok["ok"] = False
                 hotkey_ok["err"] = f"Failed to register calibrate hotkey {calibrate_hk} (collision likely)."
-                return
-            if not reg(ID_QUIT, q_mod, q_vk):
-                UnregisterHotKey(None, ID_TOGGLE)
-                UnregisterHotKey(None, ID_CALIB)
-                hotkey_ok["ok"] = False
-                hotkey_ok["err"] = f"Failed to register quit hotkey {quit_hk} (collision likely)."
                 return
 
             msg = MSG()
@@ -294,14 +286,11 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
                         on_toggle()
                     elif msg.wParam == ID_CALIB:
                         on_calibrate()
-                    elif msg.wParam == ID_QUIT:
-                        on_quit()
                 TranslateMessage(ctypes.byref(msg))
                 DispatchMessageW(ctypes.byref(msg))
 
             UnregisterHotKey(None, ID_TOGGLE)
             UnregisterHotKey(None, ID_CALIB)
-            UnregisterHotKey(None, ID_QUIT)
 
         t = threading.Thread(target=hotkey_loop, daemon=True)
         t.start()
@@ -317,7 +306,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     # Tk UI
     mode_text = "Mouse Only" if mouse_only else "Click + Enter"
     root = tk.Tk()
-    root.title(f"Auto Clicker v3 ({mode_text})")
+    root.title(f"Auto Clicker ({mode_text})")
     root.configure(bg=BG)
     root.attributes("-topmost", True)
     root.resizable(False, False)
@@ -335,6 +324,9 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     status_canvas.grid(row=0, column=0, rowspan=2, padx=(0, 12))
     set_status(status_canvas, False)
 
+    FONT = ("Segoe UI", 11)
+    FONT_SMALL = ("Segoe UI", 10)
+
     # Mode label
     mode_lbl = tk.Label(
         frm,
@@ -343,6 +335,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
         justify="left",
         bg=BG,
         fg=MUTED,
+        font=FONT_SMALL,
     )
     mode_lbl.grid(row=0, column=1, columnspan=3, sticky="w")
 
@@ -354,11 +347,12 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
         justify="left",
         bg=BG,
         fg=FG,
+        font=FONT,
     )
     target_lbl.grid(row=1, column=1, columnspan=3, sticky="w")
 
     # Interval row
-    tk.Label(frm, text="Interval (s):", bg=BG, fg=MUTED).grid(row=2, column=1, sticky="e")
+    tk.Label(frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="e")
 
     interval_var = tk.StringVar(value=str(initial_seconds))
     interval_entry = tk.Entry(
@@ -368,6 +362,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
         bg=ENTRY_BG,
         fg=ENTRY_FG,
         insertbackground=FG,
+        font=FONT,
     )
     interval_entry.grid(row=2, column=2, sticky="w", padx=(6, 10))
 
@@ -380,7 +375,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     btn_toggle = tk.Button(
         frm,
         text=f"Start/Stop ({toggle_hk})",
-        width=18,
+        width=20,
         command=lambda: toggle_running(status_canvas),
         bg=BTN_BG,
         fg=BTN_FG,
@@ -388,6 +383,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
         activeforeground=BTN_FG,
         bd=0,
         highlightthickness=0,
+        font=FONT,
     )
     btn_toggle.grid(row=3, column=0, pady=(10, 0))
 
@@ -399,7 +395,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     btn_cal = tk.Button(
         frm,
         text=f"Calibrate ({calibrate_hk})",
-        width=18,
+        width=20,
         command=ui_calibrate,
         bg=BTN_BG,
         fg=BTN_FG,
@@ -407,25 +403,12 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
         activeforeground=BTN_FG,
         bd=0,
         highlightthickness=0,
+        font=FONT,
     )
     btn_cal.grid(row=3, column=1, pady=(10, 0), padx=(10, 0))
 
-    btn_quit = tk.Button(
-        frm,
-        text=f"Quit ({quit_hk})",
-        width=18,
-        command=root.destroy,
-        bg=BTN_BG,
-        fg=BTN_FG,
-        activebackground=BTN_BG,
-        activeforeground=BTN_FG,
-        bd=0,
-        highlightthickness=0,
-    )
-    btn_quit.grid(row=3, column=2, pady=(10, 0), padx=(10, 0))
-
-    info_lbl = tk.Label(frm, text="", anchor="w", justify="left", bg=BG, fg=MUTED)
-    info_lbl.grid(row=4, column=0, columnspan=4, sticky="w", pady=(10, 0))
+    info_lbl = tk.Label(frm, text="", anchor="w", justify="left", bg=BG, fg=MUTED, font=("Segoe UI", 10))
+    info_lbl.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     worker = threading.Thread(target=worker_loop, args=(get_seconds,), daemon=True)
     worker.start()
@@ -437,17 +420,14 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     def hk_calibrate():
         root.after(0, ui_calibrate)
 
-    def hk_quit():
-        root.after(0, root.destroy)
-
-    start_hotkeys(hk_toggle, hk_calibrate, hk_quit)
+    start_hotkeys(hk_toggle, hk_calibrate)
 
     # show hotkey status
     def refresh_hotkey_status():
         if not hotkey_ok["ok"]:
             info_lbl.config(text=hotkey_ok["err"])
         else:
-            info_lbl.config(text=f"Hotkeys: {toggle_hk} toggle, {calibrate_hk} calibrate, {quit_hk} quit")
+            info_lbl.config(text=f"Hotkeys: {toggle_hk} toggle, {calibrate_hk} calibrate")
 
     root.after(200, refresh_hotkey_status)
 
@@ -512,18 +492,14 @@ def parse_args() -> argparse.Namespace:
         help="Only click the mouse, do not press Enter."
     )
 
-    # Hotkey config (UI) - defaults changed from F8/F9/F10 to PageDown/PageUp/End
+    # Hotkey config (UI)
     p.add_argument(
         "--toggle", default="PAGEDOWN",
-        help='Toggle hotkey, e.g. "PAGEDOWN" or "CTRL+ALT+P". Default: PAGEDOWN'
+        help='Toggle hotkey, e.g. "PAGEDOWN" or "CTRL+ALT+C". Default: PAGEDOWN'
     )
     p.add_argument(
         "--calibrate-key", default="PAGEUP",
-        help='Calibrate hotkey, e.g. "PAGEUP" or "CTRL+ALT+C". Default: PAGEUP'
-    )
-    p.add_argument(
-        "--quit", default="END",
-        help='Quit hotkey, e.g. "END" or "CTRL+ALT+Q". Default: END'
+        help='Calibrate hotkey, e.g. "PAGEUP" or "CTRL+ALT+P". Default: PAGEUP'
     )
     return p.parse_args()
 
@@ -562,7 +538,7 @@ def main() -> None:
             args.mouse_only
         )
     else:
-        run_ui(args.seconds, args.toggle, args.calibrate_key, args.quit, args.mouse_only)
+        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mouse_only)
 
 
 if __name__ == "__main__":
