@@ -6,6 +6,7 @@ Auto clicker with optional Enter key press, global hotkeys, and mouse position c
 
 - Click at a calibrated screen position on an interval
 - Optional Enter key press after each click (or mouse-only mode)
+- **Simple mode**: just press Enter repeatedly (no mouse, no UI)
 - Global hotkeys (work even when the app is not focused)
 - Efficient event-driven design (zero CPU usage when idle)
 
@@ -43,12 +44,13 @@ press_enter.py [seconds] [options]
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `seconds` | `3.0` | Interval between clicks (in seconds) |
+| `seconds` | `10.0` | Interval between clicks (in seconds) |
 
 ### Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--simple` | off | Simple mode: just press Enter repeatedly (no mouse, no UI) |
 | `--mouse-only` | off | Only click, don't press Enter |
 | `--toggle` | `PAGEDOWN` | Hotkey to start/stop clicking |
 | `--calibrate-key` | `PAGEUP` | Hotkey to set click position |
@@ -60,7 +62,10 @@ press_enter.py [seconds] [options]
 ### Examples
 
 ```bash
-# Click + Enter every 3 seconds (default)
+# Simple mode: just press Enter every 5 seconds (no mouse, no UI)
+uv run press_enter.py 5 --simple
+
+# UI mode: click + Enter every 10 seconds (default)
 uv run press_enter.py
 
 # Mouse click only, every 10 seconds

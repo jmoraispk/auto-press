@@ -488,12 +488,19 @@ def run_headless(seconds: float, x: int | None, y: int | None, force_calibrate: 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Auto Clicker v3: Click (+ optional Enter) at a target location."
+        description="Auto Clicker: Click (+ optional Enter) at a target location."
     )
     p.add_argument(
         "seconds", nargs="?", type=float, default=10.0,
-        help="Interval between cycles (seconds). Default: 3"
+        help="Interval between cycles (seconds). Default: 10"
     )
+
+    # Simple mode - just press Enter repeatedly
+    p.add_argument(
+        "--simple", action="store_true",
+        help="Simple mode: just press Enter every N seconds (no mouse, no UI)."
+    )
+
     p.add_argument("--headless", action="store_true", help="Run without UI.")
     p.add_argument("--x", type=int, help="Target X coordinate (headless).")
     p.add_argument("--y", type=int, help="Target Y coordinate (headless).")
@@ -521,12 +528,34 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def run_simple(seconds: float) -> None:
+    """Simple mode: just press Enter repeatedly, no mouse, no UI."""
+    from datetime import datetime
+
+    pyautogui.PAUSE = 0
+
+    print(f"Simple mode: pressing Enter every {seconds} seconds.")
+    print("Focus the target window, then leave this running.")
+    print("Press Ctrl+C to stop.\n")
+
+    try:
+        while True:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{now}] press enter")
+            pyautogui.press("enter")
+            time.sleep(seconds)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 def main() -> None:
     args = parse_args()
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
 
-    if args.headless:
+    if args.simple:
+        run_simple(args.seconds)
+    elif args.headless:
         run_headless(
             args.seconds, args.x, args.y,
             args.calibrate or (args.x is None or args.y is None),
