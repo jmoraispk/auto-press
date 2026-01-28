@@ -181,6 +181,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
 
     stop_event = threading.Event()
     running_event = threading.Event()
+    interrupt_event = threading.Event()  # Set when we need to wake from interval sleep
 
     def set_status(canvas: tk.Canvas, running: bool) -> None:
         canvas.delete("all")
@@ -197,9 +198,11 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
     def toggle_running(canvas: tk.Canvas) -> None:
         state["running"] = not state["running"]
         if state["running"]:
+            interrupt_event.clear()  # Reset interrupt for new run
             running_event.set()
         else:
             running_event.clear()
+            interrupt_event.set()  # Wake from interval sleep immediately
         set_status(canvas, state["running"])
 
     def set_label_target(label: tk.Label) -> None:
@@ -229,12 +232,8 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
                 continue
 
             interval = max(0.01, float(get_seconds()))
-            end = time.monotonic() + interval
-            while time.monotonic() < end:
-                if stop_event.is_set() or not running_event.is_set():
-                    break
-                remaining = end - time.monotonic()
-                time.sleep(min(0.1, max(0.01, remaining)))
+            # Sleep for interval - wakes immediately if interrupted (toggle off / quit)
+            interrupt_event.wait(timeout=interval)
 
     # Hotkey thread (Windows only)
     hotkey_thread_stop = threading.Event()
@@ -454,7 +453,8 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, quit_hk: s
 
     def on_close():
         stop_event.set()
-        running_event.set()  # Wake worker from blocking wait so it can exit
+        interrupt_event.set()  # Wake from interval sleep
+        running_event.set()    # Wake from idle wait
         stop_hotkeys()
         root.destroy()
 
