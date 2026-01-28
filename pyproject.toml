@@ -9,4 +9,4 @@ dependencies = [
 ]
 
 [project.scripts]
-auto-press = "press_enter_v3:main"
+auto-press = "press_enter:main"

@@ -1,4 +1,4 @@
-# press_enter_v3.py
+# press_enter.py
 # Simplified version: mouse click + optional key press, no window switching logic
 import argparse
 import sys

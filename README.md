@@ -20,23 +20,23 @@ Auto clicker with optional Enter key press, global hotkeys, and mouse position c
 
 ```bash
 # Run directly (UV handles dependencies automatically)
-uv run press_enter_v3.py
+uv run press_enter.py
 
 # Or with options
-uv run press_enter_v3.py 5 --mouse-only
+uv run press_enter.py 5 --mouse-only
 ```
 
 ### With pip
 
 ```bash
 pip install pyautogui
-python press_enter_v3.py
+python press_enter.py
 ```
 
 ## Usage
 
 ```
-press_enter_v3.py [seconds] [options]
+press_enter.py [seconds] [options]
 ```
 
 ### Arguments
@@ -61,16 +61,16 @@ press_enter_v3.py [seconds] [options]
 
 ```bash
 # Click + Enter every 3 seconds (default)
-uv run press_enter_v3.py
+uv run press_enter.py
 
 # Mouse click only, every 10 seconds
-uv run press_enter_v3.py 10 --mouse-only
+uv run press_enter.py 10 --mouse-only
 
 # Custom hotkeys
-uv run press_enter_v3.py --toggle F8 --calibrate-key F9 --quit F10
+uv run press_enter.py --toggle F8 --calibrate-key F9 --quit F10
 
 # Headless mode with preset coordinates
-uv run press_enter_v3.py 5 --headless --x 500 --y 300
+uv run press_enter.py 5 --headless --x 500 --y 300
 ```
 
 ## How to Use
