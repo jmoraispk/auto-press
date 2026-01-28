@@ -491,7 +491,7 @@ def parse_args() -> argparse.Namespace:
         description="Auto Clicker v3: Click (+ optional Enter) at a target location."
     )
     p.add_argument(
-        "seconds", nargs="?", type=float, default=3.0,
+        "seconds", nargs="?", type=float, default=10.0,
         help="Interval between cycles (seconds). Default: 3"
     )
     p.add_argument("--headless", action="store_true", help="Run without UI.")
