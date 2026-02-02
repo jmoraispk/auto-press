@@ -26,6 +26,7 @@ uv run press_enter.py [seconds] [options]
 | `seconds` | `10.0` | Interval between actions (in seconds) |
 | `--simple` | off | Simple mode: just press Enter (no mouse, no UI) |
 | `--mouse-only` | off | Only click, don't press Enter |
+| `--targets` | `1` | Number of click targets (1-3) |
 | `--headless` | off | Run without UI (console mode) |
 | `--toggle` | `PAGEUP` | Hotkey to start/stop |
 | `--calibrate-key` | `PAGEDOWN` | Hotkey to set click position |
@@ -44,8 +45,11 @@ uv run press_enter.py
 # Mouse click only, every 10 seconds
 uv run press_enter.py 10 --mouse-only
 
+# Multi-target: click 3 locations, 10s between each (30s full cycle)
+uv run press_enter.py 30 --targets 3
+
 # Custom hotkeys
-uv run press_enter.py --toggle F8 --calibrate-key F9 --quit F10
+uv run press_enter.py --toggle F8 --calibrate-key F9
 
 # Headless mode with preset coordinates
 uv run press_enter.py 5 --headless --x 500 --y 300

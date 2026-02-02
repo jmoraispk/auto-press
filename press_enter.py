@@ -167,7 +167,7 @@ def calibrate_point_hover_console() -> tuple[int, int]:
 # -------------------------
 # UI mode (default)
 # -------------------------
-def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only: bool) -> None:
+def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only: bool, num_targets: int = 1) -> None:
     import tkinter as tk
 
     pyautogui.PAUSE = 0
@@ -175,8 +175,8 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
 
     state = {
         "running": False,
-        "x": None,
-        "y": None,
+        "targets": [None] * num_targets,  # List of (x, y) tuples
+        "calibrating_index": 0,  # Which target we're calibrating next
     }
 
     stop_event = threading.Event()
@@ -205,12 +205,32 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
             interrupt_event.set()  # Wake from interval sleep immediately
         set_status(canvas, state["running"])
 
-    def set_label_target(label: tk.Label) -> None:
-        x, y = state["x"], state["y"]
-        if x is None or y is None:
-            label.config(text=f"Target: not set (press {calibrate_hk})")
+    def get_target_text() -> str:
+        targets = state["targets"]
+        set_count = sum(1 for t in targets if t is not None)
+        if num_targets == 1:
+            if targets[0] is None:
+                return f"Target: not set (press {calibrate_hk})"
+            else:
+                return f"Target: x={targets[0][0]}, y={targets[0][1]}"
         else:
-            label.config(text=f"Target: x={x}, y={y}")
+            parts = []
+            for i, t in enumerate(targets):
+                if t is None:
+                    parts.append(f"T{i+1}: -")
+                else:
+                    parts.append(f"T{i+1}: ({t[0]},{t[1]})")
+            next_idx = state["calibrating_index"]
+            if set_count < num_targets:
+                return f"{' | '.join(parts)}  [next: T{next_idx+1}]"
+            else:
+                return " | ".join(parts)
+
+    def set_label_target(label: tk.Label) -> None:
+        label.config(text=get_target_text())
+
+    def all_targets_set() -> bool:
+        return all(t is not None for t in state["targets"])
 
     def worker_loop(get_seconds) -> None:
         while True:
@@ -220,20 +240,27 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
             if stop_event.is_set():
                 break
 
-            x, y = state["x"], state["y"]
-            if x is None or y is None:
+            if not all_targets_set():
                 time.sleep(0.1)
                 continue
 
-            try:
-                do_cycle(x, y, mouse_only)
-            except Exception as e:
-                print(f"[worker] Error during cycle: {e}")
-                continue
-
+            targets = state["targets"]
             interval = max(0.01, float(get_seconds()))
-            # Sleep for interval - wakes immediately if interrupted (toggle off / quit)
-            interrupt_event.wait(timeout=interval)
+            sub_interval = interval / num_targets
+
+            for i, (x, y) in enumerate(targets):
+                if stop_event.is_set() or not running_event.is_set():
+                    break
+
+                try:
+                    do_cycle(x, y, mouse_only)
+                except Exception as e:
+                    print(f"[worker] Error during cycle on target {i+1}: {e}")
+                    continue
+
+                # Sleep for sub_interval - wakes immediately if interrupted
+                if interrupt_event.wait(timeout=sub_interval):
+                    break  # Interrupted
 
     # Hotkey thread (Windows only)
     hotkey_thread_stop = threading.Event()
@@ -342,7 +369,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     # Target label
     target_lbl = tk.Label(
         frm,
-        text=f"Target: not set (press {calibrate_hk})",
+        text=get_target_text(),
         anchor="w",
         justify="left",
         bg=BG,
@@ -389,7 +416,10 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
 
     def ui_calibrate():
         pt = pyautogui.position()
-        state["x"], state["y"] = pt.x, pt.y
+        idx = state["calibrating_index"]
+        state["targets"][idx] = (pt.x, pt.y)
+        # Move to next target (cycle back to 0 if all set)
+        state["calibrating_index"] = (idx + 1) % num_targets
         set_label_target(target_lbl)
 
     btn_cal = tk.Button(
@@ -492,14 +522,20 @@ def parse_args() -> argparse.Namespace:
         help="Only click the mouse, do not press Enter."
     )
 
+    # Multi-target mode
+    p.add_argument(
+        "--targets", type=int, default=1, choices=[1, 2, 3],
+        help="Number of click targets (1-3). Default: 1"
+    )
+
     # Hotkey config (UI)
     p.add_argument(
-        "--toggle", default="PAGEDOWN",
-        help='Toggle hotkey, e.g. "PAGEDOWN" or "CTRL+ALT+C". Default: PAGEDOWN'
+        "--toggle", default="PAGEUP",
+        help='Toggle hotkey, e.g. "PAGEUP" or "CTRL+ALT+P". Default: PAGEUP'
     )
     p.add_argument(
-        "--calibrate-key", default="PAGEUP",
-        help='Calibrate hotkey, e.g. "PAGEUP" or "CTRL+ALT+P". Default: PAGEUP'
+        "--calibrate-key", default="PAGEDOWN",
+        help='Calibrate hotkey, e.g. "PAGEDOWN" or "CTRL+ALT+C". Default: PAGEDOWN'
     )
     return p.parse_args()
 
@@ -538,7 +574,7 @@ def main() -> None:
             args.mouse_only
         )
     else:
-        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mouse_only)
+        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mouse_only, args.targets)
 
 
 if __name__ == "__main__":
