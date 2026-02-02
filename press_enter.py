@@ -437,8 +437,9 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     )
     btn_cal.grid(row=3, column=1, pady=(10, 0), padx=(10, 0))
 
-    info_lbl = tk.Label(frm, text="", anchor="w", justify="left", bg=BG, fg=MUTED, font=("Segoe UI", 10))
-    info_lbl.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    # Error label (only shown if hotkeys fail)
+    error_lbl = tk.Label(frm, text="", anchor="w", justify="left", bg=BG, fg="#ff5252", font=("Segoe UI", 10))
+    error_lbl.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
 
     worker = threading.Thread(target=worker_loop, args=(get_seconds,), daemon=True)
     worker.start()
@@ -452,14 +453,12 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
 
     start_hotkeys(hk_toggle, hk_calibrate)
 
-    # show hotkey status
-    def refresh_hotkey_status():
+    # show error if hotkey registration failed
+    def check_hotkey_status():
         if not hotkey_ok["ok"]:
-            info_lbl.config(text=hotkey_ok["err"])
-        else:
-            info_lbl.config(text=f"Hotkeys: {toggle_hk} toggle, {calibrate_hk} calibrate")
+            error_lbl.config(text=hotkey_ok["err"])
 
-    root.after(200, refresh_hotkey_status)
+    root.after(200, check_hotkey_status)
 
     def on_close():
         stop_event.set()
@@ -530,12 +529,12 @@ def parse_args() -> argparse.Namespace:
 
     # Hotkey config (UI)
     p.add_argument(
-        "--toggle", default="PAGEUP",
-        help='Toggle hotkey, e.g. "PAGEUP" or "CTRL+ALT+P". Default: PAGEUP'
+        "--toggle", default="PAGEDOWN",
+        help='Toggle hotkey. Default: PAGEDOWN'
     )
     p.add_argument(
-        "--calibrate-key", default="PAGEDOWN",
-        help='Calibrate hotkey, e.g. "PAGEDOWN" or "CTRL+ALT+C". Default: PAGEDOWN'
+        "--calibrate-key", default="PAGEUP",
+        help='Calibrate hotkey. Default: PAGEUP'
     )
     return p.parse_args()
 
