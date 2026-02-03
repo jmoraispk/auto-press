@@ -28,7 +28,7 @@ ENTRY_FG = FG
 MUTED = "#A8A8A8"
 
 # Status light dimensions
-LIGHT_SIZE = 54
+LIGHT_SIZE = 62
 LIGHT_PAD = 8
 DOT_DIAM = LIGHT_SIZE - 2 * LIGHT_PAD
 
@@ -338,60 +338,65 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     root.attributes("-topmost", True)
     root.resizable(False, False)
 
-    frm = tk.Frame(root, padx=12, pady=12, bg=BG)
+    FONT = ("Segoe UI", 11)
+    FONT_SMALL = ("Segoe UI", 10)
+    BTN_PADX = 16
+    BTN_PADY = 8
+
+    frm = tk.Frame(root, padx=16, pady=16, bg=BG)
     frm.pack()
 
+    # Main content frame using grid for alignment
+    content_frm = tk.Frame(frm, bg=BG)
+    content_frm.pack()
+
+    # Status light (spans 3 rows, vertically centered with target row)
     status_canvas = tk.Canvas(
-        frm,
+        content_frm,
         width=LIGHT_SIZE,
         height=LIGHT_SIZE,
         highlightthickness=0,
         bg=BG,
     )
-    status_canvas.grid(row=0, column=0, rowspan=2, padx=(0, 12))
+    status_canvas.grid(row=0, column=0, rowspan=3, padx=(0, 20), pady=(3, 0))
     set_status(status_canvas, False)
 
-    FONT = ("Segoe UI", 11)
-    FONT_SMALL = ("Segoe UI", 10)
-
-    # Mode label
+    # Mode label (left-aligned)
     mode_lbl = tk.Label(
-        frm,
+        content_frm,
         text=f"Mode: {mode_text}",
-        anchor="w",
-        justify="left",
         bg=BG,
         fg=MUTED,
         font=FONT_SMALL,
     )
-    mode_lbl.grid(row=0, column=1, columnspan=3, sticky="w")
+    mode_lbl.grid(row=0, column=1, columnspan=2, sticky="w")
 
-    # Target label
+    # Target label (left-aligned)
     target_lbl = tk.Label(
-        frm,
+        content_frm,
         text=get_target_text(),
-        anchor="w",
-        justify="left",
         bg=BG,
         fg=FG,
         font=FONT,
     )
-    target_lbl.grid(row=1, column=1, columnspan=3, sticky="w")
+    target_lbl.grid(row=1, column=1, columnspan=2, sticky="w")
 
-    # Interval row
-    tk.Label(frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="e")
+    # Interval row (left-aligned with above)
+    tk.Label(content_frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="w", pady=(8, 0))
 
     interval_var = tk.StringVar(value=str(initial_seconds))
     interval_entry = tk.Entry(
-        frm,
+        content_frm,
         textvariable=interval_var,
-        width=8,
+        width=6,
         bg=ENTRY_BG,
         fg=ENTRY_FG,
         insertbackground=FG,
         font=FONT,
+        relief="flat",
+        justify="center",
     )
-    interval_entry.grid(row=2, column=2, sticky="w", padx=(6, 10))
+    interval_entry.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
     def get_seconds():
         try:
@@ -399,20 +404,26 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         except ValueError:
             return initial_seconds
 
+    # Buttons row (centered, equal width)
+    btn_frm = tk.Frame(frm, bg=BG)
+    btn_frm.pack(pady=(12, 0))
+
     btn_toggle = tk.Button(
-        frm,
+        btn_frm,
         text=f"Start/Stop ({toggle_hk})",
-        width=20,
         command=lambda: toggle_running(status_canvas),
         bg=BTN_BG,
         fg=BTN_FG,
-        activebackground=BTN_BG,
+        activebackground="#2a2a2a",
         activeforeground=BTN_FG,
         bd=0,
         highlightthickness=0,
         font=FONT,
+        padx=BTN_PADX,
+        pady=BTN_PADY,
+        cursor="hand2",
     )
-    btn_toggle.grid(row=3, column=0, pady=(10, 0))
+    btn_toggle.pack(side="left", padx=(0, 8))
 
     def ui_calibrate():
         pt = pyautogui.position()
@@ -423,23 +434,30 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         set_label_target(target_lbl)
 
     btn_cal = tk.Button(
-        frm,
+        btn_frm,
         text=f"Calibrate ({calibrate_hk})",
-        width=20,
         command=ui_calibrate,
         bg=BTN_BG,
         fg=BTN_FG,
-        activebackground=BTN_BG,
+        activebackground="#2a2a2a",
         activeforeground=BTN_FG,
         bd=0,
         highlightthickness=0,
         font=FONT,
+        padx=BTN_PADX,
+        pady=BTN_PADY,
+        cursor="hand2",
     )
-    btn_cal.grid(row=3, column=1, pady=(10, 0), padx=(10, 0))
+    btn_cal.pack(side="left")
 
-    # Error label (only shown if hotkeys fail)
-    error_lbl = tk.Label(frm, text="", anchor="w", justify="left", bg=BG, fg="#ff5252", font=("Segoe UI", 10))
-    error_lbl.grid(row=4, column=0, columnspan=3, sticky="w", pady=(10, 0))
+    # Error label (only shown if hotkeys fail - no space reserved)
+    error_lbl = None
+
+    def show_error(msg):
+        nonlocal error_lbl
+        if error_lbl is None:
+            error_lbl = tk.Label(frm, text=msg, bg=BG, fg="#ff5252", font=FONT_SMALL)
+            error_lbl.pack(pady=(10, 0))
 
     worker = threading.Thread(target=worker_loop, args=(get_seconds,), daemon=True)
     worker.start()
@@ -456,7 +474,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     # show error if hotkey registration failed
     def check_hotkey_status():
         if not hotkey_ok["ok"]:
-            error_lbl.config(text=hotkey_ok["err"])
+            show_error(hotkey_ok["err"])
 
     root.after(200, check_hotkey_status)
 
