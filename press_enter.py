@@ -167,7 +167,7 @@ def calibrate_point_hover_console() -> tuple[int, int]:
 # -------------------------
 # UI mode (default)
 # -------------------------
-def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only: bool, num_targets: int = 1) -> None:
+def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only: bool, num_targets: int = 1, show_timer: bool = False) -> None:
     import tkinter as tk
 
     pyautogui.PAUSE = 0
@@ -177,6 +177,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         "running": False,
         "targets": [None] * num_targets,  # List of (x, y) tuples
         "calibrating_index": 0,  # Which target we're calibrating next
+        "last_click_time": 0.0,  # time.perf_counter() of last click (for timer)
     }
 
     stop_event = threading.Event()
@@ -254,6 +255,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
 
                 try:
                     do_cycle(x, y, mouse_only)
+                    state["last_click_time"] = time.perf_counter()
                 except Exception as e:
                     print(f"[worker] Error during cycle on target {i+1}: {e}")
                     continue
@@ -398,6 +400,19 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     )
     interval_entry.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
+    # Timer label (only shown with --timer)
+    timer_lbl = None
+    if show_timer:
+        timer_lbl = tk.Label(
+            content_frm,
+            text="",
+            bg=BG,
+            fg=MUTED,
+            font=FONT_SMALL,
+            width=8,
+        )
+        timer_lbl.grid(row=2, column=3, sticky="w", padx=(8, 0), pady=(8, 0))
+
     def get_seconds():
         try:
             return float(interval_var.get())
@@ -486,6 +501,25 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # Timer update loop (lightweight, uses after() scheduling)
+    def update_timer():
+        if stop_event.is_set():
+            return
+        if timer_lbl is not None:
+            if state["running"] and state["last_click_time"] > 0:
+                interval = max(0.01, get_seconds())
+                elapsed = time.perf_counter() - state["last_click_time"]
+                remaining = max(0.0, interval - elapsed)
+                timer_lbl.config(text=f"{remaining:.1f}s")
+            elif not state["running"]:
+                timer_lbl.config(text="")
+        # Reschedule every 100ms (10 updates/sec = 1 decimal precision)
+        root.after(100, update_timer)
+
+    if show_timer:
+        update_timer()
+
     root.mainloop()
 
 
@@ -554,6 +588,10 @@ def parse_args() -> argparse.Namespace:
         "--calibrate-key", default="PAGEUP",
         help='Calibrate hotkey. Default: PAGEUP'
     )
+    p.add_argument(
+        "--timer", action="store_true",
+        help="Show a countdown timer next to the interval (time to next click)."
+    )
     return p.parse_args()
 
 
@@ -591,7 +629,7 @@ def main() -> None:
             args.mouse_only
         )
     else:
-        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mouse_only, args.targets)
+        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mouse_only, args.targets, args.timer)
 
 
 if __name__ == "__main__":
