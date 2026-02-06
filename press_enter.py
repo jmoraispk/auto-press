@@ -5,6 +5,17 @@ import sys
 import time
 import threading
 
+# Mode constants
+MODE_ENTER = "enter"
+MODE_CLICK = "click"
+MODE_CLICK_ENTER = "click+enter"
+MODES = [MODE_ENTER, MODE_CLICK, MODE_CLICK_ENTER]
+MODE_LABELS = {
+    MODE_ENTER: "Enter Only",
+    MODE_CLICK: "Click Only",
+    MODE_CLICK_ENTER: "Click + Enter",
+}
+
 try:
     import pyautogui
 except ImportError:
@@ -142,14 +153,24 @@ def parse_hotkey(spec: str) -> tuple[int, int]:
 # -------------------------
 # Core action
 # -------------------------
-def do_cycle(x: int, y: int, mouse_only: bool) -> None:
-    """Click at target, optionally press Enter."""
-    old = pyautogui.position()
-    pyautogui.moveTo(x, y, duration=0)
-    pyautogui.click()
-    if not mouse_only:
+def do_action(mode: str, x: int | None = None, y: int | None = None) -> None:
+    """Perform action based on mode."""
+    if mode == MODE_ENTER:
+        # Enter only - no mouse movement
         pyautogui.press("enter")
-    pyautogui.moveTo(old.x, old.y, duration=0)
+    elif mode == MODE_CLICK:
+        # Click only - move, click, return
+        old = pyautogui.position()
+        pyautogui.moveTo(x, y, duration=0)
+        pyautogui.click()
+        pyautogui.moveTo(old.x, old.y, duration=0)
+    elif mode == MODE_CLICK_ENTER:
+        # Click + Enter
+        old = pyautogui.position()
+        pyautogui.moveTo(x, y, duration=0)
+        pyautogui.click()
+        pyautogui.press("enter")
+        pyautogui.moveTo(old.x, old.y, duration=0)
 
 
 # -------------------------
@@ -167,8 +188,9 @@ def calibrate_point_hover_console() -> tuple[int, int]:
 # -------------------------
 # UI mode (default)
 # -------------------------
-def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only: bool, num_targets: int = 1, show_timer: bool = False) -> None:
+def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mode: str, num_targets: int = 1) -> None:
     import tkinter as tk
+    from tkinter import ttk
 
     pyautogui.PAUSE = 0
     pyautogui.FAILSAFE = True
@@ -177,7 +199,8 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         "running": False,
         "targets": [None] * num_targets,  # List of (x, y) tuples
         "calibrating_index": 0,  # Which target we're calibrating next
-        "last_click_time": 0.0,  # time.perf_counter() of last click (for timer)
+        "last_action_time": 0.0,  # time.perf_counter() of last action (for timer)
+        "mode": initial_mode,  # Current mode
     }
 
     stop_event = threading.Event()
@@ -195,6 +218,9 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
             fill=color,
             outline=color,
         )
+
+    def mode_needs_target(mode: str) -> bool:
+        return mode in (MODE_CLICK, MODE_CLICK_ENTER)
 
     def toggle_running(canvas: tk.Canvas) -> None:
         state["running"] = not state["running"]
@@ -233,7 +259,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     def all_targets_set() -> bool:
         return all(t is not None for t in state["targets"])
 
-    def worker_loop(get_seconds) -> None:
+    def worker_loop(get_seconds, get_timer_enabled) -> None:
         while True:
             # Block until running - zero CPU when idle
             running_event.wait()
@@ -241,28 +267,43 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
             if stop_event.is_set():
                 break
 
-            if not all_targets_set():
+            current_mode = state["mode"]
+
+            # For enter-only mode, no target needed
+            if mode_needs_target(current_mode) and not all_targets_set():
                 time.sleep(0.1)
                 continue
 
             targets = state["targets"]
             interval = max(0.01, float(get_seconds()))
-            sub_interval = interval / num_targets
 
-            for i, (x, y) in enumerate(targets):
-                if stop_event.is_set() or not running_event.is_set():
-                    break
+            if mode_needs_target(current_mode):
+                sub_interval = interval / num_targets
+                for i, target in enumerate(targets):
+                    if stop_event.is_set() or not running_event.is_set():
+                        break
+                    if target is None:
+                        continue
+                    x, y = target
+                    try:
+                        do_action(current_mode, x, y)
+                        state["last_action_time"] = time.perf_counter()
+                    except Exception as e:
+                        print(f"[worker] Error during action on target {i+1}: {e}")
+                        continue
 
+                    if interrupt_event.wait(timeout=sub_interval):
+                        break
+            else:
+                # Enter-only mode - no targets
                 try:
-                    do_cycle(x, y, mouse_only)
-                    state["last_click_time"] = time.perf_counter()
+                    do_action(current_mode)
+                    state["last_action_time"] = time.perf_counter()
                 except Exception as e:
-                    print(f"[worker] Error during cycle on target {i+1}: {e}")
-                    continue
+                    print(f"[worker] Error during action: {e}")
 
-                # Sleep for sub_interval - wakes immediately if interrupted
-                if interrupt_event.wait(timeout=sub_interval):
-                    break  # Interrupted
+                if interrupt_event.wait(timeout=interval):
+                    continue
 
     # Hotkey thread (Windows only)
     hotkey_thread_stop = threading.Event()
@@ -333,9 +374,8 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
             PostThreadMessageW(tid, WM_QUIT, 0, 0)
 
     # Tk UI
-    mode_text = "Mouse Only" if mouse_only else "Click + Enter"
     root = tk.Tk()
-    root.title(f"Auto Clicker ({mode_text})")
+    root.title("Auto Clicker")
     root.configure(bg=BG)
     root.attributes("-topmost", True)
     root.resizable(False, False)
@@ -345,6 +385,25 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     BTN_PADX = 16
     BTN_PADY = 8
 
+    # Style for ttk widgets (dark mode)
+    style = ttk.Style()
+    style.theme_use("clam")
+    style.configure("Dark.TCombobox",
+                    fieldbackground=ENTRY_BG,
+                    background=BTN_BG,
+                    foreground=FG,
+                    arrowcolor=FG)
+    style.map("Dark.TCombobox",
+              fieldbackground=[("readonly", ENTRY_BG)],
+              selectbackground=[("readonly", ENTRY_BG)],
+              selectforeground=[("readonly", FG)])
+    style.configure("Dark.TCheckbutton",
+                    background=BG,
+                    foreground=MUTED,
+                    font=FONT_SMALL)
+    style.map("Dark.TCheckbutton",
+              background=[("active", BG)])
+
     frm = tk.Frame(root, padx=16, pady=16, bg=BG)
     frm.pack()
 
@@ -352,7 +411,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     content_frm = tk.Frame(frm, bg=BG)
     content_frm.pack()
 
-    # Status light (spans 3 rows, vertically centered with target row)
+    # Status light (spans rows, vertically centered)
     status_canvas = tk.Canvas(
         content_frm,
         width=LIGHT_SIZE,
@@ -360,20 +419,36 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         highlightthickness=0,
         bg=BG,
     )
-    status_canvas.grid(row=0, column=0, rowspan=3, padx=(0, 20), pady=(3, 0))
+    status_canvas.grid(row=0, column=0, rowspan=4, padx=(0, 20), pady=(3, 0))
     set_status(status_canvas, False)
 
-    # Mode label (left-aligned)
-    mode_lbl = tk.Label(
-        content_frm,
-        text=f"Mode: {mode_text}",
-        bg=BG,
-        fg=MUTED,
-        font=FONT_SMALL,
-    )
-    mode_lbl.grid(row=0, column=1, columnspan=2, sticky="w")
+    # Row 0: Mode dropdown
+    tk.Label(content_frm, text="Mode:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=0, column=1, sticky="w")
 
-    # Target label (left-aligned)
+    mode_var = tk.StringVar(value=MODE_LABELS[initial_mode])
+    mode_combo = ttk.Combobox(
+        content_frm,
+        textvariable=mode_var,
+        values=[MODE_LABELS[m] for m in MODES],
+        state="readonly",
+        width=12,
+        font=FONT_SMALL,
+        style="Dark.TCombobox",
+    )
+    mode_combo.grid(row=0, column=2, columnspan=2, sticky="w", padx=(8, 0))
+
+    def on_mode_change(event=None):
+        # Find mode key from label
+        label = mode_var.get()
+        for key, lbl in MODE_LABELS.items():
+            if lbl == label:
+                state["mode"] = key
+                break
+        update_target_visibility()
+
+    mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
+
+    # Row 1: Target label (dynamic - hidden for Enter Only)
     target_lbl = tk.Label(
         content_frm,
         text=get_target_text(),
@@ -381,9 +456,16 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         fg=FG,
         font=FONT,
     )
-    target_lbl.grid(row=1, column=1, columnspan=2, sticky="w")
 
-    # Interval row (left-aligned with above)
+    def update_target_visibility():
+        if mode_needs_target(state["mode"]):
+            target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
+            btn_cal.pack(side="left")
+        else:
+            target_lbl.grid_remove()
+            btn_cal.pack_forget()
+
+    # Row 2: Interval + Timer checkbox
     tk.Label(content_frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="w", pady=(8, 0))
 
     interval_var = tk.StringVar(value=str(initial_seconds))
@@ -400,18 +482,26 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     )
     interval_entry.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
-    # Timer label (only shown with --timer)
-    timer_lbl = None
-    if show_timer:
-        timer_lbl = tk.Label(
-            content_frm,
-            text="",
-            bg=BG,
-            fg=MUTED,
-            font=FONT_SMALL,
-            width=8,
-        )
-        timer_lbl.grid(row=2, column=3, sticky="w", padx=(8, 0), pady=(8, 0))
+    # Timer checkbox
+    timer_var = tk.BooleanVar(value=False)
+    timer_check = ttk.Checkbutton(
+        content_frm,
+        text="Timer",
+        variable=timer_var,
+        style="Dark.TCheckbutton",
+    )
+    timer_check.grid(row=2, column=3, sticky="w", padx=(12, 0), pady=(8, 0))
+
+    # Timer countdown label (shown when timer is enabled and running)
+    timer_lbl = tk.Label(
+        content_frm,
+        text="",
+        bg=BG,
+        fg=MUTED,
+        font=FONT_SMALL,
+        width=6,
+    )
+    timer_lbl.grid(row=2, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
 
     def get_seconds():
         try:
@@ -419,7 +509,10 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
         except ValueError:
             return initial_seconds
 
-    # Buttons row (centered, equal width)
+    def get_timer_enabled():
+        return timer_var.get()
+
+    # Buttons row
     btn_frm = tk.Frame(frm, bg=BG)
     btn_frm.pack(pady=(12, 0))
 
@@ -465,6 +558,9 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     )
     btn_cal.pack(side="left")
 
+    # Initial visibility update (after btn_cal is created)
+    update_target_visibility()
+
     # Error label (only shown if hotkeys fail - no space reserved)
     error_lbl = None
 
@@ -474,7 +570,7 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
             error_lbl = tk.Label(frm, text=msg, bg=BG, fg="#ff5252", font=FONT_SMALL)
             error_lbl.pack(pady=(10, 0))
 
-    worker = threading.Thread(target=worker_loop, args=(get_seconds,), daemon=True)
+    worker = threading.Thread(target=worker_loop, args=(get_seconds, get_timer_enabled), daemon=True)
     worker.start()
 
     # hotkey callbacks
@@ -506,19 +602,20 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
     def update_timer():
         if stop_event.is_set():
             return
-        if timer_lbl is not None:
-            if state["running"] and state["last_click_time"] > 0:
+        if timer_var.get():
+            if state["running"] and state["last_action_time"] > 0:
                 interval = max(0.01, get_seconds())
-                elapsed = time.perf_counter() - state["last_click_time"]
+                elapsed = time.perf_counter() - state["last_action_time"]
                 remaining = max(0.0, interval - elapsed)
                 timer_lbl.config(text=f"{remaining:.1f}s")
             elif not state["running"]:
                 timer_lbl.config(text="")
+        else:
+            timer_lbl.config(text="")
         # Reschedule every 100ms (10 updates/sec = 1 decimal precision)
         root.after(100, update_timer)
 
-    if show_timer:
-        update_timer()
+    update_timer()
 
     root.mainloop()
 
@@ -526,22 +623,28 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, mouse_only
 # -------------------------
 # Headless mode (optional)
 # -------------------------
-def run_headless(seconds: float, x: int | None, y: int | None, force_calibrate: bool, mouse_only: bool) -> None:
+def run_headless(seconds: float, mode: str, x: int | None, y: int | None, force_calibrate: bool) -> None:
+    from datetime import datetime
+
     pyautogui.PAUSE = 0
     pyautogui.FAILSAFE = True
 
-    if force_calibrate or x is None or y is None:
-        x, y = calibrate_point_hover_console()
+    needs_target = mode in (MODE_CLICK, MODE_CLICK_ENTER)
 
-    mode_text = "Mouse Only" if mouse_only else "Click + Enter"
-    print(f"Mode: {mode_text}")
-    print(f"Target: x={x}, y={y}")
+    if needs_target:
+        if force_calibrate or x is None or y is None:
+            x, y = calibrate_point_hover_console()
+        print(f"Target: x={x}, y={y}")
+
+    print(f"Mode: {MODE_LABELS[mode]}")
     print(f"Interval: {seconds}s")
     print("Press Ctrl+C to stop.\n")
 
     try:
         while True:
-            do_cycle(x, y, mouse_only)
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{now}] {MODE_LABELS[mode]}")
+            do_action(mode, x, y)
             time.sleep(seconds)
     except KeyboardInterrupt:
         print("\nStopped.")
@@ -556,27 +659,21 @@ def parse_args() -> argparse.Namespace:
         help="Interval between cycles (seconds). Default: 10"
     )
 
-    # Simple mode - just press Enter repeatedly
     p.add_argument(
-        "--simple", action="store_true",
-        help="Simple mode: just press Enter every N seconds (no mouse, no UI)."
+        "--mode", choices=MODES, default=MODE_CLICK,
+        help=f"Action mode: {MODE_ENTER}=press Enter only, {MODE_CLICK}=click only, "
+             f"{MODE_CLICK_ENTER}=click then Enter. Default: {MODE_CLICK}"
     )
 
     p.add_argument("--headless", action="store_true", help="Run without UI.")
-    p.add_argument("--x", type=int, help="Target X coordinate (headless).")
-    p.add_argument("--y", type=int, help="Target Y coordinate (headless).")
-    p.add_argument("--calibrate", action="store_true", help="Force calibration (headless).")
-
-    # Mouse-only mode
-    p.add_argument(
-        "--mouse-only", action="store_true",
-        help="Only click the mouse, do not press Enter."
-    )
+    p.add_argument("--x", type=int, help="Target X coordinate (headless, for click modes).")
+    p.add_argument("--y", type=int, help="Target Y coordinate (headless, for click modes).")
+    p.add_argument("--calibrate", action="store_true", help="Force calibration (headless, for click modes).")
 
     # Multi-target mode
     p.add_argument(
         "--targets", type=int, default=1, choices=[1, 2, 3],
-        help="Number of click targets (1-3). Default: 1"
+        help="Number of click targets (1-3). Default: 1. Only applies to click modes."
     )
 
     # Hotkey config (UI)
@@ -588,31 +685,7 @@ def parse_args() -> argparse.Namespace:
         "--calibrate-key", default="PAGEUP",
         help='Calibrate hotkey. Default: PAGEUP'
     )
-    p.add_argument(
-        "--timer", action="store_true",
-        help="Show a countdown timer next to the interval (time to next click)."
-    )
     return p.parse_args()
-
-
-def run_simple(seconds: float) -> None:
-    """Simple mode: just press Enter repeatedly, no mouse, no UI."""
-    from datetime import datetime
-
-    pyautogui.PAUSE = 0
-
-    print(f"Simple mode: pressing Enter every {seconds} seconds.")
-    print("Focus the target window, then leave this running.")
-    print("Press Ctrl+C to stop.\n")
-
-    try:
-        while True:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{now}] press enter")
-            pyautogui.press("enter")
-            time.sleep(seconds)
-    except KeyboardInterrupt:
-        print("\nStopped.")
 
 
 def main() -> None:
@@ -620,16 +693,10 @@ def main() -> None:
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
 
-    if args.simple:
-        run_simple(args.seconds)
-    elif args.headless:
-        run_headless(
-            args.seconds, args.x, args.y,
-            args.calibrate or (args.x is None or args.y is None),
-            args.mouse_only
-        )
+    if args.headless:
+        run_headless(args.seconds, args.mode, args.x, args.y, args.calibrate)
     else:
-        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mouse_only, args.targets, args.timer)
+        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mode, args.targets)
 
 
 if __name__ == "__main__":
