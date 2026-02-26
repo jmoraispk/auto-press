@@ -43,6 +43,10 @@ LIGHT_SIZE = 62
 LIGHT_PAD = 8
 DOT_DIAM = LIGHT_SIZE - 2 * LIGHT_PAD
 
+# State-detection defaults
+DETECT_THRESHOLD_DEFAULT = 0.80
+DETECT_WORD_DEFAULT = "execute"
+
 
 # -------------------------
 # Windows hotkeys (ctypes)
@@ -150,10 +154,66 @@ def parse_hotkey(spec: str) -> tuple[int, int]:
     return mods, vk
 
 
+def try_import_vision():
+    """Lazy import for optional vision dependencies."""
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+        return cv2, np, None
+    except ImportError as e:
+        return None, None, str(e)
+
+
+def parse_bbox(spec: str) -> tuple[int, int, int, int]:
+    parts = [p.strip() for p in spec.split(",")]
+    if len(parts) != 4:
+        raise ValueError("bbox must be 'left,top,width,height'")
+    left, top, width, height = map(int, parts)
+    if width <= 0 or height <= 0:
+        raise ValueError("bbox width and height must be > 0")
+    return left, top, width, height
+
+
+def load_template_gray(path: str):
+    cv2, _, err = try_import_vision()
+    if err:
+        raise RuntimeError(
+            "State detection needs optional deps: pip install \"auto-press[vision]\""
+        )
+    tpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if tpl is None:
+        raise FileNotFoundError(f"Template unreadable: {path}")
+    return tpl
+
+
+def grab_region_gray(bbox: tuple[int, int, int, int]):
+    cv2, np, err = try_import_vision()
+    if err:
+        raise RuntimeError(
+            "State detection needs optional deps: pip install \"auto-press[vision]\""
+        )
+    left, top, width, height = bbox
+    img = pyautogui.screenshot(region=(left, top, width, height))
+    arr = np.array(img)
+    return cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+
+
+def match_template_score(region_gray, template_gray) -> float:
+    """Return max normalized template-match score."""
+    cv2, _, err = try_import_vision()
+    if err:
+        return 0.0
+    return float(
+        cv2.minMaxLoc(
+            cv2.matchTemplate(region_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+        )[1]
+    )
+
+
 # -------------------------
 # Core action
 # -------------------------
-def do_action(mode: str, x: int | None = None, y: int | None = None) -> None:
+def do_action(mode: str, x: int | None = None, y: int | None = None, text_before_enter: str | None = None) -> None:
     """Perform action based on mode."""
     if mode == MODE_ENTER:
         # Enter only - no mouse movement
@@ -169,6 +229,8 @@ def do_action(mode: str, x: int | None = None, y: int | None = None) -> None:
         old = pyautogui.position()
         pyautogui.moveTo(x, y, duration=0)
         pyautogui.click()
+        if text_before_enter:
+            pyautogui.typewrite(text_before_enter)
         pyautogui.press("enter")
         pyautogui.moveTo(old.x, old.y, duration=0)
 
@@ -188,7 +250,15 @@ def calibrate_point_hover_console() -> tuple[int, int]:
 # -------------------------
 # UI mode (default)
 # -------------------------
-def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mode: str, num_targets: int = 1) -> None:
+def run_ui(
+    initial_seconds: float,
+    toggle_hk: str,
+    calibrate_hk: str,
+    initial_mode: str,
+    num_targets: int = 1,
+    detect_threshold: float = DETECT_THRESHOLD_DEFAULT,
+    detect_word: str = DETECT_WORD_DEFAULT,
+) -> None:
     import tkinter as tk
     from tkinter import ttk
 
@@ -198,7 +268,8 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
     state = {
         "running": False,
         "targets": [None] * num_targets,  # List of (x, y) tuples
-        "calibrating_index": 0,  # Which target we're calibrating next
+        "regions": [None] * num_targets,  # List of (left, top, width, height)
+        "tpl_finished": [None] * num_targets,  # grayscale template arrays
         "last_action_time": 0.0,  # time.perf_counter() of last action (for timer)
         "mode": initial_mode,  # Current mode
     }
@@ -222,6 +293,9 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
     def mode_needs_target(mode: str) -> bool:
         return mode in (MODE_CLICK, MODE_CLICK_ENTER)
 
+    def setup_target_idx() -> int:
+        return max(0, min(num_targets - 1, setup_target_var.get() - 1))
+
     def toggle_running(canvas: tk.Canvas) -> None:
         state["running"] = not state["running"]
         if state["running"]:
@@ -234,24 +308,26 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
 
     def get_target_text() -> str:
         targets = state["targets"]
-        set_count = sum(1 for t in targets if t is not None)
+        regions = state["regions"]
+        finished_tpl = state["tpl_finished"]
+
+        def target_marker(i: int) -> str:
+            click_ok = "C*" if targets[i] is not None else "C-"
+            region_ok = "R*" if regions[i] is not None else "R-"
+            tpl_ok = "F*" if finished_tpl[i] is not None else "F-"
+            return f"{click_ok}/{region_ok}/{tpl_ok}"
+
         if num_targets == 1:
-            if targets[0] is None:
-                return f"Target: not set (press {calibrate_hk})"
+            click_text = "not set" if targets[0] is None else f"x={targets[0][0]}, y={targets[0][1]}"
+            return f"Target: {click_text}  [{target_marker(0)}]"
+
+        parts = []
+        for i, t in enumerate(targets):
+            if t is None:
+                parts.append(f"T{i+1}: - [{target_marker(i)}]")
             else:
-                return f"Target: x={targets[0][0]}, y={targets[0][1]}"
-        else:
-            parts = []
-            for i, t in enumerate(targets):
-                if t is None:
-                    parts.append(f"T{i+1}: -")
-                else:
-                    parts.append(f"T{i+1}: ({t[0]},{t[1]})")
-            next_idx = state["calibrating_index"]
-            if set_count < num_targets:
-                return f"{' | '.join(parts)}  [next: T{next_idx+1}]"
-            else:
-                return " | ".join(parts)
+                parts.append(f"T{i+1}: ({t[0]},{t[1]}) [{target_marker(i)}]")
+        return " | ".join(parts)
 
     def set_label_target(label: tk.Label) -> None:
         label.config(text=get_target_text())
@@ -259,7 +335,13 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
     def all_targets_set() -> bool:
         return all(t is not None for t in state["targets"])
 
-    def worker_loop(get_seconds, get_timer_enabled) -> None:
+    def target_has_state_data(target_idx: int) -> bool:
+        return (
+            state["regions"][target_idx] is not None
+            and state["tpl_finished"][target_idx] is not None
+        )
+
+    def worker_loop(get_seconds, get_state_enabled, get_state_word, get_state_threshold) -> None:
         while True:
             # Block until running - zero CPU when idle
             running_event.wait()
@@ -286,7 +368,43 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
                         continue
                     x, y = target
                     try:
-                        do_action(current_mode, x, y)
+                        inject_text = None
+                        state_threshold = get_state_threshold()
+                        detection_enabled = get_state_enabled()
+                        if detection_enabled and target_has_state_data(i):
+                            try:
+                                region_gray = grab_region_gray(state["regions"][i])
+                                fin_score = match_template_score(
+                                    region_gray,
+                                    state["tpl_finished"][i],
+                                )
+                                if fin_score >= state_threshold:
+                                    if current_mode == MODE_CLICK_ENTER:
+                                        inject_text = get_state_word()
+                                    print(
+                                        f"[state] T{i+1} FINISHED "
+                                        f"(state=ON, finished={fin_score:.3f}, threshold={state_threshold:.3f})",
+                                        flush=True,
+                                    )
+                                else:
+                                    print(
+                                        f"[state] T{i+1} NOT FINISHED "
+                                        f"(state=OFF, finished={fin_score:.3f}, threshold={state_threshold:.3f}); "
+                                        "fallback click+enter",
+                                        flush=True,
+                                    )
+                            except Exception as e:
+                                print(f"[state] T{i+1} detection error: {e}; fallback click+enter", flush=True)
+                        elif detection_enabled:
+                            reason = "not configured"
+                            print(
+                                f"[state] T{i+1} NOT FINISHED "
+                                f"(state=OFF, reason={reason}, threshold={state_threshold:.3f}); "
+                                "fallback click+enter",
+                                flush=True,
+                            )
+
+                        do_action(current_mode, x, y, text_before_enter=inject_text)
                         state["last_action_time"] = time.perf_counter()
                     except Exception as e:
                         print(f"[worker] Error during action on target {i+1}: {e}")
@@ -437,6 +555,27 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
     )
     mode_combo.grid(row=0, column=2, columnspan=2, sticky="w", padx=(8, 0))
 
+    tk.Label(content_frm, text="Setup Target:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=0, column=4, sticky="w", padx=(12, 0))
+    setup_target_var = tk.IntVar(value=1)
+    setup_target_combo = ttk.Combobox(
+        content_frm,
+        values=[f"T{i+1}" for i in range(num_targets)],
+        state="readonly",
+        width=5,
+        font=FONT_SMALL,
+        style="Dark.TCombobox",
+    )
+    setup_target_combo.set("T1")
+    setup_target_combo.grid(row=0, column=5, sticky="w", padx=(8, 0))
+
+    def on_setup_target_change(event=None):
+        val = setup_target_combo.get().strip().upper().replace("T", "")
+        if val.isdigit():
+            setup_target_var.set(max(1, min(num_targets, int(val))))
+        set_label_target(target_lbl)
+
+    setup_target_combo.bind("<<ComboboxSelected>>", on_setup_target_change)
+
     def on_mode_change(event=None):
         # Find mode key from label
         label = mode_var.get()
@@ -461,9 +600,13 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
         if mode_needs_target(state["mode"]):
             target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
             btn_cal.pack(side="left")
+            btn_drag_capture_finished.pack(side="left", padx=(8, 0))
+            setup_target_combo.configure(state="readonly")
         else:
             target_lbl.grid_remove()
             btn_cal.pack_forget()
+            btn_drag_capture_finished.pack_forget()
+            setup_target_combo.configure(state="disabled")
 
     # Row 2: Interval + Timer checkbox
     tk.Label(content_frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="w", pady=(8, 0))
@@ -503,21 +646,138 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
     )
     timer_lbl.grid(row=2, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
 
+    # Row 3: state-detection controls
+    state_detect_var = tk.BooleanVar(value=False)
+    state_detect_check = ttk.Checkbutton(
+        content_frm,
+        text="State Detection",
+        variable=state_detect_var,
+        style="Dark.TCheckbutton",
+    )
+    state_detect_check.grid(row=3, column=1, sticky="w", pady=(8, 0))
+
+    tk.Label(content_frm, text="Word:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=2, sticky="e", padx=(0, 4), pady=(8, 0))
+    state_word_var = tk.StringVar(value=detect_word)
+    state_word_entry = tk.Entry(
+        content_frm,
+        textvariable=state_word_var,
+        width=10,
+        bg=ENTRY_BG,
+        fg=ENTRY_FG,
+        insertbackground=FG,
+        font=FONT_SMALL,
+        relief="flat",
+        justify="left",
+    )
+    state_word_entry.grid(row=3, column=3, sticky="w", pady=(8, 0))
+
+    tk.Label(content_frm, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
+    state_threshold_var = tk.StringVar(value=f"{detect_threshold:.2f}")
+    state_threshold_entry = tk.Entry(
+        content_frm,
+        textvariable=state_threshold_var,
+        width=6,
+        bg=ENTRY_BG,
+        fg=ENTRY_FG,
+        insertbackground=FG,
+        font=FONT_SMALL,
+        relief="flat",
+        justify="center",
+    )
+    state_threshold_entry.grid(row=3, column=5, sticky="w", pady=(8, 0))
+
+    hint_var = tk.StringVar(value="")
+    hint_lbl = tk.Label(content_frm, textvariable=hint_var, bg=BG, fg=MUTED, font=FONT_SMALL)
+    hint_lbl.grid(row=4, column=1, columnspan=5, sticky="w", pady=(8, 0))
+
     def get_seconds():
         try:
             return float(interval_var.get())
         except ValueError:
             return initial_seconds
 
-    def get_timer_enabled():
-        return timer_var.get()
+    def get_state_enabled() -> bool:
+        return state_detect_var.get()
 
-    # Buttons row
-    btn_frm = tk.Frame(frm, bg=BG)
-    btn_frm.pack(pady=(12, 0))
+    def get_state_word() -> str:
+        txt = state_word_var.get().strip()
+        return txt or DETECT_WORD_DEFAULT
+
+    def get_state_threshold() -> float:
+        try:
+            return max(0.0, min(1.0, float(state_threshold_var.get())))
+        except ValueError:
+            return detect_threshold
+
+    def vision_ready() -> bool:
+        _, _, err = try_import_vision()
+        if err:
+            hint_var.set('Install optional deps for state detection: pip install "auto-press[vision]"')
+            return False
+        return True
+
+    def capture_drag_bbox():
+        """Capture bbox by click-dragging a fullscreen transparent overlay."""
+        result = {"bbox": None}
+        overlay = tk.Toplevel(root)
+        overlay.attributes("-fullscreen", True)
+        overlay.attributes("-topmost", True)
+        overlay.attributes("-alpha", 0.22)
+        overlay.configure(bg="black")
+        overlay.config(cursor="crosshair")
+
+        canvas = tk.Canvas(overlay, bg="black", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+
+        drag = {"start_root": None, "rect": None}
+
+        def on_press(event):
+            drag["start_root"] = (event.x_root, event.y_root)
+            if drag["rect"] is not None:
+                canvas.delete(drag["rect"])
+            drag["rect"] = canvas.create_rectangle(event.x, event.y, event.x, event.y, outline="#00c853", width=2)
+
+        def on_motion(event):
+            if drag["start_root"] is None or drag["rect"] is None:
+                return
+            x0, y0 = drag["start_root"]
+            canvas.coords(
+                drag["rect"],
+                x0 - overlay.winfo_rootx(),
+                y0 - overlay.winfo_rooty(),
+                event.x_root - overlay.winfo_rootx(),
+                event.y_root - overlay.winfo_rooty(),
+            )
+
+        def on_release(event):
+            if drag["start_root"] is None:
+                overlay.destroy()
+                return
+            x0, y0 = drag["start_root"]
+            x1, y1 = event.x_root, event.y_root
+            left, right = sorted((x0, x1))
+            top, bottom = sorted((y0, y1))
+            width = right - left
+            height = bottom - top
+            if width >= 5 and height >= 5:
+                result["bbox"] = (left, top, width, height)
+            overlay.destroy()
+
+        overlay.bind("<Escape>", lambda _e: overlay.destroy())
+        canvas.bind("<ButtonPress-1>", on_press)
+        canvas.bind("<B1-Motion>", on_motion)
+        canvas.bind("<ButtonRelease-1>", on_release)
+        root.wait_window(overlay)
+        return result["bbox"]
+
+    # Buttons rows
+    btn_frm_top = tk.Frame(frm, bg=BG)
+    btn_frm_top.pack(pady=(12, 0))
+    btn_frm_bottom = tk.Frame(frm, bg=BG)
+    btn_frm_bottom.pack(pady=(8, 0))
 
     btn_toggle = tk.Button(
-        btn_frm,
+        btn_frm_top,
         text=f"Start/Stop ({toggle_hk})",
         command=lambda: toggle_running(status_canvas),
         bg=BTN_BG,
@@ -535,14 +795,13 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
 
     def ui_calibrate():
         pt = pyautogui.position()
-        idx = state["calibrating_index"]
+        idx = setup_target_idx()
         state["targets"][idx] = (pt.x, pt.y)
-        # Move to next target (cycle back to 0 if all set)
-        state["calibrating_index"] = (idx + 1) % num_targets
         set_label_target(target_lbl)
+        hint_var.set(f"Set click target T{idx+1}: ({pt.x}, {pt.y})")
 
     btn_cal = tk.Button(
-        btn_frm,
+        btn_frm_top,
         text=f"Calibrate ({calibrate_hk})",
         command=ui_calibrate,
         bg=BTN_BG,
@@ -558,6 +817,57 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
     )
     btn_cal.pack(side="left")
 
+    btn_drag_capture_finished = tk.Button(
+        btn_frm_bottom,
+        text="Drag Capture Finished",
+        command=lambda: ui_drag_capture_finished(),
+        bg=BTN_BG,
+        fg=BTN_FG,
+        activebackground="#2a2a2a",
+        activeforeground=BTN_FG,
+        bd=0,
+        highlightthickness=0,
+        font=FONT,
+        padx=BTN_PADX,
+        pady=BTN_PADY,
+        cursor="hand2",
+    )
+    btn_drag_capture_finished.pack(side="left", padx=(8, 0))
+
+    def ui_capture_finished():
+        idx = setup_target_idx()
+        bbox = state["regions"][idx]
+        if bbox is None:
+            hint_var.set(f"Set region for T{idx+1} before capturing finished template.")
+            return
+        if not vision_ready():
+            return
+        try:
+            tpl = grab_region_gray(bbox)
+        except Exception as e:
+            hint_var.set(f"Template capture failed: {e}")
+            return
+
+        state["tpl_finished"][idx] = tpl
+        hint_var.set(f"Captured FINISHED template for T{idx+1}.")
+        set_label_target(target_lbl)
+
+    def ui_drag_capture_finished():
+        idx = setup_target_idx()
+        bbox = capture_drag_bbox()
+        if bbox is None:
+            hint_var.set("Drag capture cancelled.")
+            return
+        state["regions"][idx] = bbox
+        ui_capture_finished()
+
+    def on_state_detection_toggle():
+        if state_detect_var.get() and not vision_ready():
+            state_detect_var.set(False)
+            return
+
+    state_detect_check.configure(command=on_state_detection_toggle)
+
     # Initial visibility update (after btn_cal is created)
     update_target_visibility()
 
@@ -570,7 +880,11 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
             error_lbl = tk.Label(frm, text=msg, bg=BG, fg="#ff5252", font=FONT_SMALL)
             error_lbl.pack(pady=(10, 0))
 
-    worker = threading.Thread(target=worker_loop, args=(get_seconds, get_timer_enabled), daemon=True)
+    worker = threading.Thread(
+        target=worker_loop,
+        args=(get_seconds, get_state_enabled, get_state_word, get_state_threshold),
+        daemon=True,
+    )
     worker.start()
 
     # hotkey callbacks
@@ -623,7 +937,18 @@ def run_ui(initial_seconds: float, toggle_hk: str, calibrate_hk: str, initial_mo
 # -------------------------
 # Headless mode (optional)
 # -------------------------
-def run_headless(seconds: float, mode: str, x: int | None, y: int | None, force_calibrate: bool) -> None:
+def run_headless(
+    seconds: float,
+    mode: str,
+    x: int | None,
+    y: int | None,
+    force_calibrate: bool,
+    state_detect: bool,
+    state_word: str,
+    state_bbox: tuple[int, int, int, int] | None,
+    state_finished_template: str | None,
+    state_threshold: float,
+) -> None:
     from datetime import datetime
 
     pyautogui.PAUSE = 0
@@ -636,6 +961,23 @@ def run_headless(seconds: float, mode: str, x: int | None, y: int | None, force_
             x, y = calibrate_point_hover_console()
         print(f"Target: x={x}, y={y}")
 
+    finished_tpl = None
+    if state_detect:
+        if mode != MODE_CLICK_ENTER:
+            print("[state] State detection only affects click+enter mode. Ignoring.", flush=True)
+            state_detect = False
+        else:
+            if state_bbox is None or not state_finished_template:
+                raise SystemExit(
+                    "Headless state detection needs --state-bbox and --state-finished-template"
+                )
+            finished_tpl = load_template_gray(state_finished_template)
+            print(
+                f"[state] enabled bbox={state_bbox}, threshold={state_threshold}, "
+                f"word={state_word!r}",
+                flush=True,
+            )
+
     print(f"Mode: {MODE_LABELS[mode]}")
     print(f"Interval: {seconds}s")
     print("Press Ctrl+C to stop.\n")
@@ -644,7 +986,33 @@ def run_headless(seconds: float, mode: str, x: int | None, y: int | None, force_
         while True:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] {MODE_LABELS[mode]}")
-            do_action(mode, x, y)
+            inject_text = None
+            if state_detect and finished_tpl is not None:
+                region_gray = grab_region_gray(state_bbox)
+                fin_score = match_template_score(
+                    region_gray,
+                    finished_tpl,
+                )
+                if fin_score >= state_threshold:
+                    inject_text = state_word
+                    print(
+                        f"[state] FINISHED (state=ON, finished={fin_score:.3f}, threshold={state_threshold:.3f})",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[state] NOT FINISHED (state=OFF, finished={fin_score:.3f}, threshold={state_threshold:.3f}); "
+                        "fallback click+enter",
+                        flush=True,
+                    )
+            elif mode == MODE_CLICK_ENTER:
+                reason = "disabled" if not state_detect else "not configured"
+                print(
+                    f"[state] NOT FINISHED (state=OFF, reason={reason}, threshold={state_threshold:.3f}); "
+                    "fallback click+enter",
+                    flush=True,
+                )
+            do_action(mode, x, y, text_before_enter=inject_text)
             time.sleep(seconds)
     except KeyboardInterrupt:
         print("\nStopped.")
@@ -669,6 +1037,26 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--x", type=int, help="Target X coordinate (headless, for click modes).")
     p.add_argument("--y", type=int, help="Target Y coordinate (headless, for click modes).")
     p.add_argument("--calibrate", action="store_true", help="Force calibration (headless, for click modes).")
+    p.add_argument(
+        "--state-detect", action="store_true",
+        help="Enable state detection (click+enter mode): finished => type word before Enter."
+    )
+    p.add_argument(
+        "--state-word", default=DETECT_WORD_DEFAULT,
+        help=f"Word to type when state is finished. Default: {DETECT_WORD_DEFAULT}"
+    )
+    p.add_argument(
+        "--state-bbox",
+        help="State detection region as left,top,width,height (headless)."
+    )
+    p.add_argument(
+        "--state-finished-template",
+        help="Path to FINISHED template image (headless state detection)."
+    )
+    p.add_argument(
+        "--state-threshold", type=float, default=DETECT_THRESHOLD_DEFAULT,
+        help=f"State match threshold. Default: {DETECT_THRESHOLD_DEFAULT}"
+    )
 
     # Multi-target mode
     p.add_argument(
@@ -693,10 +1081,36 @@ def main() -> None:
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
 
+    bbox = None
+    if args.state_bbox:
+        try:
+            bbox = parse_bbox(args.state_bbox)
+        except ValueError as e:
+            raise SystemExit(f"Invalid --state-bbox: {e}")
+
     if args.headless:
-        run_headless(args.seconds, args.mode, args.x, args.y, args.calibrate)
+        run_headless(
+            args.seconds,
+            args.mode,
+            args.x,
+            args.y,
+            args.calibrate,
+            args.state_detect,
+            args.state_word,
+            bbox,
+            args.state_finished_template,
+            args.state_threshold,
+        )
     else:
-        run_ui(args.seconds, args.toggle, args.calibrate_key, args.mode, args.targets)
+        run_ui(
+            args.seconds,
+            args.toggle,
+            args.calibrate_key,
+            args.mode,
+            args.targets,
+            args.state_threshold,
+            args.state_word,
+        )
 
 
 if __name__ == "__main__":

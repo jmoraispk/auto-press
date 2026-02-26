@@ -8,5 +8,12 @@ dependencies = [
     "pyautogui>=0.9.54",
 ]
 
+[project.optional-dependencies]
+vision = [
+    "numpy>=1.26.0",
+    "opencv-python>=4.10.0",
+    "pillow>=10.0.0",
+]
+
 [project.scripts]
 auto-press = "press_enter:main"
