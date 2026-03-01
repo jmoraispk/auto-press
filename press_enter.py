@@ -532,7 +532,7 @@ def run_ui(
         highlightthickness=0,
         bg=BG,
     )
-    status_canvas.grid(row=2, column=6, rowspan=2, sticky="w", padx=(16, 0), pady=(8, 0))
+    status_canvas.grid(row=1, column=5, rowspan=2, sticky="w", padx=(0, 0), pady=(0, 0))
     set_status(status_canvas, False)
 
     # Row 0: Mode dropdown
@@ -625,7 +625,7 @@ def run_ui(
     interval_entry.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
     # Show logs toggle (timer is always visible)
-    show_logs_var = tk.BooleanVar(value=False)
+    show_logs_var = tk.BooleanVar(value=True)
     show_logs_check = ttk.Checkbutton(
         content_frm,
         text="Show Logs",
@@ -745,7 +745,7 @@ def run_ui(
     def update_log_visibility():
         if show_logs_var.get():
             if not log_frame.winfo_ismapped():
-                log_frame.pack(pady=(10, 0), fill="x")
+                log_frame.pack(side="bottom", pady=(10, 0), fill="x")
         else:
             if log_frame.winfo_ismapped():
                 log_frame.pack_forget()
