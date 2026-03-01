@@ -47,6 +47,11 @@ DOT_DIAM = LIGHT_SIZE - 2 * LIGHT_PAD
 DETECT_THRESHOLD_DEFAULT = 0.80
 DETECT_WORD_DEFAULT = "continue"
 
+# Word typing reliability timing (only used when a word is injected)
+WORD_PRE_DELAY_SEC = 0.30
+WORD_RETRY_DELAY_SEC = 0.30
+WORD_POST_DELAY_SEC = 0.30
+
 
 # -------------------------
 # Windows hotkeys (ctypes)
@@ -210,6 +215,25 @@ def match_template_score(region_gray, template_gray) -> float:
     )
 
 
+def type_word_with_retry(word: str) -> None:
+    """Type a word with small settle/retry delays for robustness."""
+    sent = False
+    last_err = None
+    for _ in range(2):
+        try:
+            time.sleep(WORD_PRE_DELAY_SEC)
+            pyautogui.typewrite(word)
+            sent = True
+            break
+        except Exception as e:
+            last_err = e
+            time.sleep(WORD_RETRY_DELAY_SEC)
+    if not sent and last_err is not None:
+        raise last_err
+    # Post-write settle before Enter
+    time.sleep(WORD_POST_DELAY_SEC)
+
+
 # -------------------------
 # Core action
 # -------------------------
@@ -230,22 +254,7 @@ def do_action(mode: str, x: int | None = None, y: int | None = None, text_before
         pyautogui.moveTo(x, y, duration=0)
         pyautogui.click()
         if text_before_enter:
-            # Retry text send once if the first attempt fails (focus/timing hiccup).
-            sent = False
-            last_err = None
-            for _ in range(2):
-                try:
-                    time.sleep(0.3)
-                    pyautogui.typewrite(text_before_enter)
-                    sent = True
-                    break
-                except Exception as e:
-                    last_err = e
-                    time.sleep(0.3)
-            if not sent and last_err is not None:
-                raise last_err
-            # Only add post-write delay when a word is injected.
-            time.sleep(0.3)
+            type_word_with_retry(text_before_enter)
         pyautogui.press("enter")
         pyautogui.moveTo(old.x, old.y, duration=0)
 
@@ -357,6 +366,23 @@ def run_ui(
             and state["tpl_finished"][target_idx] is not None
         )
 
+    def evaluate_target_state(target_idx: int) -> tuple[bool, float | None, str]:
+        """
+        Returns (is_match, score, reason).
+        reason in: off, not-configured, error, match, no-match
+        """
+        if not get_state_enabled():
+            return False, None, "off"
+        if not target_has_state_data(target_idx):
+            return False, None, "not-configured"
+        try:
+            region_gray = grab_region_gray(state["regions"][target_idx])
+            score = match_template_score(region_gray, state["tpl_finished"][target_idx])
+            return score >= detect_threshold, score, "match" if score >= detect_threshold else "no-match"
+        except Exception as e:
+            log_event(f"[error] T{target_idx+1} detection failed: {e}")
+            return False, None, "error"
+
     def worker_loop(get_seconds, get_state_enabled, get_state_word, log_event) -> None:
         while True:
             # Block until running - zero CPU when idle
@@ -385,21 +411,20 @@ def run_ui(
                     x, y = target
                     try:
                         inject_text = None
-                        # Keep runtime decision threshold fixed; UI threshold box is test-only.
-                        state_threshold = detect_threshold
-                        detection_enabled = get_state_enabled()
-                        if detection_enabled and target_has_state_data(i):
-                            try:
-                                region_gray = grab_region_gray(state["regions"][i])
-                                fin_score = match_template_score(
-                                    region_gray,
-                                    state["tpl_finished"][i],
-                                )
-                                if fin_score >= state_threshold:
-                                    if current_mode == MODE_CLICK_ENTER:
-                                        inject_text = get_state_word()
-                            except Exception as e:
-                                log_event(f"[error] T{i+1} detection failed: {e}")
+                        is_match, score, reason = evaluate_target_state(i)
+                        if is_match and current_mode == MODE_CLICK_ENTER:
+                            inject_text = get_state_word()
+
+                        score_text = "-" if score is None else f"{score:.3f}"
+                        action_text = (
+                            "click+word+enter"
+                            if (current_mode == MODE_CLICK_ENTER and inject_text)
+                            else current_mode
+                        )
+                        log_event(
+                            f"[tick] T{i+1} result={reason} score={score_text} "
+                            f"thr={detect_threshold:.3f} action={action_text}"
+                        )
 
                         do_action(current_mode, x, y, text_before_enter=inject_text)
                         state["last_action_time"] = time.perf_counter()
@@ -412,6 +437,7 @@ def run_ui(
             else:
                 # Enter-only mode - no targets
                 try:
+                    log_event(f"[tick] enter mode action={current_mode}")
                     do_action(current_mode)
                     state["last_action_time"] = time.perf_counter()
                 except Exception as e:
@@ -974,20 +1000,7 @@ def run_ui(
         try:
             pyautogui.moveTo(x, y, duration=0)
             pyautogui.click()
-
-            sent = False
-            last_err = None
-            for _ in range(2):
-                try:
-                    time.sleep(0.3)
-                    pyautogui.typewrite(word)
-                    sent = True
-                    break
-                except Exception as e:
-                    last_err = e
-                    time.sleep(0.3)
-            if not sent and last_err is not None:
-                raise last_err
+            type_word_with_retry(word)
 
             log_event(f"[test] T{idx+1}: word typed ({word!r})")
         except Exception as e:
