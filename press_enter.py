@@ -45,7 +45,7 @@ DOT_DIAM = LIGHT_SIZE - 2 * LIGHT_PAD
 
 # State-detection defaults
 DETECT_THRESHOLD_DEFAULT = 0.80
-DETECT_WORD_DEFAULT = "execute"
+DETECT_WORD_DEFAULT = "continue"
 
 
 # -------------------------
@@ -341,7 +341,7 @@ def run_ui(
                 parts.append(f"T{i+1}: - [{target_marker(i)}]")
             else:
                 parts.append(f"T{i+1}: ({t[0]},{t[1]}) [{target_marker(i)}]")
-        return " | ".join(parts)
+        return "\n".join(parts)
 
     def set_label_target(label: tk.Label) -> None:
         label.config(text=get_target_text())
@@ -355,7 +355,7 @@ def run_ui(
             and state["tpl_finished"][target_idx] is not None
         )
 
-    def worker_loop(get_seconds, get_state_enabled, get_state_word, get_state_threshold, log_event) -> None:
+    def worker_loop(get_seconds, get_state_enabled, get_state_word, log_event) -> None:
         while True:
             # Block until running - zero CPU when idle
             running_event.wait()
@@ -383,7 +383,8 @@ def run_ui(
                     x, y = target
                     try:
                         inject_text = None
-                        state_threshold = get_state_threshold()
+                        # Keep runtime decision threshold fixed; UI threshold box is test-only.
+                        state_threshold = detect_threshold
                         detection_enabled = get_state_enabled()
                         if detection_enabled and target_has_state_data(i):
                             try:
@@ -523,7 +524,7 @@ def run_ui(
     content_frm = tk.Frame(frm, bg=BG)
     content_frm.pack()
 
-    # Status light (spans rows, vertically centered)
+    # Status light (shifted right/down near threshold row)
     status_canvas = tk.Canvas(
         content_frm,
         width=LIGHT_SIZE,
@@ -531,7 +532,7 @@ def run_ui(
         highlightthickness=0,
         bg=BG,
     )
-    status_canvas.grid(row=0, column=0, rowspan=4, padx=(0, 20), pady=(3, 0))
+    status_canvas.grid(row=2, column=6, rowspan=2, sticky="w", padx=(16, 0), pady=(8, 0))
     set_status(status_canvas, False)
 
     # Row 0: Mode dropdown
@@ -588,6 +589,8 @@ def run_ui(
         bg=BG,
         fg=FG,
         font=FONT,
+        justify="left",
+        anchor="w",
     )
 
     def update_target_visibility():
@@ -643,7 +646,7 @@ def run_ui(
     timer_lbl.grid(row=2, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
 
     # Row 3: state-detection controls
-    state_detect_var = tk.BooleanVar(value=False)
+    state_detect_var = tk.BooleanVar(value=True)
     state_detect_check = ttk.Checkbutton(
         content_frm,
         text="State Detection",
@@ -668,18 +671,26 @@ def run_ui(
     state_word_entry.grid(row=3, column=3, sticky="w", pady=(8, 0))
 
     tk.Label(content_frm, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
-    tk.Label(content_frm, text=f"{detect_threshold:.2f} (fixed)", bg=BG, fg=FG, font=FONT_SMALL).grid(row=3, column=5, sticky="w", pady=(8, 0))
-
-    hint_var = tk.StringVar(value="")
-    hint_lbl = tk.Label(content_frm, textvariable=hint_var, bg=BG, fg=MUTED, font=FONT_SMALL)
-    hint_lbl.grid(row=4, column=1, columnspan=5, sticky="w", pady=(8, 0))
+    state_threshold_var = tk.StringVar(value=f"{detect_threshold:.2f}")
+    state_threshold_entry = tk.Entry(
+        content_frm,
+        textvariable=state_threshold_var,
+        width=6,
+        bg=ENTRY_BG,
+        fg=ENTRY_FG,
+        insertbackground=FG,
+        font=FONT_SMALL,
+        relief="flat",
+        justify="center",
+    )
+    state_threshold_entry.grid(row=3, column=5, sticky="w", pady=(8, 0))
 
     log_frame = tk.Frame(frm, bg=BG)
     log_frame.pack(pady=(10, 0), fill="x")
     log_box = ScrolledText(
         log_frame,
         height=4,
-        width=70,
+        width=56,
         bg=ENTRY_BG,
         fg=FG,
         insertbackground=FG,
@@ -704,7 +715,11 @@ def run_ui(
         return txt or DETECT_WORD_DEFAULT
 
     def get_state_threshold() -> float:
-        return detect_threshold
+        # UI threshold is for manual testing/inspection only.
+        try:
+            return max(0.0, min(1.0, float(state_threshold_var.get())))
+        except ValueError:
+            return detect_threshold
 
     def log_event(msg: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
@@ -712,7 +727,6 @@ def run_ui(
 
         def append_line():
             try:
-                hint_var.set(msg)
                 log_box.config(state="normal")
                 log_box.insert("end", line)
                 # Keep the last ~300 lines to avoid growing forever.
@@ -742,7 +756,7 @@ def run_ui(
     def vision_ready() -> bool:
         _, _, err = try_import_vision()
         if err:
-            hint_var.set('Install optional deps for state detection: pip install "auto-press[vision]"')
+            log_event('Install optional deps for state detection: pip install "auto-press[vision]"')
             return False
         return True
 
@@ -828,7 +842,7 @@ def run_ui(
         idx = setup_target_idx()
         state["targets"][idx] = (pt.x, pt.y)
         set_label_target(target_lbl)
-        hint_var.set(f"Set click target T{idx+1}: ({pt.x}, {pt.y})")
+        log_event(f"[setup] T{idx+1} click target set: ({pt.x}, {pt.y})")
 
     btn_cal = tk.Button(
         btn_frm_top,
@@ -885,14 +899,14 @@ def run_ui(
         idx = setup_target_idx()
         bbox = state["regions"][idx]
         if bbox is None:
-            hint_var.set(f"Set region for T{idx+1} before capturing finished template.")
+            log_event(f"[setup] T{idx+1}: drag-capture area first.")
             return
         if not vision_ready():
             return
         try:
             tpl = grab_region_gray(bbox)
         except Exception as e:
-            hint_var.set(f"Template capture failed: {e}")
+            log_event(f"[setup] T{idx+1}: capture failed: {e}")
             return
 
         state["tpl_finished"][idx] = tpl
@@ -911,19 +925,17 @@ def run_ui(
     def ui_test_capture():
         idx = setup_target_idx()
         if not get_state_enabled():
-            log_event(f"[test] T{idx+1}: detection OFF")
             return
         if not target_has_state_data(idx):
             log_event(f"[test] T{idx+1}: not configured")
             return
         try:
             region_gray = grab_region_gray(state["regions"][idx])
-            fin_score = match_template_score(region_gray, state["tpl_finished"][idx])
+            score = match_template_score(region_gray, state["tpl_finished"][idx])
             threshold = get_state_threshold()
-            state_text = "FINISHED" if fin_score >= threshold else "NOT FINISHED"
-            onoff = "ON" if fin_score >= threshold else "OFF"
+            result = "match" if score >= threshold else "no-match"
             log_event(
-                f"[test] T{idx+1}: {state_text} (state={onoff}, finished={fin_score:.3f}, threshold={threshold:.3f})"
+                f"[test] T{idx+1}: {result} (score={score:.3f}, threshold={threshold:.3f})"
             )
         except Exception as e:
             log_event(f"[test] T{idx+1}: detection error: {e}")
@@ -954,7 +966,6 @@ def run_ui(
             get_seconds,
             get_state_enabled,
             get_state_word,
-            get_state_threshold,
             log_event,
         ),
         daemon=True,
@@ -1067,19 +1078,19 @@ def run_headless(
                 if fin_score >= state_threshold:
                     inject_text = state_word
                     print(
-                        f"[state] FINISHED (state=ON, finished={fin_score:.3f}, threshold={state_threshold:.3f})",
+                        f"[state] match (score={fin_score:.3f}, threshold={state_threshold:.3f})",
                         flush=True,
                     )
                 else:
                     print(
-                        f"[state] NOT FINISHED (state=OFF, finished={fin_score:.3f}, threshold={state_threshold:.3f}); "
+                        f"[state] no-match (score={fin_score:.3f}, threshold={state_threshold:.3f}); "
                         "fallback click+enter",
                         flush=True,
                     )
             elif mode == MODE_CLICK_ENTER:
                 reason = "disabled" if not state_detect else "not configured"
                 print(
-                    f"[state] NOT FINISHED (state=OFF, reason={reason}, threshold={state_threshold:.3f}); "
+                    f"[state] no-match (reason={reason}, threshold={state_threshold:.3f}); "
                     "fallback click+enter",
                     flush=True,
                 )

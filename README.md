@@ -9,7 +9,7 @@ Auto clicker with mode selection, global hotkeys, multi-target support, timer UI
 - Lightweight countdown timer checkbox in UI
 - Global hotkeys (Windows) for start/stop and click calibration
 - Optional per-target region state detection:
-  - finished match above threshold -> click + `execute` + enter
+  - finished match above threshold -> click + `continue` + enter
   - otherwise -> click + enter
 
 ## Requirements
@@ -47,7 +47,7 @@ uv run press_enter.py [seconds] [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--state-detect` | off | Enable state detection in `click+enter` mode |
-| `--state-word` | `execute` | Word typed before Enter when state is finished |
+| `--state-word` | `continue` | Word typed before Enter when state is finished |
 | `--state-bbox` | - | Region as `left,top,width,height` |
 | `--state-finished-template` | - | Path to FINISHED template image |
 | `--state-threshold` | `0.80` | Minimum confidence for best match |
