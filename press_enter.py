@@ -326,9 +326,11 @@ def run_ui(
         if state["running"]:
             interrupt_event.clear()  # Reset interrupt for new run
             running_event.set()
+            log_event("[control] start")
         else:
             running_event.clear()
             interrupt_event.set()  # Wake from interval sleep immediately
+            log_event("[control] stop")
         set_status(canvas, state["running"])
 
     def get_target_text() -> str:
@@ -416,14 +418,8 @@ def run_ui(
                             inject_text = get_state_word()
 
                         score_text = "-" if score is None else f"{score:.3f}"
-                        action_text = (
-                            "click+word+enter"
-                            if (current_mode == MODE_CLICK_ENTER and inject_text)
-                            else current_mode
-                        )
                         log_event(
-                            f"[tick] T{i+1} result={reason} score={score_text} "
-                            f"thr={detect_threshold:.3f} action={action_text}"
+                            f"[tick] T{i+1} result={reason} score={score_text}"
                         )
 
                         do_action(current_mode, x, y, text_before_enter=inject_text)
@@ -437,7 +433,7 @@ def run_ui(
             else:
                 # Enter-only mode - no targets
                 try:
-                    log_event(f"[tick] enter mode action={current_mode}")
+                    log_event("[tick] enter mode")
                     do_action(current_mode)
                     state["last_action_time"] = time.perf_counter()
                 except Exception as e:
@@ -719,7 +715,7 @@ def run_ui(
     log_frame.pack(pady=(10, 0), fill="x")
     log_box = ScrolledText(
         log_frame,
-        height=4,
+        height=6,
         width=56,
         bg=ENTRY_BG,
         fg=FG,
@@ -979,10 +975,9 @@ def run_ui(
         try:
             region_gray = grab_region_gray(state["regions"][idx])
             score = match_template_score(region_gray, state["tpl_finished"][idx])
-            threshold = get_state_threshold()
-            result = "match" if score >= threshold else "no-match"
+            result = "match" if score >= get_state_threshold() else "no-match"
             log_event(
-                f"[test] T{idx+1}: {result} (score={score:.3f}, threshold={threshold:.3f})"
+                f"[test] T{idx+1}: {result} (score={score:.3f})"
             )
         except Exception as e:
             log_event(f"[test] T{idx+1}: detection error: {e}")
@@ -1123,7 +1118,7 @@ def run_headless(
                 )
             finished_tpl = load_template_gray(state_finished_template)
             print(
-                f"[state] enabled bbox={state_bbox}, threshold={state_threshold}, "
+                f"[state] enabled bbox={state_bbox}, "
                 f"word={state_word!r}",
                 flush=True,
             )
@@ -1146,19 +1141,19 @@ def run_headless(
                 if fin_score >= state_threshold:
                     inject_text = state_word
                     print(
-                        f"[state] match (score={fin_score:.3f}, threshold={state_threshold:.3f})",
+                        f"[state] match (score={fin_score:.3f})",
                         flush=True,
                     )
                 else:
                     print(
-                        f"[state] no-match (score={fin_score:.3f}, threshold={state_threshold:.3f}); "
+                        f"[state] no-match (score={fin_score:.3f}); "
                         "fallback click+enter",
                         flush=True,
                     )
             elif mode == MODE_CLICK_ENTER:
                 reason = "disabled" if not state_detect else "not configured"
                 print(
-                    f"[state] no-match (reason={reason}, threshold={state_threshold:.3f}); "
+                    f"[state] no-match (reason={reason}); "
                     "fallback click+enter",
                     flush=True,
                 )
