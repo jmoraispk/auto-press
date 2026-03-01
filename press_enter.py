@@ -230,7 +230,20 @@ def do_action(mode: str, x: int | None = None, y: int | None = None, text_before
         pyautogui.moveTo(x, y, duration=0)
         pyautogui.click()
         if text_before_enter:
-            pyautogui.typewrite(text_before_enter)
+            # Retry text send once if the first attempt fails (focus/timing hiccup).
+            sent = False
+            last_err = None
+            for _ in range(2):
+                try:
+                    time.sleep(0.05)
+                    pyautogui.typewrite(text_before_enter)
+                    sent = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    time.sleep(0.08)
+            if not sent and last_err is not None:
+                raise last_err
         pyautogui.press("enter")
         pyautogui.moveTo(old.x, old.y, duration=0)
 
@@ -261,6 +274,7 @@ def run_ui(
 ) -> None:
     import tkinter as tk
     from tkinter import ttk
+    from tkinter.scrolledtext import ScrolledText
 
     pyautogui.PAUSE = 0
     pyautogui.FAILSAFE = True
@@ -341,7 +355,7 @@ def run_ui(
             and state["tpl_finished"][target_idx] is not None
         )
 
-    def worker_loop(get_seconds, get_state_enabled, get_state_word, get_state_threshold) -> None:
+    def worker_loop(get_seconds, get_state_enabled, get_state_word, get_state_threshold, log_event) -> None:
         while True:
             # Block until running - zero CPU when idle
             running_event.wait()
@@ -381,33 +395,13 @@ def run_ui(
                                 if fin_score >= state_threshold:
                                     if current_mode == MODE_CLICK_ENTER:
                                         inject_text = get_state_word()
-                                    print(
-                                        f"[state] T{i+1} FINISHED "
-                                        f"(state=ON, finished={fin_score:.3f}, threshold={state_threshold:.3f})",
-                                        flush=True,
-                                    )
-                                else:
-                                    print(
-                                        f"[state] T{i+1} NOT FINISHED "
-                                        f"(state=OFF, finished={fin_score:.3f}, threshold={state_threshold:.3f}); "
-                                        "fallback click+enter",
-                                        flush=True,
-                                    )
                             except Exception as e:
-                                print(f"[state] T{i+1} detection error: {e}; fallback click+enter", flush=True)
-                        elif detection_enabled:
-                            reason = "not configured"
-                            print(
-                                f"[state] T{i+1} NOT FINISHED "
-                                f"(state=OFF, reason={reason}, threshold={state_threshold:.3f}); "
-                                "fallback click+enter",
-                                flush=True,
-                            )
+                                log_event(f"[error] T{i+1} detection failed: {e}")
 
                         do_action(current_mode, x, y, text_before_enter=inject_text)
                         state["last_action_time"] = time.perf_counter()
                     except Exception as e:
-                        print(f"[worker] Error during action on target {i+1}: {e}")
+                        log_event(f"[error] T{i+1} action failed: {e}")
                         continue
 
                     if interrupt_event.wait(timeout=sub_interval):
@@ -418,7 +412,7 @@ def run_ui(
                     do_action(current_mode)
                     state["last_action_time"] = time.perf_counter()
                 except Exception as e:
-                    print(f"[worker] Error during action: {e}")
+                    log_event(f"[error] Action failed: {e}")
 
                 if interrupt_event.wait(timeout=interval):
                     continue
@@ -601,11 +595,13 @@ def run_ui(
             target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
             btn_cal.pack(side="left")
             btn_drag_capture_finished.pack(side="left", padx=(8, 0))
+            btn_test_capture.pack(side="left", padx=(8, 0))
             setup_target_combo.configure(state="readonly")
         else:
             target_lbl.grid_remove()
             btn_cal.pack_forget()
             btn_drag_capture_finished.pack_forget()
+            btn_test_capture.pack_forget()
             setup_target_combo.configure(state="disabled")
 
     # Row 2: Interval + Timer checkbox
@@ -625,15 +621,15 @@ def run_ui(
     )
     interval_entry.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
-    # Timer checkbox
-    timer_var = tk.BooleanVar(value=False)
-    timer_check = ttk.Checkbutton(
+    # Show logs toggle (timer is always visible)
+    show_logs_var = tk.BooleanVar(value=False)
+    show_logs_check = ttk.Checkbutton(
         content_frm,
-        text="Timer",
-        variable=timer_var,
+        text="Show Logs",
+        variable=show_logs_var,
         style="Dark.TCheckbutton",
     )
-    timer_check.grid(row=2, column=3, sticky="w", padx=(12, 0), pady=(8, 0))
+    show_logs_check.grid(row=2, column=3, sticky="w", padx=(12, 0), pady=(8, 0))
 
     # Timer countdown label (shown when timer is enabled and running)
     timer_lbl = tk.Label(
@@ -672,23 +668,27 @@ def run_ui(
     state_word_entry.grid(row=3, column=3, sticky="w", pady=(8, 0))
 
     tk.Label(content_frm, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
-    state_threshold_var = tk.StringVar(value=f"{detect_threshold:.2f}")
-    state_threshold_entry = tk.Entry(
-        content_frm,
-        textvariable=state_threshold_var,
-        width=6,
-        bg=ENTRY_BG,
-        fg=ENTRY_FG,
-        insertbackground=FG,
-        font=FONT_SMALL,
-        relief="flat",
-        justify="center",
-    )
-    state_threshold_entry.grid(row=3, column=5, sticky="w", pady=(8, 0))
+    tk.Label(content_frm, text=f"{detect_threshold:.2f} (fixed)", bg=BG, fg=FG, font=FONT_SMALL).grid(row=3, column=5, sticky="w", pady=(8, 0))
 
     hint_var = tk.StringVar(value="")
     hint_lbl = tk.Label(content_frm, textvariable=hint_var, bg=BG, fg=MUTED, font=FONT_SMALL)
     hint_lbl.grid(row=4, column=1, columnspan=5, sticky="w", pady=(8, 0))
+
+    log_frame = tk.Frame(frm, bg=BG)
+    log_frame.pack(pady=(10, 0), fill="x")
+    log_box = ScrolledText(
+        log_frame,
+        height=4,
+        width=70,
+        bg=ENTRY_BG,
+        fg=FG,
+        insertbackground=FG,
+        font=("Consolas", 9),
+        relief="flat",
+        wrap="word",
+    )
+    log_box.pack(fill="x")
+    log_box.config(state="disabled")
 
     def get_seconds():
         try:
@@ -704,10 +704,40 @@ def run_ui(
         return txt or DETECT_WORD_DEFAULT
 
     def get_state_threshold() -> float:
+        return detect_threshold
+
+    def log_event(msg: str) -> None:
+        timestamp = time.strftime("%H:%M:%S")
+        line = f"[{timestamp}] {msg}\n"
+
+        def append_line():
+            try:
+                hint_var.set(msg)
+                log_box.config(state="normal")
+                log_box.insert("end", line)
+                # Keep the last ~300 lines to avoid growing forever.
+                if int(log_box.index("end-1c").split(".")[0]) > 300:
+                    log_box.delete("1.0", "80.0")
+                log_box.see("end")
+                log_box.config(state="disabled")
+            except Exception:
+                pass
+
         try:
-            return max(0.0, min(1.0, float(state_threshold_var.get())))
-        except ValueError:
-            return detect_threshold
+            root.after(0, append_line)
+        except Exception:
+            pass
+
+    def update_log_visibility():
+        if show_logs_var.get():
+            if not log_frame.winfo_ismapped():
+                log_frame.pack(pady=(10, 0), fill="x")
+        else:
+            if log_frame.winfo_ismapped():
+                log_frame.pack_forget()
+
+    show_logs_check.configure(command=update_log_visibility)
+    update_log_visibility()
 
     def vision_ready() -> bool:
         _, _, err = try_import_vision()
@@ -834,6 +864,23 @@ def run_ui(
     )
     btn_drag_capture_finished.pack(side="left", padx=(8, 0))
 
+    btn_test_capture = tk.Button(
+        btn_frm_bottom,
+        text="Test Capture",
+        command=lambda: ui_test_capture(),
+        bg=BTN_BG,
+        fg=BTN_FG,
+        activebackground="#2a2a2a",
+        activeforeground=BTN_FG,
+        bd=0,
+        highlightthickness=0,
+        font=FONT,
+        padx=BTN_PADX,
+        pady=BTN_PADY,
+        cursor="hand2",
+    )
+    btn_test_capture.pack(side="left", padx=(8, 0))
+
     def ui_capture_finished():
         idx = setup_target_idx()
         bbox = state["regions"][idx]
@@ -849,17 +896,37 @@ def run_ui(
             return
 
         state["tpl_finished"][idx] = tpl
-        hint_var.set(f"Captured FINISHED template for T{idx+1}.")
+        log_event(f"[setup] T{idx+1} finished template captured.")
         set_label_target(target_lbl)
 
     def ui_drag_capture_finished():
         idx = setup_target_idx()
         bbox = capture_drag_bbox()
         if bbox is None:
-            hint_var.set("Drag capture cancelled.")
+            log_event("[setup] Drag capture cancelled.")
             return
         state["regions"][idx] = bbox
         ui_capture_finished()
+
+    def ui_test_capture():
+        idx = setup_target_idx()
+        if not get_state_enabled():
+            log_event(f"[test] T{idx+1}: detection OFF")
+            return
+        if not target_has_state_data(idx):
+            log_event(f"[test] T{idx+1}: not configured")
+            return
+        try:
+            region_gray = grab_region_gray(state["regions"][idx])
+            fin_score = match_template_score(region_gray, state["tpl_finished"][idx])
+            threshold = get_state_threshold()
+            state_text = "FINISHED" if fin_score >= threshold else "NOT FINISHED"
+            onoff = "ON" if fin_score >= threshold else "OFF"
+            log_event(
+                f"[test] T{idx+1}: {state_text} (state={onoff}, finished={fin_score:.3f}, threshold={threshold:.3f})"
+            )
+        except Exception as e:
+            log_event(f"[test] T{idx+1}: detection error: {e}")
 
     def on_state_detection_toggle():
         if state_detect_var.get() and not vision_ready():
@@ -870,6 +937,7 @@ def run_ui(
 
     # Initial visibility update (after btn_cal is created)
     update_target_visibility()
+    log_event("[ready] UI started.")
 
     # Error label (only shown if hotkeys fail - no space reserved)
     error_lbl = None
@@ -882,7 +950,13 @@ def run_ui(
 
     worker = threading.Thread(
         target=worker_loop,
-        args=(get_seconds, get_state_enabled, get_state_word, get_state_threshold),
+        args=(
+            get_seconds,
+            get_state_enabled,
+            get_state_word,
+            get_state_threshold,
+            log_event,
+        ),
         daemon=True,
     )
     worker.start()
@@ -916,14 +990,11 @@ def run_ui(
     def update_timer():
         if stop_event.is_set():
             return
-        if timer_var.get():
-            if state["running"] and state["last_action_time"] > 0:
-                interval = max(0.01, get_seconds())
-                elapsed = time.perf_counter() - state["last_action_time"]
-                remaining = max(0.0, interval - elapsed)
-                timer_lbl.config(text=f"{remaining:.1f}s")
-            elif not state["running"]:
-                timer_lbl.config(text="")
+        if state["running"] and state["last_action_time"] > 0:
+            interval = max(0.01, get_seconds())
+            elapsed = time.perf_counter() - state["last_action_time"]
+            remaining = max(0.0, interval - elapsed)
+            timer_lbl.config(text=f"{remaining:.1f}s")
         else:
             timer_lbl.config(text="")
         # Reschedule every 100ms (10 updates/sec = 1 decimal precision)
@@ -1028,9 +1099,9 @@ def parse_args() -> argparse.Namespace:
     )
 
     p.add_argument(
-        "--mode", choices=MODES, default=MODE_CLICK,
+        "--mode", choices=MODES, default=MODE_CLICK_ENTER,
         help=f"Action mode: {MODE_ENTER}=press Enter only, {MODE_CLICK}=click only, "
-             f"{MODE_CLICK_ENTER}=click then Enter. Default: {MODE_CLICK}"
+             f"{MODE_CLICK_ENTER}=click then Enter. Default: {MODE_CLICK_ENTER}"
     )
 
     p.add_argument("--headless", action="store_true", help="Run without UI.")
