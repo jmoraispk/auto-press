@@ -235,15 +235,17 @@ def do_action(mode: str, x: int | None = None, y: int | None = None, text_before
             last_err = None
             for _ in range(2):
                 try:
-                    time.sleep(0.05)
+                    time.sleep(0.3)
                     pyautogui.typewrite(text_before_enter)
                     sent = True
                     break
                 except Exception as e:
                     last_err = e
-                    time.sleep(0.08)
+                    time.sleep(0.3)
             if not sent and last_err is not None:
                 raise last_err
+            # Only add post-write delay when a word is injected.
+            time.sleep(0.3)
         pyautogui.press("enter")
         pyautogui.moveTo(old.x, old.y, duration=0)
 
@@ -599,12 +601,14 @@ def run_ui(
             btn_cal.pack(side="left")
             btn_drag_capture_finished.pack(side="left", padx=(8, 0))
             btn_test_capture.pack(side="left", padx=(8, 0))
+            btn_test_word.pack(side="left", padx=(6, 0))
             setup_target_combo.configure(state="readonly")
         else:
             target_lbl.grid_remove()
             btn_cal.pack_forget()
             btn_drag_capture_finished.pack_forget()
             btn_test_capture.pack_forget()
+            btn_test_word.pack_forget()
             setup_target_combo.configure(state="disabled")
 
     # Row 2: Interval + Timer checkbox
@@ -863,7 +867,7 @@ def run_ui(
 
     btn_drag_capture_finished = tk.Button(
         btn_frm_bottom,
-        text="Drag Capture Finished",
+        text="Drag Capture",
         command=lambda: ui_drag_capture_finished(),
         bg=BTN_BG,
         fg=BTN_FG,
@@ -894,6 +898,23 @@ def run_ui(
         cursor="hand2",
     )
     btn_test_capture.pack(side="left", padx=(8, 0))
+
+    btn_test_word = tk.Button(
+        btn_frm_bottom,
+        text="Test Word",
+        command=lambda: ui_test_word(),
+        bg=BTN_BG,
+        fg=BTN_FG,
+        activebackground="#2a2a2a",
+        activeforeground=BTN_FG,
+        bd=0,
+        highlightthickness=0,
+        font=FONT,
+        padx=BTN_PADX,
+        pady=BTN_PADY,
+        cursor="hand2",
+    )
+    btn_test_word.pack(side="left", padx=(6, 0))
 
     def ui_capture_finished():
         idx = setup_target_idx()
@@ -939,6 +960,40 @@ def run_ui(
             )
         except Exception as e:
             log_event(f"[test] T{idx+1}: detection error: {e}")
+
+    def ui_test_word():
+        idx = setup_target_idx()
+        target = state["targets"][idx]
+        if target is None:
+            log_event(f"[test] T{idx+1}: set click target first")
+            return
+
+        x, y = target
+        word = get_state_word()
+        old = pyautogui.position()
+        try:
+            pyautogui.moveTo(x, y, duration=0)
+            pyautogui.click()
+
+            sent = False
+            last_err = None
+            for _ in range(2):
+                try:
+                    time.sleep(0.3)
+                    pyautogui.typewrite(word)
+                    sent = True
+                    break
+                except Exception as e:
+                    last_err = e
+                    time.sleep(0.3)
+            if not sent and last_err is not None:
+                raise last_err
+
+            log_event(f"[test] T{idx+1}: word typed ({word!r})")
+        except Exception as e:
+            log_event(f"[test] T{idx+1}: word typing failed: {e}")
+        finally:
+            pyautogui.moveTo(old.x, old.y, duration=0)
 
     def on_state_detection_toggle():
         if state_detect_var.get() and not vision_ready():

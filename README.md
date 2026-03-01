@@ -6,11 +6,13 @@ Auto clicker with mode selection, global hotkeys, multi-target support, timer UI
 
 - Click-only, enter-only, and click+enter modes
 - Multi-target rotation (1-3 targets)
-- Lightweight countdown timer checkbox in UI
+- Always-on countdown timer in UI
+- Bottom log panel with `Show Logs` toggle
 - Global hotkeys (Windows) for start/stop and click calibration
 - Optional per-target region state detection:
   - finished match above threshold -> click + `continue` + enter
   - otherwise -> click + enter
+- Extra UI checks: `Test Capture` (state score) and `Test Word` (typing reliability)
 
 ## Requirements
 
@@ -34,7 +36,7 @@ uv run press_enter.py [seconds] [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `seconds` | `10.0` | Interval between actions in seconds |
-| `--mode` | `click` | `enter`, `click`, or `click+enter` |
+| `--mode` | `click+enter` | `enter`, `click`, or `click+enter` |
 | `--targets` | `1` | Number of targets (1-3), click modes only |
 | `--headless` | off | Run without UI |
 | `--toggle` | `PAGEDOWN` | Global hotkey to start/stop (UI) |
@@ -80,9 +82,10 @@ uv run press_enter.py 5 --headless --mode click+enter \
 1. Start in `click+enter` mode.
 2. Choose setup target (`T1`, `T2`, etc.).
 3. Set click point with `Calibrate`.
-4. Use `Drag Capture Finished` while target is in finished state.
-5. Enable `State Detection`.
-6. Start run.
+4. Use `Drag Capture` while target is in finished state.
+5. Optionally use `Test Capture` and `Test Word`.
+6. Enable `State Detection`.
+7. Start run.
 
 Target status legend in UI:
 - `C*` click point set
