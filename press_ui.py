@@ -1,3 +1,5 @@
+"""Tk UI runner for auto-press modes, including watch-run."""
+
 import sys
 import threading
 import time
@@ -168,6 +170,7 @@ def run_ui(
     FONT_SMALL = ("Segoe UI", 10)
     BTN_PADX = 16
     BTN_PADY = 8
+    ACTIVE_BG = "#2a2a2a"
 
     style = ttk.Style()
     style.theme_use("clam")
@@ -207,8 +210,7 @@ def run_ui(
 
     tk.Label(content_frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="w", pady=(8, 0))
     interval_var = tk.StringVar(value=str(cfg["interval_seconds"]))
-    interval_entry = tk.Entry(content_frm, textvariable=interval_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT, relief="flat", justify="center")
-    interval_entry.grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+    tk.Entry(content_frm, textvariable=interval_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT, relief="flat", justify="center").grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
     show_logs_var = tk.BooleanVar(value=True)
     show_logs_check = ttk.Checkbutton(content_frm, text="Show Logs", variable=show_logs_var, style="Dark.TCheckbutton")
@@ -223,13 +225,11 @@ def run_ui(
 
     tk.Label(content_frm, text="Word:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=2, sticky="e", padx=(0, 4), pady=(8, 0))
     state_word_var = tk.StringVar(value=str(cfg.get("state_word", "continue")))
-    state_word_entry = tk.Entry(content_frm, textvariable=state_word_var, width=10, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="left")
-    state_word_entry.grid(row=3, column=3, sticky="w", pady=(8, 0))
+    tk.Entry(content_frm, textvariable=state_word_var, width=10, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="left").grid(row=3, column=3, sticky="w", pady=(8, 0))
 
     tk.Label(content_frm, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
     state_threshold_var = tk.StringVar(value=f"{float(cfg.get('state_threshold_ui', detect_threshold)):.2f}")
-    state_threshold_entry = tk.Entry(content_frm, textvariable=state_threshold_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="center")
-    state_threshold_entry.grid(row=3, column=5, sticky="w", pady=(8, 0))
+    tk.Entry(content_frm, textvariable=state_threshold_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="center").grid(row=3, column=5, sticky="w", pady=(8, 0))
 
     log_frame = tk.Frame(frm, bg=BG)
     log_frame.pack(side="bottom", pady=(10, 0), fill="x")
@@ -271,17 +271,17 @@ def run_ui(
                 return key
         return MODE_CLICK_ENTER
 
-    def get_seconds() -> float:
+    def parse_float_clamped(raw: str, default: float, min_value: float, max_value: float) -> float:
         try:
-            return max(0.01, float(interval_var.get()))
+            return max(min_value, min(max_value, float(raw)))
         except ValueError:
-            return 10.0
+            return default
+
+    def get_seconds() -> float:
+        return parse_float_clamped(interval_var.get(), 10.0, 0.01, 10_000.0)
 
     def get_state_threshold_ui() -> float:
-        try:
-            return max(0.0, min(1.0, float(state_threshold_var.get())))
-        except ValueError:
-            return detect_threshold
+        return parse_float_clamped(state_threshold_var.get(), detect_threshold, 0.0, 1.0)
 
     def target_marker(i: int) -> str:
         t = cfg["targets"][i]
@@ -362,6 +362,23 @@ def run_ui(
     btn_frm_bottom = tk.Frame(frm, bg=BG)
     btn_frm_bottom.pack(pady=(8, 0))
 
+    def make_button(parent, text, command):
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=BTN_BG,
+            fg=BTN_FG,
+            activebackground=ACTIVE_BG,
+            activeforeground=BTN_FG,
+            bd=0,
+            highlightthickness=0,
+            font=FONT,
+            padx=BTN_PADX,
+            pady=BTN_PADY,
+            cursor="hand2",
+        )
+
     def toggle_running():
         running = not bool(cfg.get("_running", False))
         cfg["_running"] = running
@@ -376,7 +393,7 @@ def run_ui(
             set_status(False)
             log_event("[control] stop")
 
-    btn_toggle = tk.Button(btn_frm_top, text=f"Start/Stop ({toggle_hk})", command=toggle_running, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_toggle = make_button(btn_frm_top, f"Start/Stop ({toggle_hk})", toggle_running)
     btn_toggle.pack(side="left", padx=(0, 8))
 
     def ui_calibrate():
@@ -396,7 +413,7 @@ def run_ui(
         refresh_target_text()
         persist_ui_state()
 
-    btn_cal = tk.Button(btn_frm_top, text=f"Calibrate ({calibrate_hk})", command=ui_calibrate, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_cal = make_button(btn_frm_top, f"Calibrate ({calibrate_hk})", ui_calibrate)
     btn_cal.pack(side="left")
 
     def ui_drag_capture_state():
@@ -414,7 +431,7 @@ def run_ui(
         refresh_target_text()
         persist_ui_state()
 
-    btn_state_capture = tk.Button(btn_frm_bottom, text="Drag Capture State", command=ui_drag_capture_state, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_state_capture = make_button(btn_frm_bottom, "Drag Capture State", ui_drag_capture_state)
     btn_state_capture.pack(side="left", padx=(8, 0))
 
     def ui_capture_run_template():
@@ -429,22 +446,22 @@ def run_ui(
         log_event(f"[setup] run template added: {rel}")
         persist_ui_state()
 
-    btn_run_tpl = tk.Button(btn_frm_bottom, text="Capture Run Template", command=ui_capture_run_template, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_run_tpl = make_button(btn_frm_bottom, "Capture Run Template", ui_capture_run_template)
     btn_run_tpl.pack(side="left", padx=(8, 0))
 
     def ui_test_run():
         idx = setup_target_idx()
         rt = load_run_templates(cfg.get("run_templates", []), TEMPLATES_DIR)
-        hit, score, center, reason = evaluate_run_for_target(cfg["targets"][idx], rt, float(cfg.get("run_threshold", 0.85)), log_event)
+        _, score, center, reason = evaluate_run_for_target(cfg["targets"][idx], rt, float(cfg.get("run_threshold", 0.85)), log_event)
         s = "-" if score is None else f"{score:.3f}"
         log_event(f"[test-run] T{idx+1} result={reason} score={s} center={center}")
 
-    btn_test_run = tk.Button(btn_frm_bottom, text="Test Run", command=ui_test_run, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_test_run = make_button(btn_frm_bottom, "Test Run", ui_test_run)
     btn_test_run.pack(side="left", padx=(8, 0))
 
     def ui_test_capture():
         idx = setup_target_idx()
-        hit, score, reason = evaluate_state_for_target(
+        _, score, reason = evaluate_state_for_target(
             cfg["targets"][idx],
             bool(state_detect_var.get()),
             detect_threshold,  # runtime fixed
@@ -454,7 +471,7 @@ def run_ui(
         s = "-" if score is None else f"{score:.3f}"
         log_event(f"[test-state] T{idx+1} result={reason} score={s}")
 
-    btn_test_state = tk.Button(btn_frm_bottom, text="Test Capture", command=ui_test_capture, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_test_state = make_button(btn_frm_bottom, "Test Capture", ui_test_capture)
     btn_test_state.pack(side="left", padx=(8, 0))
 
     def ui_test_word():
@@ -473,7 +490,7 @@ def run_ui(
         finally:
             pyautogui.moveTo(old.x, old.y, duration=0)
 
-    btn_test_word = tk.Button(btn_frm_bottom, text="Test Word", command=ui_test_word, bg=BTN_BG, fg=BTN_FG, activebackground="#2a2a2a", activeforeground=BTN_FG, bd=0, highlightthickness=0, font=FONT, padx=BTN_PADX, pady=BTN_PADY, cursor="hand2")
+    btn_test_word = make_button(btn_frm_bottom, "Test Word", ui_test_word)
     btn_test_word.pack(side="left", padx=(6, 0))
 
     def worker_loop():
@@ -502,7 +519,7 @@ def run_ui(
                 score = None
                 inject_text = None
 
-                # 1) run-watch first
+                # 1) Run watch happens first. A run match short-circuits this target tick.
                 if mode == MODE_WATCH_RUN or tcfg.get("run_roi"):
                     hit_run, run_score, center, run_reason = evaluate_run_for_target(
                         tcfg,
@@ -528,7 +545,7 @@ def run_ui(
                         result = f"run-{run_reason}"
                         score = run_score
 
-                # 2) state fallback
+                # 2) Only if run-watch did not act, evaluate state fallback.
                 hit_state, state_score, state_reason = evaluate_state_for_target(
                     tcfg,
                     bool(state_detect_var.get()),
@@ -567,9 +584,17 @@ def run_ui(
         persist_ui_state()
 
     mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
-    setup_target_combo.bind("<<ComboboxSelected>>", lambda _e: refresh_target_text())
+    def on_target_change(_event=None):
+        value = setup_target_combo.get().strip()
+        if value.startswith("T"):
+            try:
+                setup_target_var.set(int(value[1:]))
+            except ValueError:
+                setup_target_var.set(1)
+        refresh_target_text()
+
+    setup_target_combo.bind("<<ComboboxSelected>>", on_target_change)
     state_detect_check.configure(command=persist_ui_state)
-    show_logs_check.configure(command=update_log_visibility)
 
     worker = threading.Thread(target=worker_loop, daemon=True)
     worker.start()

@@ -1,3 +1,5 @@
+"""Core automation and vision helpers used by UI/headless runners."""
+
 import time
 from pathlib import Path
 
@@ -24,10 +26,16 @@ def try_import_vision():
         return None, None, str(e)
 
 
-def load_template_gray(path: str):
-    cv2, _, err = try_import_vision()
+def _require_vision():
+    """Return (cv2, np) or raise a helpful dependency error."""
+    cv2, np, err = try_import_vision()
     if err:
         raise RuntimeError("Vision deps missing. Install with: uv sync --extra vision")
+    return cv2, np
+
+
+def load_template_gray(path: str):
+    cv2, _ = _require_vision()
     tpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if tpl is None:
         raise FileNotFoundError(f"Template unreadable: {path}")
@@ -35,18 +43,14 @@ def load_template_gray(path: str):
 
 
 def save_gray_image(path: str, gray_image) -> None:
-    cv2, _, err = try_import_vision()
-    if err:
-        raise RuntimeError("Vision deps missing. Install with: uv sync --extra vision")
+    cv2, _ = _require_vision()
     ok = cv2.imwrite(path, gray_image)
     if not ok:
         raise RuntimeError(f"Failed to save template image: {path}")
 
 
 def grab_region_gray(bbox: tuple[int, int, int, int]):
-    cv2, np, err = try_import_vision()
-    if err:
-        raise RuntimeError("Vision deps missing. Install with: uv sync --extra vision")
+    cv2, np = _require_vision()
     left, top, width, height = bbox
     img = pyautogui.screenshot(region=(left, top, width, height))
     arr = np.array(img)
@@ -64,9 +68,7 @@ def best_run_match(region_gray, run_templates: list) -> tuple[float, tuple[int, 
     """
     Returns (best_score, center_xy_in_region).
     """
-    cv2, _, err = try_import_vision()
-    if err:
-        return 0.0, None
+    cv2, _ = _require_vision()
 
     best_score = 0.0
     best_center = None

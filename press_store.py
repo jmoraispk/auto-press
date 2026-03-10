@@ -1,3 +1,5 @@
+"""Persistence helpers for template assets and UI/automation config."""
+
 import json
 from pathlib import Path
 

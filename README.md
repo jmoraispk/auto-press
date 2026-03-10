@@ -102,3 +102,10 @@ Target status legend in UI:
 
 - Templates and config are stored in `templates/`
 - Main config path: `templates/config.json`
+
+## Code Layout
+
+- `press_enter.py`: CLI entrypoint (headless + UI dispatch)
+- `press_ui.py`: Tk UI and single-loop target orchestration
+- `press_core.py`: click/type and template-match core helpers
+- `press_store.py`: config/template persistence helpers
