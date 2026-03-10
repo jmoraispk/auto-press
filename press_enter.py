@@ -1173,9 +1173,9 @@ def parse_args() -> argparse.Namespace:
     )
 
     p.add_argument(
-        "--mode", choices=MODES, default=MODE_CLICK_ENTER,
+        "--mode", choices=[MODE_ENTER, MODE_CLICK, MODE_CLICK_ENTER, "watch-run"], default=MODE_CLICK_ENTER,
         help=f"Action mode: {MODE_ENTER}=press Enter only, {MODE_CLICK}=click only, "
-             f"{MODE_CLICK_ENTER}=click then Enter. Default: {MODE_CLICK_ENTER}"
+             f"{MODE_CLICK_ENTER}=click then Enter, watch-run=watch run button first."
     )
 
     p.add_argument("--headless", action="store_true", help="Run without UI.")
@@ -1247,7 +1247,9 @@ def main() -> None:
             args.state_threshold,
         )
     else:
-        run_ui(
+        from press_ui import run_ui as modular_run_ui
+
+        modular_run_ui(
             args.seconds,
             args.toggle,
             args.calibrate_key,

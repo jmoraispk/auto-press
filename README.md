@@ -1,10 +1,10 @@
 # auto-press
 
-Auto clicker with mode selection, global hotkeys, multi-target support, timer UI, and optional per-target state detection.
+Auto clicker with mode selection, global hotkeys, multi-target support, timer UI, per-target state detection, and watch-run automation.
 
 ## Features
 
-- Click-only, enter-only, and click+enter modes
+- Click-only, enter-only, click+enter, and watch-run modes
 - Multi-target rotation (1-3 targets)
 - Always-on countdown timer in UI
 - Bottom log panel with `Show Logs` toggle
@@ -12,7 +12,13 @@ Auto clicker with mode selection, global hotkeys, multi-target support, timer UI
 - Optional per-target region state detection:
   - finished match above threshold -> click + `continue` + enter
   - otherwise -> click + enter
+- Watch-run single-loop flow (per target):
+  - Check run ROI against global run templates first
+  - If run is found, click run center and skip state check on that tick
+  - If run is not found, fall back to state detection/action
 - Extra UI checks: `Test Capture` (state score) and `Test Word` (typing reliability)
+- Run setup UI: `Capture Run Template`, `Test Run`, and watch-run calibrate-to-ROI
+- Persistent setup stored in `templates/config.json`
 
 ## Requirements
 
@@ -36,7 +42,7 @@ uv run press_enter.py [seconds] [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `seconds` | `10.0` | Interval between actions in seconds |
-| `--mode` | `click+enter` | `enter`, `click`, or `click+enter` |
+| `--mode` | `click+enter` | `enter`, `click`, `click+enter`, or `watch-run` |
 | `--targets` | `1` | Number of targets (1-3), click modes only |
 | `--headless` | off | Run without UI |
 | `--toggle` | `PAGEDOWN` | Global hotkey to start/stop (UI) |
@@ -57,7 +63,7 @@ uv run press_enter.py [seconds] [options]
 ## Examples
 
 ```bash
-# UI, default mode (click only)
+# UI, default mode (click+enter)
 uv run press_enter.py
 
 # UI, click + enter mode with 2 targets
@@ -89,5 +95,10 @@ uv run press_enter.py 5 --headless --mode click+enter \
 
 Target status legend in UI:
 - `C*` click point set
-- `R*` region set
-- `F*` finished template set
+- `S*` state ROI + template set
+- `R*` run ROI set
+
+## Persistence
+
+- Templates and config are stored in `templates/`
+- Main config path: `templates/config.json`
