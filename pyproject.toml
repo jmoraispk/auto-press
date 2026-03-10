@@ -17,4 +17,4 @@ vision = [
 ]
 
 [project.scripts]
-auto-press = "press_enter:main"
+auto-press = "main_press:main"

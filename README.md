@@ -34,7 +34,7 @@ uv sync --extra vision
 ## Usage
 
 ```bash
-uv run press_enter.py [seconds] [options]
+uv run main_press.py [seconds] [options]
 ```
 
 ### Core options
@@ -64,19 +64,19 @@ uv run press_enter.py [seconds] [options]
 
 ```bash
 # UI, default mode (click+enter)
-uv run press_enter.py
+uv run main_press.py
 
 # UI, click + enter mode with 2 targets
-uv run press_enter.py 10 --mode click+enter --targets 2
+uv run main_press.py 10 --mode click+enter --targets 2
 
 # Headless enter-only (replacement for old simple mode)
-uv run press_enter.py 5 --headless --mode enter
+uv run main_press.py 5 --headless --mode enter
 
 # Headless click-only
-uv run press_enter.py 5 --headless --mode click --x 500 --y 300
+uv run main_press.py 5 --headless --mode click --x 500 --y 300
 
 # Headless click+enter with state detection
-uv run press_enter.py 5 --headless --mode click+enter \
+uv run main_press.py 5 --headless --mode click+enter \
   --x 500 --y 300 \
   --state-detect \
   --state-bbox 120,80,900,140 \
@@ -105,7 +105,8 @@ Target status legend in UI:
 
 ## Code Layout
 
-- `press_enter.py`: CLI entrypoint (headless + UI dispatch)
+- `main_press.py`: CLI entrypoint (headless + UI dispatch)
 - `press_ui.py`: Tk UI and single-loop target orchestration
+- `press_headless.py`: headless runtime loop and console calibration
 - `press_core.py`: click/type and template-match core helpers
 - `press_store.py`: config/template persistence helpers
