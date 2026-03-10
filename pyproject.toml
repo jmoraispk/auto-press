@@ -5,6 +5,7 @@ description = "Auto clicker with optional Enter key press, global hotkeys, and c
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "customtkinter>=5.2.2",
     "pyautogui>=0.9.54",
     "pytest>=8.0.0",
 ]

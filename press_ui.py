@@ -139,8 +139,8 @@ def run_ui(
     detect_threshold: float = 0.80,
     detect_word: str = "continue",
 ) -> None:
+    import customtkinter as ctk
     import tkinter as tk
-    from tkinter import ttk
     from tkinter.scrolledtext import ScrolledText
 
     pyautogui.PAUSE = 0
@@ -160,9 +160,11 @@ def run_ui(
     run_cooldowns: dict[int, float] = {}
     finished_tpl_cache: dict[str, object] = {}
 
-    root = tk.Tk()
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("dark-blue")
+
+    root = ctk.CTk()
     root.title("Auto Clicker")
-    root.configure(bg=BG)
     root.attributes("-topmost", True)
     root.resizable(False, False)
 
@@ -172,14 +174,10 @@ def run_ui(
     BTN_PADY = 8
     ACTIVE_BG = "#2a2a2a"
 
-    style = ttk.Style()
-    style.theme_use("clam")
-    style.configure("Dark.TCombobox", fieldbackground=ENTRY_BG, background=BTN_BG, foreground=FG, arrowcolor=FG)
-    style.map("Dark.TCombobox", fieldbackground=[("readonly", ENTRY_BG)], selectbackground=[("readonly", ENTRY_BG)], selectforeground=[("readonly", FG)])
-    frm = tk.Frame(root, padx=16, pady=16, bg=BG)
+    frm = ctk.CTkFrame(root, fg_color="transparent")
     frm.pack()
-    content_frm = tk.Frame(frm, bg=BG)
-    content_frm.pack()
+    content_frm = ctk.CTkFrame(frm, fg_color="transparent")
+    content_frm.pack(padx=16, pady=16)
 
     status_canvas = tk.Canvas(content_frm, width=LIGHT_SIZE, height=LIGHT_SIZE, highlightthickness=0, bg=BG)
     status_canvas.grid(row=1, column=5, rowspan=2, sticky="w")
@@ -191,70 +189,61 @@ def run_ui(
 
     set_status(False)
 
-    tk.Label(content_frm, text="Mode:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=0, column=1, sticky="w")
+    ctk.CTkLabel(content_frm, text="Mode:", text_color=MUTED, font=FONT_SMALL).grid(row=0, column=1, sticky="w")
     mode_var = tk.StringVar(value=MODE_LABELS.get(cfg["mode"], MODE_LABELS[MODE_CLICK_ENTER]))
-    mode_combo = ttk.Combobox(content_frm, textvariable=mode_var, values=[MODE_LABELS[m] for m in MODES], state="readonly", width=12, font=FONT_SMALL, style="Dark.TCombobox")
+    mode_values = [MODE_LABELS[m] for m in MODES]
+    mode_combo = ctk.CTkOptionMenu(content_frm, values=mode_values, variable=mode_var, width=170, font=FONT_SMALL)
     mode_combo.grid(row=0, column=2, columnspan=2, sticky="w", padx=(8, 0))
 
-    tk.Label(content_frm, text="Setup Target:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=0, column=4, sticky="w", padx=(12, 0))
-    setup_target_var = tk.IntVar(value=1)
-    setup_target_combo = ttk.Combobox(content_frm, values=[f"T{i+1}" for i in range(num_targets)], state="readonly", width=5, font=FONT_SMALL, style="Dark.TCombobox")
-    setup_target_combo.set("T1")
+    ctk.CTkLabel(content_frm, text="Setup Target:", text_color=MUTED, font=FONT_SMALL).grid(row=0, column=4, sticky="w", padx=(12, 0))
+    setup_target_var = tk.StringVar(value="T1")
+    setup_target_values = [f"T{i+1}" for i in range(num_targets)]
+    setup_target_combo = ctk.CTkOptionMenu(content_frm, values=setup_target_values, variable=setup_target_var, width=90, font=FONT_SMALL)
     setup_target_combo.grid(row=0, column=5, sticky="w", padx=(8, 0))
 
-    target_lbl = tk.Label(content_frm, text="", bg=BG, fg=FG, font=FONT, justify="left", anchor="w")
+    target_lbl = ctk.CTkLabel(content_frm, text="", text_color=FG, font=FONT, justify="left", anchor="w")
     target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
 
-    tk.Label(content_frm, text="Interval (s):", bg=BG, fg=MUTED, font=FONT).grid(row=2, column=1, sticky="w", pady=(8, 0))
+    ctk.CTkLabel(content_frm, text="Interval (s):", text_color=MUTED, font=FONT).grid(row=2, column=1, sticky="w", pady=(8, 0))
     interval_var = tk.StringVar(value=str(cfg["interval_seconds"]))
-    tk.Entry(content_frm, textvariable=interval_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT, relief="flat", justify="center").grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+    ctk.CTkEntry(content_frm, textvariable=interval_var, width=80, font=FONT).grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
     show_logs_var = tk.BooleanVar(value=True)
-    show_logs_check = tk.Checkbutton(
+    show_logs_check = ctk.CTkCheckBox(
         content_frm,
         text="Show Logs",
         variable=show_logs_var,
-        bg=BG,
-        fg=MUTED,
-        selectcolor=ENTRY_BG,
-        activebackground=BG,
-        activeforeground=FG,
+        text_color=MUTED,
         font=FONT,
-        relief="flat",
-        bd=0,
-        padx=6,
+        checkbox_width=22,
+        checkbox_height=22,
     )
     show_logs_check.grid(row=2, column=3, sticky="w", padx=(12, 0), pady=(8, 0))
 
-    timer_lbl = tk.Label(content_frm, text="", bg=BG, fg=MUTED, font=FONT_SMALL, width=6)
+    timer_lbl = ctk.CTkLabel(content_frm, text="", text_color=MUTED, font=FONT_SMALL, width=50)
     timer_lbl.grid(row=2, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
 
     state_detect_var = tk.BooleanVar(value=bool(cfg.get("state_detect_enabled", True)))
-    state_detect_check = tk.Checkbutton(
+    state_detect_check = ctk.CTkCheckBox(
         content_frm,
         text="State Detection",
         variable=state_detect_var,
-        bg=BG,
-        fg=MUTED,
-        selectcolor=ENTRY_BG,
-        activebackground=BG,
-        activeforeground=FG,
+        text_color=MUTED,
         font=FONT,
-        relief="flat",
-        bd=0,
-        padx=6,
+        checkbox_width=22,
+        checkbox_height=22,
     )
     state_detect_check.grid(row=3, column=1, sticky="w", pady=(8, 0))
-    state_opts_frame = tk.Frame(content_frm, bg=BG)
+    state_opts_frame = ctk.CTkFrame(content_frm, fg_color="transparent")
     state_opts_frame.grid(row=4, column=1, columnspan=5, sticky="w", pady=(2, 0))
-    tk.Label(state_opts_frame, text="Word:", bg=BG, fg=MUTED, font=FONT_SMALL).pack(side="left", padx=(0, 4))
+    ctk.CTkLabel(state_opts_frame, text="Word:", text_color=MUTED, font=FONT_SMALL).pack(side="left", padx=(0, 4))
     state_word_var = tk.StringVar(value=str(cfg.get("state_word", "continue")))
-    tk.Entry(state_opts_frame, textvariable=state_word_var, width=10, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="left").pack(side="left", padx=(0, 12))
-    tk.Label(state_opts_frame, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).pack(side="left", padx=(0, 4))
+    ctk.CTkEntry(state_opts_frame, textvariable=state_word_var, width=130, font=FONT_SMALL).pack(side="left", padx=(0, 12))
+    ctk.CTkLabel(state_opts_frame, text="Threshold:", text_color=MUTED, font=FONT_SMALL).pack(side="left", padx=(0, 4))
     state_threshold_var = tk.StringVar(value=f"{float(cfg.get('state_threshold_ui', detect_threshold)):.2f}")
-    tk.Entry(state_opts_frame, textvariable=state_threshold_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="center").pack(side="left")
+    ctk.CTkEntry(state_opts_frame, textvariable=state_threshold_var, width=90, font=FONT_SMALL).pack(side="left")
 
-    log_frame = tk.Frame(frm, bg=BG)
+    log_frame = ctk.CTkFrame(frm, fg_color="transparent")
     log_frame.pack(side="bottom", pady=(10, 0), fill="x")
     log_box = ScrolledText(log_frame, height=6, width=56, bg=ENTRY_BG, fg=FG, insertbackground=FG, font=("Consolas", 9), relief="flat", wrap="word")
     log_box.pack(fill="x")
@@ -285,7 +274,14 @@ def run_ui(
     update_log_visibility()
 
     def setup_target_idx() -> int:
-        return max(0, min(num_targets - 1, setup_target_var.get() - 1))
+        raw = setup_target_var.get().strip()
+        if raw.startswith("T"):
+            raw = raw[1:]
+        try:
+            idx = int(raw) - 1
+        except ValueError:
+            idx = 0
+        return max(0, min(num_targets - 1, idx))
 
     def get_mode_key() -> str:
         lbl = mode_var.get()
@@ -318,14 +314,14 @@ def run_ui(
             t = cfg["targets"][0]
             click = t.get("click_target")
             click_text = "not set" if not click else f"x={click[0]}, y={click[1]}"
-            target_lbl.config(text=f"Target: {click_text} [{target_marker(0)}]")
+            target_lbl.configure(text=f"Target: {click_text} [{target_marker(0)}]")
             return
         lines = []
         for i in range(num_targets):
             click = cfg["targets"][i].get("click_target")
             ctext = "-" if not click else f"({click[0]},{click[1]})"
             lines.append(f"T{i+1}: {ctext} [{target_marker(i)}]")
-        target_lbl.config(text="\n".join(lines))
+        target_lbl.configure(text="\n".join(lines))
 
     def persist_ui_state():
         cfg["mode"] = get_mode_key()
@@ -380,47 +376,41 @@ def run_ui(
         root.wait_window(overlay)
         return result["bbox"]
 
-    actions_frame = tk.Frame(frm, bg=BG)
+    actions_frame = ctk.CTkFrame(frm, fg_color="transparent")
     actions_frame.pack(anchor="w", pady=(12, 0), fill="x")
-    actions_title = tk.Label(actions_frame, text="Setup Steps", bg=BG, fg=MUTED, font=FONT_SMALL)
+    actions_title = ctk.CTkLabel(actions_frame, text="Setup Steps", text_color=MUTED, font=FONT_SMALL)
     actions_title.pack(anchor="w", pady=(0, 6))
-    action_items_frame = tk.Frame(actions_frame, bg=BG)
+    action_items_frame = ctk.CTkFrame(actions_frame, fg_color="transparent")
     action_items_frame.pack(anchor="w")
 
     def make_button(parent, text, command):
-        return tk.Button(
+        return ctk.CTkButton(
             parent,
             text=text,
             command=command,
-            bg=BTN_BG,
-            fg=BTN_FG,
-            activebackground=ACTIVE_BG,
-            activeforeground=BTN_FG,
-            bd=0,
-            highlightthickness=0,
             font=FONT,
-            padx=BTN_PADX,
-            pady=BTN_PADY,
-            cursor="hand2",
+            corner_radius=12,
+            height=34,
+            fg_color=BTN_BG,
+            hover_color=ACTIVE_BG,
+            text_color=BTN_FG,
         )
 
     def add_action_button(text: str, command, help_text: str):
-        row = tk.Frame(action_items_frame, bg=BG)
+        row = ctk.CTkFrame(action_items_frame, fg_color="transparent")
         btn = make_button(row, text, command)
         btn.pack(side="left")
-        tk.Button(
+        ctk.CTkButton(
             row,
             text="?",
-            width=2,
+            width=28,
+            height=28,
             command=lambda: log_event(f"[help] {help_text}"),
-            bg=ENTRY_BG,
-            fg=MUTED,
-            activebackground=ACTIVE_BG,
-            activeforeground=FG,
-            relief="flat",
-            bd=0,
             font=FONT_SMALL,
-            cursor="hand2",
+            corner_radius=14,
+            fg_color=ENTRY_BG,
+            hover_color=ACTIVE_BG,
+            text_color=MUTED,
         ).pack(side="left", padx=(6, 0))
         return row, btn
 
@@ -438,7 +428,7 @@ def run_ui(
             set_status(False)
             log_event("[control] stop")
 
-    top_buttons = tk.Frame(frm, bg=BG)
+    top_buttons = ctk.CTkFrame(frm, fg_color="transparent")
     top_buttons.pack(anchor="w", pady=(12, 0))
     btn_toggle = make_button(top_buttons, f"Start/Stop ({toggle_hk})", toggle_running)
     btn_toggle.pack(side="left", padx=(0, 8))
@@ -657,22 +647,24 @@ def run_ui(
                 if interrupt_event.wait(timeout=per_target_interval):
                     break
 
-    def on_mode_change(_event=None):
+    def on_mode_change(_choice=None):
         refresh_target_text()
         persist_ui_state()
         update_controls_visibility()
 
-    mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
-    def on_target_change(_event=None):
+    mode_combo.configure(command=on_mode_change)
+
+    def on_target_change(_choice=None):
         value = setup_target_combo.get().strip()
         if value.startswith("T"):
             try:
-                setup_target_var.set(int(value[1:]))
+                n = int(value[1:])
+                setup_target_var.set(f"T{max(1, min(num_targets, n))}")
             except ValueError:
-                setup_target_var.set(1)
+                setup_target_var.set("T1")
         refresh_target_text()
 
-    setup_target_combo.bind("<<ComboboxSelected>>", on_target_change)
+    setup_target_combo.configure(command=on_target_change)
     def on_state_toggle():
         persist_ui_state()
         update_controls_visibility()
@@ -753,9 +745,9 @@ def run_ui(
             interval = get_seconds()
             elapsed = time.perf_counter() - lat
             remaining = max(0.0, interval - elapsed)
-            timer_lbl.config(text=f"{remaining:.1f}s")
+            timer_lbl.configure(text=f"{remaining:.1f}s")
         else:
-            timer_lbl.config(text="")
+            timer_lbl.configure(text="")
         root.after(100, update_timer)
 
     update_timer()
