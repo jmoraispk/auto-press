@@ -151,7 +151,7 @@ def run_ui(
     cfg["mode"] = initial_mode
     cfg["state_word"] = detect_word
     cfg["state_threshold_ui"] = detect_threshold
-    cfg["state_detect_enabled"] = True
+    cfg["state_detect_enabled"] = bool(cfg.get("state_detect_enabled", True))
     save_config(cfg)
 
     stop_event = threading.Event()
@@ -176,9 +176,6 @@ def run_ui(
     style.theme_use("clam")
     style.configure("Dark.TCombobox", fieldbackground=ENTRY_BG, background=BTN_BG, foreground=FG, arrowcolor=FG)
     style.map("Dark.TCombobox", fieldbackground=[("readonly", ENTRY_BG)], selectbackground=[("readonly", ENTRY_BG)], selectforeground=[("readonly", FG)])
-    style.configure("Dark.TCheckbutton", background=BG, foreground=MUTED, font=FONT_SMALL)
-    style.map("Dark.TCheckbutton", background=[("active", BG)])
-
     frm = tk.Frame(root, padx=16, pady=16, bg=BG)
     frm.pack()
     content_frm = tk.Frame(frm, bg=BG)
@@ -213,23 +210,49 @@ def run_ui(
     tk.Entry(content_frm, textvariable=interval_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT, relief="flat", justify="center").grid(row=2, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
 
     show_logs_var = tk.BooleanVar(value=True)
-    show_logs_check = ttk.Checkbutton(content_frm, text="Show Logs", variable=show_logs_var, style="Dark.TCheckbutton")
+    show_logs_check = tk.Checkbutton(
+        content_frm,
+        text="Show Logs",
+        variable=show_logs_var,
+        bg=BG,
+        fg=MUTED,
+        selectcolor=ENTRY_BG,
+        activebackground=BG,
+        activeforeground=FG,
+        font=FONT,
+        relief="flat",
+        bd=0,
+        padx=6,
+    )
     show_logs_check.grid(row=2, column=3, sticky="w", padx=(12, 0), pady=(8, 0))
 
     timer_lbl = tk.Label(content_frm, text="", bg=BG, fg=MUTED, font=FONT_SMALL, width=6)
     timer_lbl.grid(row=2, column=4, sticky="w", padx=(4, 0), pady=(8, 0))
 
     state_detect_var = tk.BooleanVar(value=bool(cfg.get("state_detect_enabled", True)))
-    state_detect_check = ttk.Checkbutton(content_frm, text="State Detection", variable=state_detect_var, style="Dark.TCheckbutton")
+    state_detect_check = tk.Checkbutton(
+        content_frm,
+        text="State Detection",
+        variable=state_detect_var,
+        bg=BG,
+        fg=MUTED,
+        selectcolor=ENTRY_BG,
+        activebackground=BG,
+        activeforeground=FG,
+        font=FONT,
+        relief="flat",
+        bd=0,
+        padx=6,
+    )
     state_detect_check.grid(row=3, column=1, sticky="w", pady=(8, 0))
-
-    tk.Label(content_frm, text="Word:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=2, sticky="e", padx=(0, 4), pady=(8, 0))
+    state_opts_frame = tk.Frame(content_frm, bg=BG)
+    state_opts_frame.grid(row=4, column=1, columnspan=5, sticky="w", pady=(2, 0))
+    tk.Label(state_opts_frame, text="Word:", bg=BG, fg=MUTED, font=FONT_SMALL).pack(side="left", padx=(0, 4))
     state_word_var = tk.StringVar(value=str(cfg.get("state_word", "continue")))
-    tk.Entry(content_frm, textvariable=state_word_var, width=10, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="left").grid(row=3, column=3, sticky="w", pady=(8, 0))
-
-    tk.Label(content_frm, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).grid(row=3, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
+    tk.Entry(state_opts_frame, textvariable=state_word_var, width=10, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="left").pack(side="left", padx=(0, 12))
+    tk.Label(state_opts_frame, text="Threshold:", bg=BG, fg=MUTED, font=FONT_SMALL).pack(side="left", padx=(0, 4))
     state_threshold_var = tk.StringVar(value=f"{float(cfg.get('state_threshold_ui', detect_threshold)):.2f}")
-    tk.Entry(content_frm, textvariable=state_threshold_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="center").grid(row=3, column=5, sticky="w", pady=(8, 0))
+    tk.Entry(state_opts_frame, textvariable=state_threshold_var, width=6, bg=ENTRY_BG, fg=ENTRY_FG, insertbackground=FG, font=FONT_SMALL, relief="flat", justify="center").pack(side="left")
 
     log_frame = tk.Frame(frm, bg=BG)
     log_frame.pack(side="bottom", pady=(10, 0), fill="x")
@@ -357,10 +380,12 @@ def run_ui(
         root.wait_window(overlay)
         return result["bbox"]
 
-    btn_frm_top = tk.Frame(frm, bg=BG)
-    btn_frm_top.pack(pady=(12, 0))
-    btn_frm_bottom = tk.Frame(frm, bg=BG)
-    btn_frm_bottom.pack(pady=(8, 0))
+    actions_frame = tk.Frame(frm, bg=BG)
+    actions_frame.pack(anchor="w", pady=(12, 0), fill="x")
+    actions_title = tk.Label(actions_frame, text="Setup Steps", bg=BG, fg=MUTED, font=FONT_SMALL)
+    actions_title.pack(anchor="w", pady=(0, 6))
+    action_items_frame = tk.Frame(actions_frame, bg=BG)
+    action_items_frame.pack(anchor="w")
 
     def make_button(parent, text, command):
         return tk.Button(
@@ -379,6 +404,26 @@ def run_ui(
             cursor="hand2",
         )
 
+    def add_action_button(text: str, command, help_text: str):
+        row = tk.Frame(action_items_frame, bg=BG)
+        btn = make_button(row, text, command)
+        btn.pack(side="left")
+        tk.Button(
+            row,
+            text="?",
+            width=2,
+            command=lambda: log_event(f"[help] {help_text}"),
+            bg=ENTRY_BG,
+            fg=MUTED,
+            activebackground=ACTIVE_BG,
+            activeforeground=FG,
+            relief="flat",
+            bd=0,
+            font=FONT_SMALL,
+            cursor="hand2",
+        ).pack(side="left", padx=(6, 0))
+        return row, btn
+
     def toggle_running():
         running = not bool(cfg.get("_running", False))
         cfg["_running"] = running
@@ -393,7 +438,9 @@ def run_ui(
             set_status(False)
             log_event("[control] stop")
 
-    btn_toggle = make_button(btn_frm_top, f"Start/Stop ({toggle_hk})", toggle_running)
+    top_buttons = tk.Frame(frm, bg=BG)
+    top_buttons.pack(anchor="w", pady=(12, 0))
+    btn_toggle = make_button(top_buttons, f"Start/Stop ({toggle_hk})", toggle_running)
     btn_toggle.pack(side="left", padx=(0, 8))
 
     def ui_calibrate():
@@ -413,7 +460,7 @@ def run_ui(
         refresh_target_text()
         persist_ui_state()
 
-    btn_cal = make_button(btn_frm_top, f"Calibrate ({calibrate_hk})", ui_calibrate)
+    btn_cal = make_button(top_buttons, f"Calibrate ({calibrate_hk})", ui_calibrate)
     btn_cal.pack(side="left")
 
     def ui_drag_capture_state():
@@ -431,8 +478,7 @@ def run_ui(
         refresh_target_text()
         persist_ui_state()
 
-    btn_state_capture = make_button(btn_frm_bottom, "Drag Capture State", ui_drag_capture_state)
-    btn_state_capture.pack(side="left", padx=(8, 0))
+    row_state_capture, _ = add_action_button("1) Drag Capture State", ui_drag_capture_state, "Drag over the finished-state area to save the template for this target.")
 
     def ui_capture_run_template():
         bbox = capture_drag_bbox()
@@ -446,8 +492,7 @@ def run_ui(
         log_event(f"[setup] run template added: {rel}")
         persist_ui_state()
 
-    btn_run_tpl = make_button(btn_frm_bottom, "Capture Run Template", ui_capture_run_template)
-    btn_run_tpl.pack(side="left", padx=(8, 0))
+    row_run_tpl, _ = add_action_button("1) Capture Run Template", ui_capture_run_template, "Capture one example of the blue Run button (global template).")
 
     def ui_test_run():
         idx = setup_target_idx()
@@ -456,8 +501,7 @@ def run_ui(
         s = "-" if score is None else f"{score:.3f}"
         log_event(f"[test-run] T{idx+1} result={reason} score={s} center={center}")
 
-    btn_test_run = make_button(btn_frm_bottom, "Test Run", ui_test_run)
-    btn_test_run.pack(side="left", padx=(8, 0))
+    row_test_run, _ = add_action_button("2) Test Run", ui_test_run, "Run one detection pass for Run button in selected target ROI.")
 
     def ui_test_capture():
         idx = setup_target_idx()
@@ -471,8 +515,7 @@ def run_ui(
         s = "-" if score is None else f"{score:.3f}"
         log_event(f"[test-state] T{idx+1} result={reason} score={s}")
 
-    btn_test_state = make_button(btn_frm_bottom, "Test Capture", ui_test_capture)
-    btn_test_state.pack(side="left", padx=(8, 0))
+    row_test_state, _ = add_action_button("2) Test Capture", ui_test_capture, "Run one state-detection check and log score only (no action).")
 
     def ui_test_word():
         idx = setup_target_idx()
@@ -490,8 +533,43 @@ def run_ui(
         finally:
             pyautogui.moveTo(old.x, old.y, duration=0)
 
-    btn_test_word = make_button(btn_frm_bottom, "Test Word", ui_test_word)
-    btn_test_word.pack(side="left", padx=(6, 0))
+    row_test_word, _ = add_action_button("3) Test Word", ui_test_word, "Click selected target and type the configured word (no Enter).")
+
+    def set_visible(widget, visible: bool):
+        if visible:
+            if not widget.winfo_ismapped():
+                widget.pack(anchor="w", pady=(0, 6))
+        elif widget.winfo_ismapped():
+            widget.pack_forget()
+
+    def update_controls_visibility():
+        mode = get_mode_key()
+        state_on = bool(state_detect_var.get())
+        needs_target = mode in (MODE_CLICK, MODE_CLICK_ENTER, MODE_WATCH_RUN)
+        is_watch = mode == MODE_WATCH_RUN
+        is_click_enter = mode == MODE_CLICK_ENTER
+
+        if needs_target:
+            if not target_lbl.winfo_ismapped():
+                target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
+            setup_target_combo.configure(state="readonly")
+            if not btn_cal.winfo_ismapped():
+                btn_cal.pack(side="left")
+        else:
+            target_lbl.grid_remove()
+            setup_target_combo.configure(state="disabled")
+            if btn_cal.winfo_ismapped():
+                btn_cal.pack_forget()
+
+        set_visible(state_opts_frame, state_on)
+        set_visible(actions_frame, needs_target)
+
+        # Mode-specific action rows
+        set_visible(row_run_tpl, is_watch)
+        set_visible(row_test_run, is_watch)
+        set_visible(row_state_capture, is_click_enter and state_on)
+        set_visible(row_test_state, is_click_enter and state_on)
+        set_visible(row_test_word, is_click_enter and state_on)
 
     def worker_loop():
         while True:
@@ -582,6 +660,7 @@ def run_ui(
     def on_mode_change(_event=None):
         refresh_target_text()
         persist_ui_state()
+        update_controls_visibility()
 
     mode_combo.bind("<<ComboboxSelected>>", on_mode_change)
     def on_target_change(_event=None):
@@ -594,7 +673,11 @@ def run_ui(
         refresh_target_text()
 
     setup_target_combo.bind("<<ComboboxSelected>>", on_target_change)
-    state_detect_check.configure(command=persist_ui_state)
+    def on_state_toggle():
+        persist_ui_state()
+        update_controls_visibility()
+
+    state_detect_check.configure(command=on_state_toggle)
 
     worker = threading.Thread(target=worker_loop, daemon=True)
     worker.start()
@@ -677,6 +760,7 @@ def run_ui(
 
     update_timer()
     refresh_target_text()
+    update_controls_visibility()
     log_event(f"[ready] loaded {CONFIG_PATH}")
 
     def on_close():
