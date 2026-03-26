@@ -11,7 +11,7 @@ from tkinter.scrolledtext import ScrolledText
 import pyautogui
 
 from press_core import save_gray_image
-from press_v2_engine import build_runtime_rules, capture_screen_gray, ensure_vision, evaluate_rule_on_frame, evaluate_rules, execute_match
+from press_v2_engine import build_runtime_rules, capture_screen_gray, ensure_vision, evaluate_rule_on_frame, evaluate_rules, execute_matches
 from press_v2_store import (
     ACTION_CLICK,
     ACTION_CLICK_TYPE_ENTER,
@@ -427,8 +427,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     action_status_var = tk.StringVar(value="Idle")
     interval_var = tk.StringVar(value=str(cfg.get("interval_seconds", initial_seconds)))
     countdown_var = tk.StringVar(value="")
-    show_rules_var = tk.BooleanVar(value=True)
-    show_editor_var = tk.BooleanVar(value=True)
+    show_workspace_var = tk.BooleanVar(value=True)
     show_log_var = tk.BooleanVar(value=True)
 
     ctk.CTkButton(top, text="Start / Stop", command=lambda: toggle_running(), width=120).pack(side="left", padx=(0, 8))
@@ -556,11 +555,10 @@ def run_v2_ui(initial_seconds: float) -> None:
     log_box.configure(state="disabled")
 
     def update_panel_visibility() -> None:
-        show_rules = bool(show_rules_var.get())
-        show_editor = bool(show_editor_var.get())
+        show_workspace = bool(show_workspace_var.get())
         show_log = bool(show_log_var.get())
 
-        if show_rules or show_editor:
+        if show_workspace:
             if not body.winfo_ismapped():
                 if log_frame.winfo_ismapped():
                     body.pack(fill="both", expand=True, padx=14, pady=(0, 8), before=log_frame)
@@ -569,33 +567,18 @@ def run_v2_ui(initial_seconds: float) -> None:
         elif body.winfo_ismapped():
             body.pack_forget()
 
-        if show_rules:
-            if not left.winfo_ismapped():
-                left.pack(side="left", fill="y", padx=(0, 8), pady=8)
-        elif left.winfo_ismapped():
-            left.pack_forget()
-
-        if show_editor:
-            if not right.winfo_ismapped():
-                right.pack(side="left", fill="both", expand=True, pady=8)
-        elif right.winfo_ismapped():
-            right.pack_forget()
-
         if show_log:
             if not log_frame.winfo_ismapped():
                 log_frame.pack(fill="x", padx=14, pady=(0, 14))
         elif log_frame.winfo_ismapped():
             log_frame.pack_forget()
 
-    rules_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Rules", variable=show_rules_var, command=update_panel_visibility, width=80)
-    rules_toggle.pack(side="left", padx=(0, 6))
-    attach_tooltip(rules_toggle, "Show or hide the rules list panel.")
-    editor_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Editor", variable=show_editor_var, command=update_panel_visibility, width=80)
-    editor_toggle.pack(side="left", padx=(0, 6))
-    attach_tooltip(editor_toggle, "Show or hide the selected rule editor panel.")
+    workspace_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Workspace", variable=show_workspace_var, command=update_panel_visibility, width=110)
+    workspace_toggle.pack(side="left", padx=(0, 6))
+    attach_tooltip(workspace_toggle, "Show or hide the main workspace containing both the rules list and rule editor.")
     log_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Log", variable=show_log_var, command=update_panel_visibility, width=70)
     log_toggle.pack(side="left")
-    attach_tooltip(log_toggle, "Show or hide the log panel. You can hide all three panels for a minimal top-bar view.")
+    attach_tooltip(log_toggle, "Show or hide the log panel. You can hide both workspace and log for a minimal top-bar view.")
 
     def update_top_row_visibility() -> None:
         if state["running"]:
@@ -659,8 +642,7 @@ def run_v2_ui(initial_seconds: float) -> None:
                     state["last_scores"][result["id"]] = float(result["score"])
                 root.after(0, refresh_rule_list)
                 if actions:
-                    for action in actions:
-                        execute_match(action)
+                    execute_matches(actions)
                     summaries: dict[str, int] = {}
                     for action in actions:
                         summaries[action["name"]] = summaries.get(action["name"], 0) + 1

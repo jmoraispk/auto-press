@@ -61,3 +61,35 @@ def test_execute_match_uses_click_enter(monkeypatch):
         "center": (40, 50),
         "text": "continue",
     }
+
+
+def test_execute_matches_waits_between_actions(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        press_v2_engine,
+        "execute_match",
+        lambda match: calls.append(("exec", match["center"])),
+    )
+    monkeypatch.setattr(
+        press_v2_engine.time,
+        "sleep",
+        lambda seconds: calls.append(("sleep", seconds)),
+    )
+
+    press_v2_engine.execute_matches(
+        [
+            {"center": (10, 10)},
+            {"center": (20, 20)},
+            {"center": (30, 30)},
+        ],
+        delay_seconds=0.2,
+    )
+
+    assert calls == [
+        ("exec", (10, 10)),
+        ("sleep", 0.2),
+        ("exec", (20, 20)),
+        ("sleep", 0.2),
+        ("exec", (30, 30)),
+    ]

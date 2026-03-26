@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import time
+
 import pyautogui
 
 from press_core import MODE_CLICK, MODE_CLICK_ENTER, do_action, load_template_gray, try_import_vision
 from press_v2_store import ACTION_CLICK, ACTION_CLICK_TYPE_ENTER, resolve_template_path
+
+
+ACTION_SETTLE_DELAY_SEC = 0.20
 
 
 def ensure_vision() -> tuple[object, object]:
@@ -121,3 +126,10 @@ def execute_match(match: dict) -> None:
         do_action(MODE_CLICK_ENTER, center, text_before_enter=match.get("text") or "continue")
     else:
         do_action(MODE_CLICK, center)
+
+
+def execute_matches(matches: list[dict], delay_seconds: float = ACTION_SETTLE_DELAY_SEC) -> None:
+    for idx, match in enumerate(matches):
+        execute_match(match)
+        if idx < len(matches) - 1 and delay_seconds > 0:
+            time.sleep(delay_seconds)
