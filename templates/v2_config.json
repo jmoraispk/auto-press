@@ -22,6 +22,28 @@
       "action": "click+type+enter",
       "text": "continue",
       "priority": 2
+    },
+    {
+      "id": "890cbef2",
+      "name": "click-fetch",
+      "enabled": true,
+      "template_path": "v2_rule_890cbef2.png",
+      "search_region": null,
+      "threshold": 0.9,
+      "action": "click",
+      "text": "continue",
+      "priority": 3
+    },
+    {
+      "id": "a904c7ff",
+      "name": "click-accept",
+      "enabled": true,
+      "template_path": "v2_rule_a904c7ff.png",
+      "search_region": null,
+      "threshold": 0.9,
+      "action": "click",
+      "text": "continue",
+      "priority": 4
     }
   ]
 }
