@@ -20,6 +20,7 @@ def _default_target() -> dict:
 def default_config(num_targets: int = 1) -> dict:
     return {
         "mode": "click+enter",
+        "target_count": num_targets,
         "interval_seconds": 10.0,
         "state_detect_enabled": True,
         "state_word": "continue",

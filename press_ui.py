@@ -146,7 +146,19 @@ def run_ui(
     pyautogui.PAUSE = 0
     pyautogui.FAILSAFE = True
 
-    cfg = load_config(num_targets)
+    max_targets = 3
+    cfg = load_config(max_targets)
+    while len(cfg.get("targets", [])) < max_targets:
+        cfg["targets"].append(
+            {
+                "click_target": None,
+                "state_roi": None,
+                "state_template": None,
+                "run_roi": None,
+            }
+        )
+    cfg["targets"] = cfg["targets"][:max_targets]
+    cfg["target_count"] = int(max(1, min(max_targets, cfg.get("target_count", num_targets))))
     cfg["interval_seconds"] = float(initial_seconds)
     cfg["mode"] = initial_mode
     cfg["state_word"] = detect_word
@@ -195,11 +207,16 @@ def run_ui(
     mode_combo = ctk.CTkOptionMenu(content_frm, values=mode_values, variable=mode_var, width=170, font=FONT_SMALL)
     mode_combo.grid(row=0, column=2, columnspan=2, sticky="w", padx=(8, 0))
 
-    ctk.CTkLabel(content_frm, text="Setup Target:", text_color=MUTED, font=FONT_SMALL).grid(row=0, column=4, sticky="w", padx=(12, 0))
+    ctk.CTkLabel(content_frm, text="Targets:", text_color=MUTED, font=FONT_SMALL).grid(row=0, column=4, sticky="w", padx=(12, 0))
+    target_count_var = tk.StringVar(value=str(cfg.get("target_count", num_targets)))
+    target_count_menu = ctk.CTkOptionMenu(content_frm, values=["1", "2", "3"], variable=target_count_var, width=70, font=FONT_SMALL)
+    target_count_menu.grid(row=0, column=5, sticky="w", padx=(8, 0))
+
+    ctk.CTkLabel(content_frm, text="Setup Target:", text_color=MUTED, font=FONT_SMALL).grid(row=0, column=6, sticky="w", padx=(12, 0))
     setup_target_var = tk.StringVar(value="T1")
-    setup_target_values = [f"T{i+1}" for i in range(num_targets)]
+    setup_target_values = [f"T{i+1}" for i in range(int(target_count_var.get()))]
     setup_target_combo = ctk.CTkOptionMenu(content_frm, values=setup_target_values, variable=setup_target_var, width=90, font=FONT_SMALL)
-    setup_target_combo.grid(row=0, column=5, sticky="w", padx=(8, 0))
+    setup_target_combo.grid(row=0, column=7, sticky="w", padx=(8, 0))
 
     target_lbl = ctk.CTkLabel(content_frm, text="", text_color=FG, font=FONT, justify="left", anchor="w")
     target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
@@ -273,6 +290,12 @@ def run_ui(
     show_logs_check.configure(command=update_log_visibility)
     update_log_visibility()
 
+    def active_target_count() -> int:
+        try:
+            return max(1, min(max_targets, int(target_count_var.get())))
+        except ValueError:
+            return 1
+
     def setup_target_idx() -> int:
         raw = setup_target_var.get().strip()
         if raw.startswith("T"):
@@ -281,7 +304,7 @@ def run_ui(
             idx = int(raw) - 1
         except ValueError:
             idx = 0
-        return max(0, min(num_targets - 1, idx))
+        return max(0, min(active_target_count() - 1, idx))
 
     def get_mode_key() -> str:
         lbl = mode_var.get()
@@ -310,14 +333,15 @@ def run_ui(
         return f"{click_ok}/{state_ok}/{run_ok}"
 
     def refresh_target_text():
-        if num_targets == 1:
+        count = active_target_count()
+        if count == 1:
             t = cfg["targets"][0]
             click = t.get("click_target")
             click_text = "not set" if not click else f"x={click[0]}, y={click[1]}"
             target_lbl.configure(text=f"Target: {click_text} [{target_marker(0)}]")
             return
         lines = []
-        for i in range(num_targets):
+        for i in range(count):
             click = cfg["targets"][i].get("click_target")
             ctext = "-" if not click else f"({click[0]},{click[1]})"
             lines.append(f"T{i+1}: {ctext} [{target_marker(i)}]")
@@ -325,6 +349,7 @@ def run_ui(
 
     def persist_ui_state():
         cfg["mode"] = get_mode_key()
+        cfg["target_count"] = active_target_count()
         cfg["interval_seconds"] = get_seconds()
         cfg["state_detect_enabled"] = bool(state_detect_var.get())
         cfg["state_word"] = (state_word_var.get().strip() or "continue")
@@ -396,7 +421,7 @@ def run_ui(
             text_color=BTN_FG,
         )
 
-    def add_action_button(text: str, command, help_text: str):
+    def add_action_button(text: str, command, help_text: str, row_idx: int):
         row = ctk.CTkFrame(action_items_frame, fg_color="transparent")
         btn = make_button(row, text, command)
         btn.pack(side="left")
@@ -412,6 +437,7 @@ def run_ui(
             hover_color=ACTIVE_BG,
             text_color=MUTED,
         ).pack(side="left", padx=(6, 0))
+        row.grid(row=row_idx, column=0, sticky="w", pady=(0, 6))
         return row, btn
 
     def toggle_running():
@@ -468,7 +494,7 @@ def run_ui(
         refresh_target_text()
         persist_ui_state()
 
-    row_state_capture, _ = add_action_button("1) Drag Capture State", ui_drag_capture_state, "Drag over the finished-state area to save the template for this target.")
+    row_state_capture, _ = add_action_button("1) Drag Capture State", ui_drag_capture_state, "Drag over the finished-state area to save the template for this target.", 0)
 
     def ui_capture_run_template():
         bbox = capture_drag_bbox()
@@ -482,7 +508,7 @@ def run_ui(
         log_event(f"[setup] run template added: {rel}")
         persist_ui_state()
 
-    row_run_tpl, _ = add_action_button("1) Capture Run Template", ui_capture_run_template, "Capture one example of the blue Run button (global template).")
+    row_run_tpl, _ = add_action_button("1) Capture Run Template", ui_capture_run_template, "Capture one example of the blue Run button (global template).", 0)
 
     def ui_test_run():
         idx = setup_target_idx()
@@ -491,7 +517,7 @@ def run_ui(
         s = "-" if score is None else f"{score:.3f}"
         log_event(f"[test-run] T{idx+1} result={reason} score={s} center={center}")
 
-    row_test_run, _ = add_action_button("2) Test Run", ui_test_run, "Run one detection pass for Run button in selected target ROI.")
+    row_test_run, _ = add_action_button("2) Test Run", ui_test_run, "Run one detection pass for Run button in selected target ROI.", 1)
 
     def ui_test_capture():
         idx = setup_target_idx()
@@ -505,7 +531,7 @@ def run_ui(
         s = "-" if score is None else f"{score:.3f}"
         log_event(f"[test-state] T{idx+1} result={reason} score={s}")
 
-    row_test_state, _ = add_action_button("2) Test Capture", ui_test_capture, "Run one state-detection check and log score only (no action).")
+    row_test_state, _ = add_action_button("2) Test Capture", ui_test_capture, "Run one state-detection check and log score only (no action).", 1)
 
     def ui_test_word():
         idx = setup_target_idx()
@@ -523,14 +549,21 @@ def run_ui(
         finally:
             pyautogui.moveTo(old.x, old.y, duration=0)
 
-    row_test_word, _ = add_action_button("3) Test Word", ui_test_word, "Click selected target and type the configured word (no Enter).")
+    row_test_word, _ = add_action_button("3) Test Word", ui_test_word, "Click selected target and type the configured word (no Enter).", 2)
 
-    def set_visible(widget, visible: bool):
+    def set_visible_pack(widget, visible: bool):
         if visible:
             if not widget.winfo_ismapped():
                 widget.pack(anchor="w", pady=(0, 6))
         elif widget.winfo_ismapped():
             widget.pack_forget()
+
+    def set_visible_grid(widget, visible: bool):
+        if visible:
+            if not widget.winfo_ismapped():
+                widget.grid()
+        elif widget.winfo_ismapped():
+            widget.grid_remove()
 
     def update_controls_visibility():
         mode = get_mode_key()
@@ -538,11 +571,12 @@ def run_ui(
         needs_target = mode in (MODE_CLICK, MODE_CLICK_ENTER, MODE_WATCH_RUN)
         is_watch = mode == MODE_WATCH_RUN
         is_click_enter = mode == MODE_CLICK_ENTER
+        has_action_rows = is_watch or (is_click_enter and state_on)
 
         if needs_target:
             if not target_lbl.winfo_ismapped():
                 target_lbl.grid(row=1, column=1, columnspan=3, sticky="w", pady=(4, 0))
-            setup_target_combo.configure(state="readonly")
+            setup_target_combo.configure(state="normal")
             if not btn_cal.winfo_ismapped():
                 btn_cal.pack(side="left")
         else:
@@ -551,15 +585,15 @@ def run_ui(
             if btn_cal.winfo_ismapped():
                 btn_cal.pack_forget()
 
-        set_visible(state_opts_frame, state_on)
-        set_visible(actions_frame, needs_target)
+        set_visible_grid(state_opts_frame, state_on)
+        set_visible_pack(actions_frame, needs_target and has_action_rows)
 
         # Mode-specific action rows
-        set_visible(row_run_tpl, is_watch)
-        set_visible(row_test_run, is_watch)
-        set_visible(row_state_capture, is_click_enter and state_on)
-        set_visible(row_test_state, is_click_enter and state_on)
-        set_visible(row_test_word, is_click_enter and state_on)
+        set_visible_grid(row_run_tpl, is_watch)
+        set_visible_grid(row_test_run, is_watch)
+        set_visible_grid(row_state_capture, is_click_enter and state_on)
+        set_visible_grid(row_test_state, is_click_enter and state_on)
+        set_visible_grid(row_test_word, is_click_enter and state_on)
 
     def worker_loop():
         while True:
@@ -577,8 +611,9 @@ def run_ui(
 
             run_templates = load_run_templates(cfg.get("run_templates", []), TEMPLATES_DIR)
             interval = get_seconds()
-            per_target_interval = interval / max(1, num_targets)
-            for i in range(num_targets):
+            count = active_target_count()
+            per_target_interval = interval / max(1, count)
+            for i in range(count):
                 if stop_event.is_set() or not running_event.is_set():
                     break
                 tcfg = cfg["targets"][i]
@@ -654,12 +689,24 @@ def run_ui(
 
     mode_combo.configure(command=on_mode_change)
 
+    def on_target_count_change(_choice=None):
+        count = active_target_count()
+        values = [f"T{i+1}" for i in range(count)]
+        setup_target_combo.configure(values=values)
+        if setup_target_var.get() not in values:
+            setup_target_var.set("T1")
+        refresh_target_text()
+        persist_ui_state()
+        update_controls_visibility()
+
+    target_count_menu.configure(command=on_target_count_change)
+
     def on_target_change(_choice=None):
         value = setup_target_combo.get().strip()
         if value.startswith("T"):
             try:
                 n = int(value[1:])
-                setup_target_var.set(f"T{max(1, min(num_targets, n))}")
+                setup_target_var.set(f"T{max(1, min(active_target_count(), n))}")
             except ValueError:
                 setup_target_var.set("T1")
         refresh_target_text()

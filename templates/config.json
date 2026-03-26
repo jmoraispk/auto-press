@@ -1,0 +1,31 @@
+{
+  "mode": "click+enter",
+  "target_count": 1,
+  "interval_seconds": 10.0,
+  "state_detect_enabled": false,
+  "state_word": "continue",
+  "state_threshold_ui": 0.8,
+  "run_threshold": 0.85,
+  "run_cooldown_seconds": 1.5,
+  "run_templates": [],
+  "targets": [
+    {
+      "click_target": null,
+      "state_roi": null,
+      "state_template": null,
+      "run_roi": null
+    },
+    {
+      "click_target": null,
+      "state_roi": null,
+      "state_template": null,
+      "run_roi": null
+    },
+    {
+      "click_target": null,
+      "state_roi": null,
+      "state_template": null,
+      "run_roi": null
+    }
+  ]
+}
