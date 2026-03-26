@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import tkinter as tk
@@ -26,6 +27,47 @@ from press_v2_store import (
     save_config,
     template_asset_path,
 )
+
+
+IS_WINDOWS = sys.platform.startswith("win")
+
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    RegisterHotKey = user32.RegisterHotKey
+    RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
+    RegisterHotKey.restype = wintypes.BOOL
+    UnregisterHotKey = user32.UnregisterHotKey
+    UnregisterHotKey.argtypes = [wintypes.HWND, wintypes.INT]
+    UnregisterHotKey.restype = wintypes.BOOL
+    GetMessageW = user32.GetMessageW
+    GetMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT]
+    GetMessageW.restype = wintypes.BOOL
+    TranslateMessage = user32.TranslateMessage
+    DispatchMessageW = user32.DispatchMessageW
+    PostThreadMessageW = user32.PostThreadMessageW
+    PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    PostThreadMessageW.restype = wintypes.BOOL
+    GetCurrentThreadId = kernel32.GetCurrentThreadId
+    GetCurrentThreadId.restype = wintypes.DWORD
+    WM_HOTKEY = 0x0312
+    WM_QUIT = 0x0012
+    MOD_NOREPEAT = 0x4000
+    VK_PAGEDOWN = 0x22
+
+    class MSG(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", wintypes.HWND),
+            ("message", wintypes.UINT),
+            ("wParam", wintypes.WPARAM),
+            ("lParam", wintypes.LPARAM),
+            ("time", wintypes.DWORD),
+            ("pt", wintypes.POINT),
+        ]
 
 
 def run_v2_ui(initial_seconds: float) -> None:
@@ -65,6 +107,9 @@ def run_v2_ui(initial_seconds: float) -> None:
     stop_event = threading.Event()
     interrupt_event = threading.Event()
     tooltip_state = {"window": None}
+    hotkey_thread_stop = threading.Event()
+    hotkey_thread_id = {"tid": None}
+    hotkey_ok = {"ok": True, "err": ""}
 
     def log_event(message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}\n"
@@ -628,6 +673,43 @@ def run_v2_ui(initial_seconds: float) -> None:
         update_top_row_visibility()
         log_event("[control] started")
 
+    def start_hotkeys() -> None:
+        if not IS_WINDOWS:
+            hotkey_ok["ok"] = False
+            hotkey_ok["err"] = "Global hotkeys are only supported on Windows."
+            return
+
+        def hotkey_loop() -> None:
+            tid = GetCurrentThreadId()
+            hotkey_thread_id["tid"] = tid
+            HOTKEY_ID = 1
+
+            if not RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_PAGEDOWN):
+                hotkey_ok["ok"] = False
+                hotkey_ok["err"] = "Failed to register Page Down hotkey."
+                return
+
+            msg = MSG()
+            while not hotkey_thread_stop.is_set():
+                ok = GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if ok <= 0:
+                    break
+                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    root.after(0, toggle_running)
+                TranslateMessage(ctypes.byref(msg))
+                DispatchMessageW(ctypes.byref(msg))
+            UnregisterHotKey(None, HOTKEY_ID)
+
+        threading.Thread(target=hotkey_loop, daemon=True).start()
+
+    def stop_hotkeys() -> None:
+        if not IS_WINDOWS:
+            return
+        hotkey_thread_stop.set()
+        tid = hotkey_thread_id["tid"]
+        if tid:
+            PostThreadMessageW(tid, WM_QUIT, 0, 0)
+
     def worker_loop() -> None:
         while not stop_event.is_set():
             if not running_event.wait(timeout=0.2):
@@ -663,6 +745,11 @@ def run_v2_ui(initial_seconds: float) -> None:
     worker = threading.Thread(target=worker_loop, daemon=True)
     worker.start()
 
+    root.bind_all("<Next>", lambda _event: toggle_running())
+    start_hotkeys()
+    if not hotkey_ok["ok"]:
+        log_event(f"[error] {hotkey_ok['err']}")
+
     update_action_fields()
     refresh_template_choices()
     refresh_rule_list(0 if cfg.get("rules") else None)
@@ -679,6 +766,7 @@ def run_v2_ui(initial_seconds: float) -> None:
         running_event.clear()
         interrupt_event.set()
         stop_event.set()
+        stop_hotkeys()
         with cfg_lock:
             cfg["interval_seconds"] = current_interval()
             save_config(cfg)
