@@ -64,6 +64,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     running_event = threading.Event()
     stop_event = threading.Event()
     interrupt_event = threading.Event()
+    tooltip_state = {"window": None}
 
     def log_event(message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}\n"
@@ -77,6 +78,47 @@ def run_v2_ui(initial_seconds: float) -> None:
             log_box.configure(state="disabled")
 
         root.after(0, append)
+
+    def attach_tooltip(widget, text: str) -> None:
+        def hide_tooltip(_event=None) -> None:
+            tip = tooltip_state.get("window")
+            if tip is not None:
+                tip.destroy()
+                tooltip_state["window"] = None
+
+        def show_tooltip(_event=None) -> None:
+            hide_tooltip()
+            tip = tk.Toplevel(root)
+            tip.wm_overrideredirect(True)
+            tip.attributes("-topmost", True)
+            tip.configure(bg="#1f1f1f")
+            label = tk.Label(
+                tip,
+                text=text,
+                justify="left",
+                wraplength=260,
+                bg="#1f1f1f",
+                fg="#f0f0f0",
+                relief="solid",
+                borderwidth=1,
+                padx=8,
+                pady=6,
+            )
+            label.pack()
+            x = widget.winfo_rootx() + widget.winfo_width() + 8
+            y = widget.winfo_rooty() + widget.winfo_height() + 4
+            tip.geometry(f"+{x}+{y}")
+            tooltip_state["window"] = tip
+
+        widget.bind("<Enter>", show_tooltip, add="+")
+        widget.bind("<Leave>", hide_tooltip, add="+")
+        widget.bind("<ButtonPress>", hide_tooltip, add="+")
+
+    def info_badge(parent, text: str, side: str = "left", padx: tuple[int, int] = (4, 0)):
+        badge = ctk.CTkLabel(parent, text="(?)", text_color=MUTED, font=FONT_SMALL)
+        badge.pack(side=side, padx=padx)
+        attach_tooltip(badge, text)
+        return badge
 
     def capture_drag_bbox() -> list[int] | None:
         result = {"bbox": None}
@@ -265,7 +307,6 @@ def run_v2_ui(initial_seconds: float) -> None:
             for pos, item in enumerate(cfg["rules"], start=1):
                 item["priority"] = pos
             state["last_scores"].pop(removed["id"], None)
-            state["cooldowns"].pop(removed["id"], None)
         persist_and_refresh(max(0, idx - 1))
         log_event(f"[rule] deleted {removed['name']}")
 
@@ -386,16 +427,22 @@ def run_v2_ui(initial_seconds: float) -> None:
     action_status_var = tk.StringVar(value="Idle")
     interval_var = tk.StringVar(value=str(cfg.get("interval_seconds", initial_seconds)))
     countdown_var = tk.StringVar(value="")
+    show_rules_var = tk.BooleanVar(value=True)
+    show_editor_var = tk.BooleanVar(value=True)
+    show_log_var = tk.BooleanVar(value=True)
 
     ctk.CTkButton(top, text="Start / Stop", command=lambda: toggle_running(), width=120).pack(side="left", padx=(0, 8))
     interval_frame = ctk.CTkFrame(top, fg_color="transparent")
     interval_frame.pack(side="left")
     ctk.CTkLabel(interval_frame, text="Interval (s):", font=FONT, text_color=MUTED).pack(side="left")
+    info_badge(interval_frame, "How often the app captures the screen and evaluates all enabled rules.")
     ctk.CTkEntry(interval_frame, textvariable=interval_var, width=80).pack(side="left", padx=(6, 14))
     countdown_label = ctk.CTkLabel(top, textvariable=countdown_var, font=("Consolas", 18, "bold"), text_color=MUTED)
     status_label = ctk.CTkLabel(top, textvariable=status_var, font=FONT, text_color=STATUS_STOPPED)
     status_label.pack(side="left", padx=(0, 14))
     ctk.CTkLabel(top, textvariable=action_status_var, font=FONT_SMALL, text_color=MUTED).pack(side="left")
+    panel_toggle_frame = ctk.CTkFrame(top, fg_color="transparent")
+    panel_toggle_frame.pack(side="right")
 
     body = ctk.CTkFrame(root)
     body.pack(fill="both", expand=True, padx=14, pady=(0, 8))
@@ -405,7 +452,10 @@ def run_v2_ui(initial_seconds: float) -> None:
     right = ctk.CTkFrame(body)
     right.pack(side="left", fill="both", expand=True, pady=8)
 
-    ctk.CTkLabel(left, text="Rules", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
+    rules_header = ctk.CTkFrame(left, fg_color="transparent")
+    rules_header.pack(anchor="w", padx=12, pady=(12, 8))
+    ctk.CTkLabel(rules_header, text="Rules", font=("Segoe UI", 14, "bold")).pack(side="left")
+    info_badge(rules_header, "Enabled rules are checked every scan. Use Up and Down to control evaluation order.")
     rule_list = tk.Listbox(left, width=34, height=14, activestyle="dotbox", exportselection=False)
     rule_list.pack(padx=12, pady=(0, 10))
     rule_list.bind("<<ListboxSelect>>", load_selected_rule)
@@ -430,28 +480,46 @@ def run_v2_ui(initial_seconds: float) -> None:
     template_choice_var = tk.StringVar(value="")
     region_var = tk.StringVar(value="Whole screen")
 
-    ctk.CTkLabel(editor, text="Rule Editor", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 10))
+    editor_header = ctk.CTkFrame(editor, fg_color="transparent")
+    editor_header.pack(anchor="w", pady=(0, 10))
+    ctk.CTkLabel(editor_header, text="Rule Editor", font=("Segoe UI", 14, "bold")).pack(side="left")
+    info_badge(editor_header, "Edit the selected rule. Rules match a template on screen and then run the chosen action.")
 
     basics_frame = ctk.CTkFrame(editor, fg_color="transparent")
     basics_frame.pack(fill="x", pady=(0, 8))
     ctk.CTkLabel(basics_frame, text="Name", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
+    name_help = ctk.CTkLabel(basics_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
+    name_help.grid(row=0, column=1, sticky="w", padx=(4, 12))
+    attach_tooltip(name_help, "Friendly label used in the rules list and log output.")
     ctk.CTkLabel(basics_frame, text="Action", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=2, sticky="w")
-    ctk.CTkLabel(basics_frame, text="Text (optional)", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=3, sticky="w")
+    action_help = ctk.CTkLabel(basics_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
+    action_help.grid(row=0, column=3, sticky="w", padx=(4, 12))
+    attach_tooltip(action_help, "Click: click the matched center. Click+type+enter: click, type the text, then press Enter.")
+    ctk.CTkLabel(basics_frame, text="Text (optional)", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=4, sticky="w")
+    text_help = ctk.CTkLabel(basics_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
+    text_help.grid(row=0, column=5, sticky="w", padx=(4, 0))
+    attach_tooltip(text_help, "Only used by click+type+enter. Leave it as the default if you just want a simple continuation word.")
     ctk.CTkEntry(basics_frame, textvariable=name_var, width=180).grid(row=1, column=0, sticky="w", padx=(0, 12))
-    ctk.CTkCheckBox(basics_frame, text="Enabled", variable=enabled_var).grid(row=1, column=1, sticky="w", padx=(0, 12))
+    ctk.CTkCheckBox(basics_frame, text="Enabled", variable=enabled_var).grid(row=1, column=1, columnspan=2, sticky="w", padx=(0, 12))
     action_menu = ctk.CTkOptionMenu(basics_frame, values=ACTION_TYPES, variable=action_var, command=update_action_fields, width=150)
-    action_menu.grid(row=1, column=2, sticky="w", padx=(0, 12))
+    action_menu.grid(row=1, column=2, columnspan=2, sticky="w", padx=(0, 12))
     text_entry = ctk.CTkEntry(basics_frame, textvariable=text_var, width=160)
-    text_entry.grid(row=1, column=3, sticky="w")
+    text_entry.grid(row=1, column=4, columnspan=2, sticky="w")
 
     tuning_frame = ctk.CTkFrame(editor, fg_color="transparent")
     tuning_frame.pack(fill="x", pady=(0, 12))
     ctk.CTkLabel(tuning_frame, text="Threshold", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
-    ctk.CTkEntry(tuning_frame, textvariable=threshold_var, width=90).grid(row=1, column=0, sticky="w", padx=(0, 12))
+    threshold_help = ctk.CTkLabel(tuning_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
+    threshold_help.grid(row=0, column=1, sticky="w", padx=(4, 0))
+    attach_tooltip(threshold_help, "Higher values are stricter. Around 0.90 is a good default for stable button templates.")
+    ctk.CTkEntry(tuning_frame, textvariable=threshold_var, width=90).grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 12))
 
     template_section = ctk.CTkFrame(editor)
     template_section.pack(fill="x", pady=(0, 8))
-    ctk.CTkLabel(template_section, text="Template", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+    template_header = ctk.CTkFrame(template_section, fg_color="transparent")
+    template_header.pack(anchor="w", padx=12, pady=(10, 4))
+    ctk.CTkLabel(template_header, text="Template", font=("Segoe UI", 12, "bold")).pack(side="left")
+    info_badge(template_header, "Choose an existing template image or capture a new one from the screen.")
     template_row = ctk.CTkFrame(template_section, fg_color="transparent")
     template_row.pack(fill="x", padx=12, pady=(0, 10))
     template_choice_menu = ctk.CTkOptionMenu(template_row, values=[""], variable=template_choice_var, width=220)
@@ -461,7 +529,10 @@ def run_v2_ui(initial_seconds: float) -> None:
 
     search_section = ctk.CTkFrame(editor)
     search_section.pack(fill="x", pady=(0, 8))
-    ctk.CTkLabel(search_section, text="Search Scope", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+    search_header = ctk.CTkFrame(search_section, fg_color="transparent")
+    search_header.pack(anchor="w", padx=12, pady=(10, 4))
+    ctk.CTkLabel(search_header, text="Search Scope", font=("Segoe UI", 12, "bold")).pack(side="left")
+    info_badge(search_header, "Whole screen scans everywhere. A search region makes matching faster and reduces false positives.")
     search_row = ctk.CTkFrame(search_section, fg_color="transparent")
     search_row.pack(fill="x", padx=12, pady=(0, 10))
     ctk.CTkLabel(search_row, textvariable=region_var, font=FONT_SMALL, text_color=MUTED).pack(side="left", padx=(0, 12))
@@ -472,13 +543,59 @@ def run_v2_ui(initial_seconds: float) -> None:
     editor_actions.pack(fill="x", pady=(4, 0))
     ctk.CTkButton(editor_actions, text="Test Match", command=test_selected_rule, width=100).pack(side="left", padx=(0, 8))
     ctk.CTkButton(editor_actions, text="Save Rule", command=save_selected_rule, width=100).pack(side="left")
+    info_badge(editor_actions, "Test Match runs a single scan without starting the loop. Save Rule persists your edits to disk.", padx=(8, 0))
 
     log_frame = ctk.CTkFrame(root)
     log_frame.pack(fill="x", padx=14, pady=(0, 14))
-    ctk.CTkLabel(log_frame, text="Log", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=12, pady=(10, 8))
+    log_header = ctk.CTkFrame(log_frame, fg_color="transparent")
+    log_header.pack(anchor="w", padx=12, pady=(10, 8))
+    ctk.CTkLabel(log_header, text="Log", font=("Segoe UI", 14, "bold")).pack(side="left")
+    info_badge(log_header, "Shows setup actions, match results, and runtime errors for the current session.")
     log_box = ScrolledText(log_frame, height=14, wrap="word")
     log_box.pack(fill="x", padx=12, pady=(0, 12))
     log_box.configure(state="disabled")
+
+    def update_panel_visibility() -> None:
+        show_rules = bool(show_rules_var.get())
+        show_editor = bool(show_editor_var.get())
+        show_log = bool(show_log_var.get())
+
+        if show_rules or show_editor:
+            if not body.winfo_ismapped():
+                if log_frame.winfo_ismapped():
+                    body.pack(fill="both", expand=True, padx=14, pady=(0, 8), before=log_frame)
+                else:
+                    body.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        elif body.winfo_ismapped():
+            body.pack_forget()
+
+        if show_rules:
+            if not left.winfo_ismapped():
+                left.pack(side="left", fill="y", padx=(0, 8), pady=8)
+        elif left.winfo_ismapped():
+            left.pack_forget()
+
+        if show_editor:
+            if not right.winfo_ismapped():
+                right.pack(side="left", fill="both", expand=True, pady=8)
+        elif right.winfo_ismapped():
+            right.pack_forget()
+
+        if show_log:
+            if not log_frame.winfo_ismapped():
+                log_frame.pack(fill="x", padx=14, pady=(0, 14))
+        elif log_frame.winfo_ismapped():
+            log_frame.pack_forget()
+
+    rules_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Rules", variable=show_rules_var, command=update_panel_visibility, width=80)
+    rules_toggle.pack(side="left", padx=(0, 6))
+    attach_tooltip(rules_toggle, "Show or hide the rules list panel.")
+    editor_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Editor", variable=show_editor_var, command=update_panel_visibility, width=80)
+    editor_toggle.pack(side="left", padx=(0, 6))
+    attach_tooltip(editor_toggle, "Show or hide the selected rule editor panel.")
+    log_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Log", variable=show_log_var, command=update_panel_visibility, width=70)
+    log_toggle.pack(side="left")
+    attach_tooltip(log_toggle, "Show or hide the log panel. You can hide all three panels for a minimal top-bar view.")
 
     def update_top_row_visibility() -> None:
         if state["running"]:
@@ -570,6 +687,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     update_runtime_rules()
     set_running_status(False)
     update_top_row_visibility()
+    update_panel_visibility()
     update_timer()
     log_event(f"[ready] loaded {V2_CONFIG_PATH}")
 
