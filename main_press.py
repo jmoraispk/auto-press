@@ -5,6 +5,7 @@ import argparse
 from press_core import MODE_CLICK, MODE_CLICK_ENTER, MODE_ENTER, MODE_WATCH_RUN, MODES, parse_bbox
 from press_headless import run_headless
 from press_ui import run_ui
+from press_v2_ui import run_v2_ui
 
 
 DETECT_THRESHOLD_DEFAULT = 0.80
@@ -68,6 +69,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--toggle", default="PAGEDOWN", help="Toggle hotkey. Default: PAGEDOWN")
     parser.add_argument("--calibrate-key", default="PAGEUP", help="Calibrate hotkey. Default: PAGEUP")
+    parser.add_argument(
+        "--ui",
+        choices=["v2", "legacy"],
+        default="v2",
+        help="Choose the interface to launch. Default: v2",
+    )
     return parser.parse_args()
 
 
@@ -98,15 +105,19 @@ def main() -> None:
         )
         return
 
-    run_ui(
-        args.seconds,
-        args.toggle,
-        args.calibrate_key,
-        args.mode,
-        args.targets,
-        args.state_threshold,
-        args.state_word,
-    )
+    if args.ui == "legacy":
+        run_ui(
+            args.seconds,
+            args.toggle,
+            args.calibrate_key,
+            args.mode,
+            args.targets,
+            args.state_threshold,
+            args.state_word,
+        )
+        return
+
+    run_v2_ui(args.seconds)
 
 
 if __name__ == "__main__":
