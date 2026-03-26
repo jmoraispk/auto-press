@@ -26,7 +26,6 @@ def default_rule(name: str = "New Rule") -> dict:
         "threshold": 0.90,
         "action": ACTION_CLICK,
         "text": "continue",
-        "cooldown_seconds": 2.0,
         "priority": 1,
     }
 
@@ -56,7 +55,6 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
         base["action"] = ACTION_CLICK
     base["enabled"] = bool(base.get("enabled", True))
     base["threshold"] = _clamp_float(base.get("threshold"), 0.90, 0.0, 1.0)
-    base["cooldown_seconds"] = _clamp_float(base.get("cooldown_seconds"), 2.0, 0.0, 3600.0)
     base["priority"] = priority
     if not isinstance(base.get("text"), str):
         base["text"] = "continue"

@@ -44,10 +44,10 @@ def run_v2_ui(initial_seconds: float) -> None:
     cfg_lock = threading.Lock()
     state = {
         "runtime_rules": [],
-        "cooldowns": {},
         "last_scores": {},
         "running": False,
         "last_action": "Idle",
+        "next_tick_at": None,
     }
 
     root = ctk.CTk()
@@ -185,10 +185,8 @@ def run_v2_ui(initial_seconds: float) -> None:
         name_var.set("")
         enabled_var.set(True)
         threshold_var.set("0.90")
-        cooldown_var.set("2.0")
         action_var.set(ACTION_CLICK)
         text_var.set("continue")
-        template_var.set("No template captured")
         template_choice_var.set("")
         region_var.set("Whole screen")
         update_action_fields()
@@ -201,11 +199,8 @@ def run_v2_ui(initial_seconds: float) -> None:
         name_var.set(rule.get("name", ""))
         enabled_var.set(bool(rule.get("enabled", True)))
         threshold_var.set(f"{float(rule.get('threshold', 0.90)):.2f}")
-        cooldown_var.set(f"{float(rule.get('cooldown_seconds', 2.0)):.1f}")
         action_var.set(rule.get("action", ACTION_CLICK))
         text_var.set(rule.get("text", "continue"))
-        tpl = rule.get("template_path") or "No template captured"
-        template_var.set(str(tpl))
         template_choice_var.set(rule.get("template_path") or "")
         region = rule.get("search_region")
         region_var.set("Whole screen" if not region else f"{tuple(region)}")
@@ -243,10 +238,6 @@ def run_v2_ui(initial_seconds: float) -> None:
                 rule["threshold"] = max(0.0, min(1.0, float(threshold_var.get().strip())))
             except ValueError:
                 rule["threshold"] = 0.90
-            try:
-                rule["cooldown_seconds"] = max(0.0, float(cooldown_var.get().strip()))
-            except ValueError:
-                rule["cooldown_seconds"] = 2.0
             rule["action"] = action_var.get() if action_var.get() in ACTION_TYPES else ACTION_CLICK
             rule["text"] = text_var.get().strip() or "continue"
             for pos, item in enumerate(cfg["rules"], start=1):
@@ -316,7 +307,6 @@ def run_v2_ui(initial_seconds: float) -> None:
                 cfg["rules"][idx]["template_path"] = stored_path
             persist_and_refresh(idx)
             refresh_template_choices(stored_path)
-            template_var.set(stored_path)
             log_event(f"[capture] template saved to {path.name}")
         except Exception as exc:
             log_event(f"[error] template capture failed: {exc}")
@@ -333,7 +323,6 @@ def run_v2_ui(initial_seconds: float) -> None:
         with cfg_lock:
             cfg["rules"][idx]["template_path"] = choice
         persist_and_refresh(idx)
-        template_var.set(choice)
         log_event(f"[template] selected {choice}")
 
     def capture_search_region() -> None:
@@ -396,10 +385,14 @@ def run_v2_ui(initial_seconds: float) -> None:
     status_var = tk.StringVar(value="Stopped")
     action_status_var = tk.StringVar(value="Idle")
     interval_var = tk.StringVar(value=str(cfg.get("interval_seconds", initial_seconds)))
+    countdown_var = tk.StringVar(value="")
 
     ctk.CTkButton(top, text="Start / Stop", command=lambda: toggle_running(), width=120).pack(side="left", padx=(0, 8))
-    ctk.CTkLabel(top, text="Interval (s):", font=FONT, text_color=MUTED).pack(side="left")
-    ctk.CTkEntry(top, textvariable=interval_var, width=80).pack(side="left", padx=(6, 14))
+    interval_frame = ctk.CTkFrame(top, fg_color="transparent")
+    interval_frame.pack(side="left")
+    ctk.CTkLabel(interval_frame, text="Interval (s):", font=FONT, text_color=MUTED).pack(side="left")
+    ctk.CTkEntry(interval_frame, textvariable=interval_var, width=80).pack(side="left", padx=(6, 14))
+    countdown_label = ctk.CTkLabel(top, textvariable=countdown_var, font=("Consolas", 18, "bold"), text_color=MUTED)
     status_label = ctk.CTkLabel(top, textvariable=status_var, font=FONT, text_color=STATUS_STOPPED)
     status_label.pack(side="left", padx=(0, 14))
     ctk.CTkLabel(top, textvariable=action_status_var, font=FONT_SMALL, text_color=MUTED).pack(side="left")
@@ -432,10 +425,8 @@ def run_v2_ui(initial_seconds: float) -> None:
     name_var = tk.StringVar()
     enabled_var = tk.BooleanVar(value=True)
     threshold_var = tk.StringVar(value="0.90")
-    cooldown_var = tk.StringVar(value="2.0")
     action_var = tk.StringVar(value=ACTION_CLICK)
     text_var = tk.StringVar(value="continue")
-    template_var = tk.StringVar(value="No template captured")
     template_choice_var = tk.StringVar(value="")
     region_var = tk.StringVar(value="Whole screen")
 
@@ -456,14 +447,11 @@ def run_v2_ui(initial_seconds: float) -> None:
     tuning_frame = ctk.CTkFrame(editor, fg_color="transparent")
     tuning_frame.pack(fill="x", pady=(0, 12))
     ctk.CTkLabel(tuning_frame, text="Threshold", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
-    ctk.CTkLabel(tuning_frame, text="Cooldown (s)", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=1, sticky="w")
     ctk.CTkEntry(tuning_frame, textvariable=threshold_var, width=90).grid(row=1, column=0, sticky="w", padx=(0, 12))
-    ctk.CTkEntry(tuning_frame, textvariable=cooldown_var, width=90).grid(row=1, column=1, sticky="w")
 
     template_section = ctk.CTkFrame(editor)
     template_section.pack(fill="x", pady=(0, 8))
     ctk.CTkLabel(template_section, text="Template", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
-    ctk.CTkLabel(template_section, textvariable=template_var, font=FONT_SMALL, text_color=MUTED).pack(anchor="w", padx=12, pady=(0, 6))
     template_row = ctk.CTkFrame(template_section, fg_color="transparent")
     template_row.pack(fill="x", padx=12, pady=(0, 10))
     template_choice_menu = ctk.CTkOptionMenu(template_row, values=[""], variable=template_choice_var, width=220)
@@ -474,9 +462,9 @@ def run_v2_ui(initial_seconds: float) -> None:
     search_section = ctk.CTkFrame(editor)
     search_section.pack(fill="x", pady=(0, 8))
     ctk.CTkLabel(search_section, text="Search Scope", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
-    ctk.CTkLabel(search_section, textvariable=region_var, font=FONT_SMALL, text_color=MUTED).pack(anchor="w", padx=12, pady=(0, 6))
     search_row = ctk.CTkFrame(search_section, fg_color="transparent")
     search_row.pack(fill="x", padx=12, pady=(0, 10))
+    ctk.CTkLabel(search_row, textvariable=region_var, font=FONT_SMALL, text_color=MUTED).pack(side="left", padx=(0, 12))
     ctk.CTkButton(search_row, text="Capture Search Region", command=capture_search_region, width=160).pack(side="left", padx=(0, 8))
     ctk.CTkButton(search_row, text="Use Whole Screen", command=use_whole_screen, width=130).pack(side="left")
 
@@ -492,12 +480,36 @@ def run_v2_ui(initial_seconds: float) -> None:
     log_box.pack(fill="x", padx=12, pady=(0, 12))
     log_box.configure(state="disabled")
 
+    def update_top_row_visibility() -> None:
+        if state["running"]:
+            if interval_frame.winfo_ismapped():
+                interval_frame.pack_forget()
+            if not countdown_label.winfo_ismapped():
+                countdown_label.pack(side="left", padx=(0, 14), before=status_label)
+        else:
+            if countdown_label.winfo_ismapped():
+                countdown_label.pack_forget()
+            if not interval_frame.winfo_ismapped():
+                interval_frame.pack(side="left", before=status_label)
+
+    def update_timer() -> None:
+        if stop_event.is_set():
+            return
+        if state["running"] and state["next_tick_at"] is not None:
+            remaining = max(0.0, float(state["next_tick_at"]) - time.perf_counter())
+            countdown_var.set(f"{remaining:.1f}s")
+        else:
+            countdown_var.set("")
+        root.after(100, update_timer)
+
     def toggle_running() -> None:
         if state["running"]:
             state["running"] = False
             running_event.clear()
             interrupt_event.set()
+            state["next_tick_at"] = None
             set_running_status(False)
+            update_top_row_visibility()
             action_status_var.set("Idle")
             log_event("[control] stopped")
             return
@@ -509,9 +521,11 @@ def run_v2_ui(initial_seconds: float) -> None:
             log_event("[control] add at least one enabled rule with a selected or captured template")
             return
         state["running"] = True
+        state["next_tick_at"] = time.perf_counter() + current_interval()
         interrupt_event.clear()
         running_event.set()
         set_running_status(True)
+        update_top_row_visibility()
         log_event("[control] started")
 
     def worker_loop() -> None:
@@ -523,20 +537,25 @@ def run_v2_ui(initial_seconds: float) -> None:
                     interval = current_interval()
                     cfg["interval_seconds"] = interval
                     runtime_rules = list(state["runtime_rules"])
-                results, chosen = evaluate_rules(runtime_rules, state["cooldowns"])
+                results, actions = evaluate_rules(runtime_rules)
                 for result in results:
                     state["last_scores"][result["id"]] = float(result["score"])
                 root.after(0, refresh_rule_list)
-                if chosen is not None:
-                    execute_match(chosen)
-                    state["cooldowns"][chosen["id"]] = time.time()
-                    state["last_action"] = f"{chosen['name']} @ {chosen['center']}"
+                if actions:
+                    for action in actions:
+                        execute_match(action)
+                    summaries: dict[str, int] = {}
+                    for action in actions:
+                        summaries[action["name"]] = summaries.get(action["name"], 0) + 1
+                    summary_text = ", ".join(f"{name} x{count}" for name, count in summaries.items())
+                    state["last_action"] = summary_text
                     root.after(0, lambda text=state["last_action"]: action_status_var.set(text))
-                    log_event(f"[tick] matched {chosen['name']} score={chosen['score']:.3f} center={chosen['center']}")
+                    log_event(f"[tick] matched {summary_text}")
                 else:
                     state["last_action"] = "No match"
                     root.after(0, lambda: action_status_var.set("No match"))
                     log_event("[tick] no eligible rule matched")
+                state["next_tick_at"] = time.perf_counter() + interval
             except Exception as exc:
                 log_event(f"[error] worker failed: {exc}")
             if interrupt_event.wait(timeout=current_interval()):
@@ -550,10 +569,13 @@ def run_v2_ui(initial_seconds: float) -> None:
     refresh_rule_list(0 if cfg.get("rules") else None)
     update_runtime_rules()
     set_running_status(False)
+    update_top_row_visibility()
+    update_timer()
     log_event(f"[ready] loaded {V2_CONFIG_PATH}")
 
     def on_close() -> None:
         state["running"] = False
+        state["next_tick_at"] = None
         running_event.clear()
         interrupt_event.set()
         stop_event.set()

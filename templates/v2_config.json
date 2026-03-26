@@ -10,7 +10,6 @@
       "threshold": 0.9,
       "action": "click",
       "text": "continue",
-      "cooldown_seconds": 2.0,
       "priority": 1
     },
     {
@@ -22,7 +21,6 @@
       "threshold": 0.9,
       "action": "click+type+enter",
       "text": "continue",
-      "cooldown_seconds": 2.0,
       "priority": 2
     }
   ]
