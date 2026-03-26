@@ -6,7 +6,6 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog
 from tkinter.scrolledtext import ScrolledText
 
 import pyautogui
@@ -53,7 +52,7 @@ def run_v2_ui(initial_seconds: float) -> None:
 
     root = ctk.CTk()
     root.title("Auto Press V2")
-    root.geometry("980x620")
+    root.geometry("900x560")
     root.attributes("-topmost", True)
 
     FONT = ("Segoe UI", 11)
@@ -322,31 +321,6 @@ def run_v2_ui(initial_seconds: float) -> None:
         except Exception as exc:
             log_event(f"[error] template capture failed: {exc}")
 
-    def choose_template_file() -> None:
-        idx = selected_index()
-        if idx is None:
-            log_event("[template] select a rule first")
-            return
-        selected = filedialog.askopenfilename(
-            parent=root,
-            title="Choose template image",
-            initialdir=str(template_asset_path(".")),
-            filetypes=[
-                ("Image files", "*.png *.jpg *.jpeg *.bmp *.webp"),
-                ("PNG files", "*.png"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not selected:
-            return
-        stored_path = serialize_template_path(selected)
-        with cfg_lock:
-            cfg["rules"][idx]["template_path"] = stored_path
-        persist_and_refresh(idx)
-        refresh_template_choices(stored_path)
-        template_var.set(stored_path)
-        log_event(f"[template] using {Path(selected).name}")
-
     def use_selected_template() -> None:
         idx = selected_index()
         if idx is None:
@@ -431,7 +405,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     ctk.CTkLabel(top, textvariable=action_status_var, font=FONT_SMALL, text_color=MUTED).pack(side="left")
 
     body = ctk.CTkFrame(root)
-    body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+    body.pack(fill="both", expand=True, padx=14, pady=(0, 8))
 
     left = ctk.CTkFrame(body)
     left.pack(side="left", fill="y", padx=(0, 8), pady=8)
@@ -439,7 +413,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     right.pack(side="left", fill="both", expand=True, pady=8)
 
     ctk.CTkLabel(left, text="Rules", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=12, pady=(12, 8))
-    rule_list = tk.Listbox(left, width=44, height=18, activestyle="dotbox", exportselection=False)
+    rule_list = tk.Listbox(left, width=34, height=14, activestyle="dotbox", exportselection=False)
     rule_list.pack(padx=12, pady=(0, 10))
     rule_list.bind("<<ListboxSelect>>", load_selected_rule)
 
@@ -453,7 +427,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     ctk.CTkLabel(left, text=f"Config: {V2_CONFIG_PATH.name}", font=FONT_SMALL, text_color=MUTED).pack(anchor="w", padx=12, pady=(0, 12))
 
     editor = ctk.CTkFrame(right, fg_color="transparent")
-    editor.pack(fill="x", padx=14, pady=(14, 8))
+    editor.pack(fill="both", expand=True, padx=14, pady=(14, 8))
 
     name_var = tk.StringVar()
     enabled_var = tk.BooleanVar(value=True)
@@ -465,48 +439,57 @@ def run_v2_ui(initial_seconds: float) -> None:
     template_choice_var = tk.StringVar(value="")
     region_var = tk.StringVar(value="Whole screen")
 
-    ctk.CTkLabel(editor, text="Rule Editor", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
-    ctk.CTkLabel(editor, text="Name", font=FONT_SMALL, text_color=MUTED).grid(row=1, column=0, sticky="w")
-    ctk.CTkEntry(editor, textvariable=name_var, width=220).grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(0, 10))
-    ctk.CTkCheckBox(editor, text="Enabled", variable=enabled_var).grid(row=2, column=1, sticky="w", padx=(0, 12), pady=(0, 10))
+    ctk.CTkLabel(editor, text="Rule Editor", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 10))
 
-    ctk.CTkLabel(editor, text="Action", font=FONT_SMALL, text_color=MUTED).grid(row=1, column=2, sticky="w")
-    action_menu = ctk.CTkOptionMenu(editor, values=ACTION_TYPES, variable=action_var, command=update_action_fields, width=160)
-    action_menu.grid(row=2, column=2, sticky="w", padx=(0, 12), pady=(0, 10))
+    basics_frame = ctk.CTkFrame(editor, fg_color="transparent")
+    basics_frame.pack(fill="x", pady=(0, 8))
+    ctk.CTkLabel(basics_frame, text="Name", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
+    ctk.CTkLabel(basics_frame, text="Action", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=2, sticky="w")
+    ctk.CTkLabel(basics_frame, text="Text (optional)", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=3, sticky="w")
+    ctk.CTkEntry(basics_frame, textvariable=name_var, width=180).grid(row=1, column=0, sticky="w", padx=(0, 12))
+    ctk.CTkCheckBox(basics_frame, text="Enabled", variable=enabled_var).grid(row=1, column=1, sticky="w", padx=(0, 12))
+    action_menu = ctk.CTkOptionMenu(basics_frame, values=ACTION_TYPES, variable=action_var, command=update_action_fields, width=150)
+    action_menu.grid(row=1, column=2, sticky="w", padx=(0, 12))
+    text_entry = ctk.CTkEntry(basics_frame, textvariable=text_var, width=160)
+    text_entry.grid(row=1, column=3, sticky="w")
 
-    ctk.CTkLabel(editor, text="Text (optional)", font=FONT_SMALL, text_color=MUTED).grid(row=1, column=3, sticky="w")
-    text_entry = ctk.CTkEntry(editor, textvariable=text_var, width=180)
-    text_entry.grid(row=2, column=3, sticky="w", pady=(0, 10))
+    tuning_frame = ctk.CTkFrame(editor, fg_color="transparent")
+    tuning_frame.pack(fill="x", pady=(0, 12))
+    ctk.CTkLabel(tuning_frame, text="Threshold", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
+    ctk.CTkLabel(tuning_frame, text="Cooldown (s)", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=1, sticky="w")
+    ctk.CTkEntry(tuning_frame, textvariable=threshold_var, width=90).grid(row=1, column=0, sticky="w", padx=(0, 12))
+    ctk.CTkEntry(tuning_frame, textvariable=cooldown_var, width=90).grid(row=1, column=1, sticky="w")
 
-    ctk.CTkLabel(editor, text="Threshold", font=FONT_SMALL, text_color=MUTED).grid(row=3, column=0, sticky="w")
-    ctk.CTkEntry(editor, textvariable=threshold_var, width=90).grid(row=4, column=0, sticky="w", padx=(0, 12), pady=(0, 10))
+    template_section = ctk.CTkFrame(editor)
+    template_section.pack(fill="x", pady=(0, 8))
+    ctk.CTkLabel(template_section, text="Template", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+    ctk.CTkLabel(template_section, textvariable=template_var, font=FONT_SMALL, text_color=MUTED).pack(anchor="w", padx=12, pady=(0, 6))
+    template_row = ctk.CTkFrame(template_section, fg_color="transparent")
+    template_row.pack(fill="x", padx=12, pady=(0, 10))
+    template_choice_menu = ctk.CTkOptionMenu(template_row, values=[""], variable=template_choice_var, width=220)
+    template_choice_menu.pack(side="left", padx=(0, 8))
+    ctk.CTkButton(template_row, text="Use Existing", command=use_selected_template, width=110).pack(side="left", padx=(0, 8))
+    ctk.CTkButton(template_row, text="Capture Pattern", command=capture_template, width=130).pack(side="left")
 
-    ctk.CTkLabel(editor, text="Cooldown (s)", font=FONT_SMALL, text_color=MUTED).grid(row=3, column=1, sticky="w")
-    ctk.CTkEntry(editor, textvariable=cooldown_var, width=90).grid(row=4, column=1, sticky="w", padx=(0, 12), pady=(0, 10))
+    search_section = ctk.CTkFrame(editor)
+    search_section.pack(fill="x", pady=(0, 8))
+    ctk.CTkLabel(search_section, text="Search Scope", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+    ctk.CTkLabel(search_section, textvariable=region_var, font=FONT_SMALL, text_color=MUTED).pack(anchor="w", padx=12, pady=(0, 6))
+    search_row = ctk.CTkFrame(search_section, fg_color="transparent")
+    search_row.pack(fill="x", padx=12, pady=(0, 10))
+    ctk.CTkButton(search_row, text="Capture Search Region", command=capture_search_region, width=160).pack(side="left", padx=(0, 8))
+    ctk.CTkButton(search_row, text="Use Whole Screen", command=use_whole_screen, width=130).pack(side="left")
 
-    ctk.CTkLabel(editor, text="Template", font=FONT_SMALL, text_color=MUTED).grid(row=5, column=0, sticky="w")
-    ctk.CTkLabel(editor, textvariable=template_var, font=FONT_SMALL).grid(row=6, column=0, columnspan=4, sticky="w", pady=(0, 6))
-    ctk.CTkLabel(editor, text="Existing Templates", font=FONT_SMALL, text_color=MUTED).grid(row=7, column=0, sticky="w")
-    template_choice_menu = ctk.CTkOptionMenu(editor, values=[""], variable=template_choice_var, width=220)
-    template_choice_menu.grid(row=8, column=0, sticky="w", padx=(0, 12), pady=(0, 10))
-    ctk.CTkButton(editor, text="Use Selected Template", command=use_selected_template, width=160).grid(row=8, column=1, sticky="w", padx=(0, 12), pady=(0, 10))
-    ctk.CTkLabel(editor, text="Search Scope", font=FONT_SMALL, text_color=MUTED).grid(row=9, column=0, sticky="w")
-    ctk.CTkLabel(editor, textvariable=region_var, font=FONT_SMALL).grid(row=10, column=0, columnspan=4, sticky="w", pady=(0, 10))
+    editor_actions = ctk.CTkFrame(editor, fg_color="transparent")
+    editor_actions.pack(fill="x", pady=(4, 0))
+    ctk.CTkButton(editor_actions, text="Test Match", command=test_selected_rule, width=100).pack(side="left", padx=(0, 8))
+    ctk.CTkButton(editor_actions, text="Save Rule", command=save_selected_rule, width=100).pack(side="left")
 
-    actions = ctk.CTkFrame(right, fg_color="transparent")
-    actions.pack(fill="x", padx=14, pady=(0, 8))
-    ctk.CTkButton(actions, text="Capture Pattern", command=capture_template, width=140).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(actions, text="Choose Template File", command=choose_template_file, width=150).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(actions, text="Capture Search Region", command=capture_search_region, width=170).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(actions, text="Use Whole Screen", command=use_whole_screen, width=140).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(actions, text="Test Match", command=test_selected_rule, width=100).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(actions, text="Save Rule", command=save_selected_rule, width=100).pack(side="left")
-
-    log_frame = ctk.CTkFrame(right, fg_color="transparent")
-    log_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-    ctk.CTkLabel(log_frame, text="Log", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 8))
+    log_frame = ctk.CTkFrame(root)
+    log_frame.pack(fill="x", padx=14, pady=(0, 14))
+    ctk.CTkLabel(log_frame, text="Log", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=12, pady=(10, 8))
     log_box = ScrolledText(log_frame, height=14, wrap="word")
-    log_box.pack(fill="both", expand=True)
+    log_box.pack(fill="x", padx=12, pady=(0, 12))
     log_box.configure(state="disabled")
 
     def toggle_running() -> None:

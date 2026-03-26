@@ -16,7 +16,7 @@
     {
       "id": "9208cf0d",
       "name": "continue-agent",
-      "enabled": false,
+      "enabled": true,
       "template_path": "v2_rule_9208cf0d.png",
       "search_region": null,
       "threshold": 0.9,
