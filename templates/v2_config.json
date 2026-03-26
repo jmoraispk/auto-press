@@ -1,0 +1,29 @@
+{
+  "interval_seconds": 10.0,
+  "rules": [
+    {
+      "id": "81dbee27",
+      "name": "click-run",
+      "enabled": true,
+      "template_path": "v2_rule_81dbee27.png",
+      "search_region": null,
+      "threshold": 0.9,
+      "action": "click",
+      "text": "continue",
+      "cooldown_seconds": 2.0,
+      "priority": 1
+    },
+    {
+      "id": "9208cf0d",
+      "name": "continue-agent",
+      "enabled": false,
+      "template_path": "v2_rule_9208cf0d.png",
+      "search_region": null,
+      "threshold": 0.9,
+      "action": "click+type+enter",
+      "text": "continue",
+      "cooldown_seconds": 2.0,
+      "priority": 2
+    }
+  ]
+}

@@ -121,6 +121,14 @@ def template_asset_path(name: str) -> Path:
     return TEMPLATES_DIR / name
 
 
+def serialize_template_path(path: str | Path) -> str:
+    p = Path(path)
+    try:
+        return str(p.resolve().relative_to(TEMPLATES_DIR.resolve()))
+    except ValueError:
+        return str(p.resolve())
+
+
 def resolve_template_path(template_ref: str | None) -> Path | None:
     if not template_ref:
         return None
@@ -136,6 +144,13 @@ def relativize_template_path(path: str | Path) -> str:
         return str(p.resolve().relative_to(TEMPLATES_DIR.resolve()))
     except ValueError:
         return p.name
+
+
+def list_template_files() -> list[str]:
+    ensure_v2_templates_dir()
+    exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+    files = [p.name for p in TEMPLATES_DIR.iterdir() if p.is_file() and p.suffix.lower() in exts]
+    return sorted(files)
 
 
 def make_rule_summary(rule: dict, last_score: float | None = None) -> str:

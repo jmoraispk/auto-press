@@ -6,6 +6,7 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
+from tkinter import filedialog
 from tkinter.scrolledtext import ScrolledText
 
 import pyautogui
@@ -18,9 +19,10 @@ from press_v2_store import (
     ACTION_TYPES,
     V2_CONFIG_PATH,
     default_rule,
+    list_template_files,
     load_config,
     make_rule_summary,
-    relativize_template_path,
+    serialize_template_path,
     resolve_template_path,
     save_config,
     template_asset_path,
@@ -57,6 +59,8 @@ def run_v2_ui(initial_seconds: float) -> None:
     FONT = ("Segoe UI", 11)
     FONT_SMALL = ("Segoe UI", 10)
     MUTED = "#A8A8A8"
+    STATUS_STOPPED = "#d32f2f"
+    STATUS_RUNNING = "#2e7d32"
 
     running_event = threading.Event()
     stop_event = threading.Event()
@@ -186,6 +190,7 @@ def run_v2_ui(initial_seconds: float) -> None:
         action_var.set(ACTION_CLICK)
         text_var.set("continue")
         template_var.set("No template captured")
+        template_choice_var.set("")
         region_var.set("Whole screen")
         update_action_fields()
 
@@ -202,12 +207,29 @@ def run_v2_ui(initial_seconds: float) -> None:
         text_var.set(rule.get("text", "continue"))
         tpl = rule.get("template_path") or "No template captured"
         template_var.set(str(tpl))
+        template_choice_var.set(rule.get("template_path") or "")
         region = rule.get("search_region")
         region_var.set("Whole screen" if not region else f"{tuple(region)}")
         update_action_fields()
 
+    def refresh_template_choices(selected: str | None = None) -> None:
+        options = [""] + list_template_files()
+        template_choice_menu.configure(values=options)
+        if selected is not None:
+            template_choice_var.set(selected if selected in options else "")
+        elif template_choice_var.get() not in options:
+            template_choice_var.set("")
+
     def update_action_fields(*_args) -> None:
         text_entry.configure(state="normal" if action_var.get() == ACTION_CLICK_TYPE_ENTER else "disabled")
+
+    def set_running_status(running: bool) -> None:
+        if running:
+            status_var.set("Running")
+            status_label.configure(text_color=STATUS_RUNNING)
+        else:
+            status_var.set("Stopped")
+            status_label.configure(text_color=STATUS_STOPPED)
 
     def save_selected_rule() -> bool:
         idx = selected_index()
@@ -290,13 +312,55 @@ def run_v2_ui(initial_seconds: float) -> None:
             file_name = f"v2_rule_{cfg['rules'][idx]['id']}.png"
             path = template_asset_path(file_name)
             save_gray_image(str(path), gray)
+            stored_path = serialize_template_path(path)
             with cfg_lock:
-                cfg["rules"][idx]["template_path"] = relativize_template_path(path)
+                cfg["rules"][idx]["template_path"] = stored_path
             persist_and_refresh(idx)
-            template_var.set(relativize_template_path(path))
+            refresh_template_choices(stored_path)
+            template_var.set(stored_path)
             log_event(f"[capture] template saved to {path.name}")
         except Exception as exc:
             log_event(f"[error] template capture failed: {exc}")
+
+    def choose_template_file() -> None:
+        idx = selected_index()
+        if idx is None:
+            log_event("[template] select a rule first")
+            return
+        selected = filedialog.askopenfilename(
+            parent=root,
+            title="Choose template image",
+            initialdir=str(template_asset_path(".")),
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.bmp *.webp"),
+                ("PNG files", "*.png"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not selected:
+            return
+        stored_path = serialize_template_path(selected)
+        with cfg_lock:
+            cfg["rules"][idx]["template_path"] = stored_path
+        persist_and_refresh(idx)
+        refresh_template_choices(stored_path)
+        template_var.set(stored_path)
+        log_event(f"[template] using {Path(selected).name}")
+
+    def use_selected_template() -> None:
+        idx = selected_index()
+        if idx is None:
+            log_event("[template] select a rule first")
+            return
+        choice = template_choice_var.get().strip()
+        if not choice:
+            log_event("[template] choose an existing template first")
+            return
+        with cfg_lock:
+            cfg["rules"][idx]["template_path"] = choice
+        persist_and_refresh(idx)
+        template_var.set(choice)
+        log_event(f"[template] selected {choice}")
 
     def capture_search_region() -> None:
         idx = selected_index()
@@ -362,7 +426,8 @@ def run_v2_ui(initial_seconds: float) -> None:
     ctk.CTkButton(top, text="Start / Stop", command=lambda: toggle_running(), width=120).pack(side="left", padx=(0, 8))
     ctk.CTkLabel(top, text="Interval (s):", font=FONT, text_color=MUTED).pack(side="left")
     ctk.CTkEntry(top, textvariable=interval_var, width=80).pack(side="left", padx=(6, 14))
-    ctk.CTkLabel(top, textvariable=status_var, font=FONT, text_color="#E6E6E6").pack(side="left", padx=(0, 14))
+    status_label = ctk.CTkLabel(top, textvariable=status_var, font=FONT, text_color=STATUS_STOPPED)
+    status_label.pack(side="left", padx=(0, 14))
     ctk.CTkLabel(top, textvariable=action_status_var, font=FONT_SMALL, text_color=MUTED).pack(side="left")
 
     body = ctk.CTkFrame(root)
@@ -397,6 +462,7 @@ def run_v2_ui(initial_seconds: float) -> None:
     action_var = tk.StringVar(value=ACTION_CLICK)
     text_var = tk.StringVar(value="continue")
     template_var = tk.StringVar(value="No template captured")
+    template_choice_var = tk.StringVar(value="")
     region_var = tk.StringVar(value="Whole screen")
 
     ctk.CTkLabel(editor, text="Rule Editor", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
@@ -420,12 +486,17 @@ def run_v2_ui(initial_seconds: float) -> None:
 
     ctk.CTkLabel(editor, text="Template", font=FONT_SMALL, text_color=MUTED).grid(row=5, column=0, sticky="w")
     ctk.CTkLabel(editor, textvariable=template_var, font=FONT_SMALL).grid(row=6, column=0, columnspan=4, sticky="w", pady=(0, 6))
-    ctk.CTkLabel(editor, text="Search Scope", font=FONT_SMALL, text_color=MUTED).grid(row=7, column=0, sticky="w")
-    ctk.CTkLabel(editor, textvariable=region_var, font=FONT_SMALL).grid(row=8, column=0, columnspan=4, sticky="w", pady=(0, 10))
+    ctk.CTkLabel(editor, text="Existing Templates", font=FONT_SMALL, text_color=MUTED).grid(row=7, column=0, sticky="w")
+    template_choice_menu = ctk.CTkOptionMenu(editor, values=[""], variable=template_choice_var, width=220)
+    template_choice_menu.grid(row=8, column=0, sticky="w", padx=(0, 12), pady=(0, 10))
+    ctk.CTkButton(editor, text="Use Selected Template", command=use_selected_template, width=160).grid(row=8, column=1, sticky="w", padx=(0, 12), pady=(0, 10))
+    ctk.CTkLabel(editor, text="Search Scope", font=FONT_SMALL, text_color=MUTED).grid(row=9, column=0, sticky="w")
+    ctk.CTkLabel(editor, textvariable=region_var, font=FONT_SMALL).grid(row=10, column=0, columnspan=4, sticky="w", pady=(0, 10))
 
     actions = ctk.CTkFrame(right, fg_color="transparent")
     actions.pack(fill="x", padx=14, pady=(0, 8))
     ctk.CTkButton(actions, text="Capture Pattern", command=capture_template, width=140).pack(side="left", padx=(0, 8))
+    ctk.CTkButton(actions, text="Choose Template File", command=choose_template_file, width=150).pack(side="left", padx=(0, 8))
     ctk.CTkButton(actions, text="Capture Search Region", command=capture_search_region, width=170).pack(side="left", padx=(0, 8))
     ctk.CTkButton(actions, text="Use Whole Screen", command=use_whole_screen, width=140).pack(side="left", padx=(0, 8))
     ctk.CTkButton(actions, text="Test Match", command=test_selected_rule, width=100).pack(side="left", padx=(0, 8))
@@ -443,7 +514,7 @@ def run_v2_ui(initial_seconds: float) -> None:
             state["running"] = False
             running_event.clear()
             interrupt_event.set()
-            status_var.set("Stopped")
+            set_running_status(False)
             action_status_var.set("Idle")
             log_event("[control] stopped")
             return
@@ -452,12 +523,12 @@ def run_v2_ui(initial_seconds: float) -> None:
             save_config(cfg)
         update_runtime_rules()
         if not state["runtime_rules"]:
-            log_event("[control] add at least one enabled rule with a captured template")
+            log_event("[control] add at least one enabled rule with a selected or captured template")
             return
         state["running"] = True
         interrupt_event.clear()
         running_event.set()
-        status_var.set("Running")
+        set_running_status(True)
         log_event("[control] started")
 
     def worker_loop() -> None:
@@ -492,8 +563,10 @@ def run_v2_ui(initial_seconds: float) -> None:
     worker.start()
 
     update_action_fields()
+    refresh_template_choices()
     refresh_rule_list(0 if cfg.get("rules") else None)
     update_runtime_rules()
+    set_running_status(False)
     log_event(f"[ready] loaded {V2_CONFIG_PATH}")
 
     def on_close() -> None:

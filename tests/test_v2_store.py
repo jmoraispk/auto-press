@@ -46,3 +46,23 @@ def test_normalize_config_reassigns_priorities():
     }
     normalized = press_v2_store.normalize_config(cfg)
     assert [rule["priority"] for rule in normalized["rules"]] == [1, 2]
+
+
+def test_serialize_template_path_keeps_absolute_outside_templates(tmp_path, monkeypatch):
+    templates_dir = tmp_path / "templates"
+    outside = tmp_path / "elsewhere" / "sample.png"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"fake")
+    monkeypatch.setattr(press_v2_store, "TEMPLATES_DIR", templates_dir)
+    stored = press_v2_store.serialize_template_path(outside)
+    assert stored == str(outside.resolve())
+
+
+def test_list_template_files_only_returns_images(tmp_path, monkeypatch):
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir(parents=True)
+    (templates_dir / "one.png").write_bytes(b"fake")
+    (templates_dir / "two.jpg").write_bytes(b"fake")
+    (templates_dir / "notes.txt").write_text("ignore", encoding="utf-8")
+    monkeypatch.setattr(press_v2_store, "TEMPLATES_DIR", templates_dir)
+    assert press_v2_store.list_template_files() == ["one.png", "two.jpg"]
