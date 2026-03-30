@@ -15,6 +15,7 @@ MODES = [MODE_ENTER, MODE_CLICK, MODE_CLICK_ENTER, MODE_WATCH_RUN]
 WORD_PRE_DELAY_SEC = 0.30
 WORD_RETRY_DELAY_SEC = 0.30
 WORD_POST_DELAY_SEC = 0.30
+ENTER_AFTER_WORD_DELAY_SEC = 0.15
 
 
 def try_import_vision():
@@ -117,6 +118,7 @@ def do_action(mode: str, click_target: tuple[int, int] | None = None, text_befor
     if mode == MODE_CLICK_ENTER:
         if text_before_enter:
             type_word_with_retry(text_before_enter)
+            time.sleep(ENTER_AFTER_WORD_DELAY_SEC)
         pyautogui.press("enter")
 
     pyautogui.moveTo(old.x, old.y, duration=0)
