@@ -33,23 +33,22 @@ That's it — the UI opens and you're ready to add your first rule.
 
 ## 🧭 The workflow
 
-Setting up an automation is two steps, full stop:
+Setting up an automation is three steps, full stop:
 
 1. **Add a rule.** Pick an action: click on an element, or send `Enter` to it (optionally typing a word first).
 2. **Take a screenshot of where the action should happen.** Use `Capture Pattern` in the UI to crop the button or region. auto-press will scan the screen for that template and fire the action when it matches.
-
-Repeat for every button you want automated (run, continue, accept, etc.). Reorder them in the list and press **Start / Stop**.
+3. **Press Start.** Repeat steps 1–2 for every button you want automated (run, continue, accept, etc.).
 
 ## 🟢🔴 Tray indicator
 
 auto-press sits in the Windows system tray. The dot color tells you what it's doing:
 
-<p>
-  <img src="imgs/tray_off.png" alt="Stopped" width="140">&nbsp;&nbsp;<strong>Stopped</strong> — not scanning
-</p>
-<p>
-  <img src="imgs/tray_on.png" alt="Running" width="140">&nbsp;&nbsp;<strong>Running</strong> — scanning and firing rules
-</p>
+<table>
+  <tr>
+    <td align="center"><img src="imgs/tray_off.png" alt="Stopped" width="110"><br><strong>Stopped</strong><br><sub>not scanning</sub></td>
+    <td align="center"><img src="imgs/tray_on.png" alt="Running" width="110"><br><strong>Running</strong><br><sub>scanning &amp; firing rules</sub></td>
+  </tr>
+</table>
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
