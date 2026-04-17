@@ -38,7 +38,7 @@ Each rule is a few clicks:
 
 1. **Add a rule.** Name it and toggle it on.
 2. **Pick an action.** Click, click + Enter, or click + send (send = type a word, then Enter).
-3. **Pick a region.** Whole screen or a crop — it's both what triggers the rule and where the cursor clicks (center of the region).
+3. **Capture the target.** A crop of the button — triggers the rule; the cursor clicks its center.
 4. **Test & Save.** Run a single match to confirm, then save.
 5. **Press Page Down** to start / stop. The window can stay in the background or hide to the tray.
 
