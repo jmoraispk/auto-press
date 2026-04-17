@@ -10,6 +10,7 @@ from pathlib import Path
 from tkinter.scrolledtext import ScrolledText
 
 import pyautogui
+from PIL import Image, ImageTk
 
 from press_core import save_gray_image
 from press_tray import PYSTRAY_AVAILABLE, PYSTRAY_IMPORT_ERROR, TrayController
@@ -558,26 +559,82 @@ def run_v2_ui(initial_seconds: float) -> None:
     text_entry = ctk.CTkEntry(basics_frame, textvariable=text_var, width=160)
     text_entry.grid(row=1, column=4, columnspan=2, sticky="w")
 
-    tuning_frame = ctk.CTkFrame(editor, fg_color="transparent")
-    tuning_frame.pack(fill="x", pady=(0, 12))
-    ctk.CTkLabel(tuning_frame, text="Threshold", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
-    threshold_help = ctk.CTkLabel(tuning_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
-    threshold_help.grid(row=0, column=1, sticky="w", padx=(4, 0))
-    attach_tooltip(threshold_help, "Higher values are stricter. Around 0.90 is a good default for stable button templates.")
-    ctk.CTkEntry(tuning_frame, textvariable=threshold_var, width=90).grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 12))
+    PREVIEW_BOX_W = 240
+    PREVIEW_BOX_H = 120
+    PREVIEW_BG = "#1a1a1a"
+    PREVIEW_PLACEHOLDER = "(no template selected)"
+    preview_meta_var = tk.StringVar(value="")
 
     template_section = ctk.CTkFrame(editor)
     template_section.pack(fill="x", pady=(0, 8))
     template_header = ctk.CTkFrame(template_section, fg_color="transparent")
     template_header.pack(anchor="w", padx=12, pady=(10, 4))
-    ctk.CTkLabel(template_header, text="Template", font=("Segoe UI", 12, "bold")).pack(side="left")
-    info_badge(template_header, "Choose an existing template image or capture a new one from the screen.")
+    ctk.CTkLabel(template_header, text="Template & Matching", font=("Segoe UI", 12, "bold")).pack(side="left")
+    info_badge(template_header, "Choose or capture the image that defines a match. The preview shows exactly what the engine will search for.")
+
     template_row = ctk.CTkFrame(template_section, fg_color="transparent")
-    template_row.pack(fill="x", padx=12, pady=(0, 10))
+    template_row.pack(fill="x", padx=12, pady=(0, 8))
     template_choice_menu = ctk.CTkOptionMenu(template_row, values=[""], variable=template_choice_var, width=220)
     template_choice_menu.pack(side="left", padx=(0, 8))
     ctk.CTkButton(template_row, text="Use Existing", command=use_selected_template, width=110).pack(side="left", padx=(0, 8))
     ctk.CTkButton(template_row, text="Capture Pattern", command=capture_template, width=130).pack(side="left")
+
+    preview_row = ctk.CTkFrame(template_section, fg_color="transparent")
+    preview_row.pack(fill="x", padx=12, pady=(0, 12))
+
+    preview_container = ctk.CTkFrame(preview_row, width=PREVIEW_BOX_W, height=PREVIEW_BOX_H, fg_color=PREVIEW_BG, corner_radius=6)
+    preview_container.pack(side="left", padx=(0, 14))
+    preview_container.pack_propagate(False)
+    preview_label = tk.Label(preview_container, bg=PREVIEW_BG, fg=MUTED, text=PREVIEW_PLACEHOLDER, font=FONT_SMALL)
+    preview_label.pack(expand=True, fill="both")
+    attach_tooltip(preview_label, "Live preview of the currently selected template. Shown at its native resolution (templates are usually small buttons or icons).")
+
+    preview_details = ctk.CTkFrame(preview_row, fg_color="transparent")
+    preview_details.pack(side="left", fill="both", expand=True)
+
+    threshold_row = ctk.CTkFrame(preview_details, fg_color="transparent")
+    threshold_row.pack(anchor="w")
+    ctk.CTkLabel(threshold_row, text="Match threshold", font=FONT_SMALL, text_color=MUTED).pack(side="left")
+    threshold_help = ctk.CTkLabel(threshold_row, text="(?)", text_color=MUTED, font=FONT_SMALL)
+    threshold_help.pack(side="left", padx=(4, 8))
+    attach_tooltip(threshold_help, "Higher values are stricter. Around 0.90 is a good default for stable button templates.")
+    ctk.CTkEntry(threshold_row, textvariable=threshold_var, width=80).pack(side="left")
+
+    meta_label = ctk.CTkLabel(preview_details, textvariable=preview_meta_var, font=FONT_SMALL, text_color=MUTED, justify="left", anchor="w")
+    meta_label.pack(anchor="w", pady=(10, 0), fill="x")
+
+    def update_template_preview(*_args) -> None:
+        name = template_choice_var.get().strip()
+        if not name:
+            preview_label.configure(image="", text=PREVIEW_PLACEHOLDER, fg=MUTED)
+            preview_label.image = None
+            preview_meta_var.set("")
+            return
+        path = resolve_template_path(name)
+        if path is None or not Path(path).exists():
+            preview_label.configure(image="", text="(file missing)", fg="#ef5350")
+            preview_label.image = None
+            preview_meta_var.set(f"File: {name}\n(not found under templates/)")
+            return
+        try:
+            img = Image.open(path).convert("RGB")
+            native_w, native_h = img.size
+            if native_w > PREVIEW_BOX_W - 8 or native_h > PREVIEW_BOX_H - 8:
+                img = img.copy()
+                img.thumbnail((PREVIEW_BOX_W - 8, PREVIEW_BOX_H - 8), Image.LANCZOS)
+                scale_note = f" (fit to preview)"
+            else:
+                scale_note = " (actual size)"
+            photo = ImageTk.PhotoImage(img)
+            preview_label.configure(image=photo, text="")
+            preview_label.image = photo  # keep reference, tk only holds a weak one
+            preview_meta_var.set(f"File: {name}\nSize: {native_w} \u00d7 {native_h} px{scale_note}")
+        except Exception as exc:
+            preview_label.configure(image="", text="(preview error)", fg="#ef5350")
+            preview_label.image = None
+            preview_meta_var.set(f"File: {name}\n({exc})")
+
+    template_choice_var.trace_add("write", update_template_preview)
 
     search_section = ctk.CTkFrame(editor)
     search_section.pack(fill="x", pady=(0, 8))

@@ -10,6 +10,7 @@ Auto clicker with mode selection, global hotkeys, multi-target support, timer UI
 - Bottom log panel with `Show Logs` toggle
 - Global hotkeys (Windows) for start/stop and click calibration
 - System tray indicator (red = stopped, green = running) with show/hide and quit
+- Inline template preview in the rule editor (follows the dropdown selection)
 - Optional per-target region state detection:
   - finished match above threshold -> click + `continue` + enter
   - otherwise -> click + enter
