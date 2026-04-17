@@ -82,87 +82,28 @@ The app still runs; you just lose the tray indicator and the X button closes the
 ## 🧩 Advanced
 
 <details>
-<summary><strong>CLI options</strong></summary>
+<summary><strong>CLI & hotkeys</strong></summary>
 
 ```bash
-uv run main_press.py [seconds] [options]
+uv run main_press.py [seconds]
 ```
 
-**Core options**
+- `seconds` (optional) — default scan interval; can also be edited live in the UI. Default: `10.0`.
+- **Page Down** (Windows) — global hotkey to Start/Stop without focusing the window.
 
-| Option | Default | Description |
-|---|---|---|
-| `seconds` | `10.0` | Interval between actions (seconds) |
-| `--mode` | `click+enter` | `enter`, `click`, `click+enter`, or `watch-run` |
-| `--targets` | `1` | Number of targets (1–3), click modes only |
-| `--headless` | off | Run without the UI |
-| `--toggle` | `PAGEDOWN` | Global hotkey to start/stop |
-| `--calibrate-key` | `PAGEUP` | Global hotkey to set the click position |
-| `--x`, `--y` | — | Click target coordinate (headless) |
-| `--calibrate` | off | Force console calibration (headless) |
-| `--ui` | `v2` | `v2` (default) or `legacy` |
-
-**State detection (headless)**
-
-| Option | Default | Description |
-|---|---|---|
-| `--state-detect` | off | Enable state detection in `click+enter` mode |
-| `--state-word` | `continue` | Word typed before Enter when state is *finished* |
-| `--state-bbox` | — | Region as `left,top,width,height` |
-| `--state-finished-template` | — | Path to the FINISHED template image |
-| `--state-threshold` | `0.80` | Minimum confidence for best match |
-
-**Examples**
-
-```bash
-# Default UI (click+enter)
-uv run main_press.py
-
-# 2-target click+enter from the UI
-uv run main_press.py 10 --mode click+enter --targets 2
-
-# Headless enter-only
-uv run main_press.py 5 --headless --mode enter
-
-# Headless click with state detection
-uv run main_press.py 5 --headless --mode click+enter \
-  --x 500 --y 300 \
-  --state-detect \
-  --state-bbox 120,80,900,140 \
-  --state-finished-template finished.png
-```
-</details>
-
-<details>
-<summary><strong>State detection & watch-run modes</strong></summary>
-
-**State detection** lets a rule react differently when a template is matched above a threshold — useful for typing `continue` before Enter when an agent finishes its turn.
-
-**Watch-run** single-loop flow (per target):
-
-1. Check the run ROI against global run templates first.
-2. If run is found, click its center and skip state detection for that tick.
-3. Otherwise, fall back to state detection / the default action.
-
-In-UI target legend:
-
-- `C*` — click point set
-- `S*` — state ROI + template set
-- `R*` — run ROI set
+Per-rule matching options (template, threshold, search region, action, optional text) all live in the UI.
 </details>
 
 <details>
 <summary><strong>Code layout</strong></summary>
 
-- [main_press.py](main_press.py) — CLI entrypoint (headless + UI dispatch)
-- [press_v2_ui.py](press_v2_ui.py) — v2 rule-based UI (default, with tray indicator)
-- [press_ui.py](press_ui.py) — legacy Tk UI and single-loop target orchestration
+- [main_press.py](main_press.py) — CLI entrypoint, launches the UI
+- [press_ui.py](press_ui.py) — rule-based UI with the tray indicator
+- [press_engine.py](press_engine.py) — screen capture + template matching + action dispatch
+- [press_store.py](press_store.py) — config and template persistence
+- [press_core.py](press_core.py) — click / type / vision primitives
 - [press_tray.py](press_tray.py) — `pystray` wrapper for the tray icon
-- [press_headless.py](press_headless.py) — headless runtime loop and console calibration
-- [press_core.py](press_core.py) — click/type and template-match core helpers
-- [press_store.py](press_store.py), [press_v2_store.py](press_v2_store.py) — config/template persistence
-- [press_v2_engine.py](press_v2_engine.py) — v2 rule-matching engine
-- [templates/](templates/) — captured template images and `config.json` / `v2_config.json`
+- [templates/](templates/) — captured template images and `config.json`
 </details>
 
 ## 📦 Requirements

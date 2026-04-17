@@ -1,4 +1,4 @@
-import press_v2_engine
+import press_engine
 
 
 def test_evaluate_rules_returns_all_matches(monkeypatch):
@@ -7,16 +7,16 @@ def test_evaluate_rules_returns_all_matches(monkeypatch):
         {"id": "b", "name": "Rule B", "threshold": 0.9},
     ]
 
-    monkeypatch.setattr(press_v2_engine, "capture_screen_gray", lambda: object())
+    monkeypatch.setattr(press_engine, "capture_screen_gray", lambda: object())
 
     def fake_find(_frame, rule):
         if rule["id"] == "a":
             return [(0.95, (10, 10)), (0.93, (20, 20))]
         return [(0.91, (30, 30))]
 
-    monkeypatch.setattr(press_v2_engine, "find_rule_matches", fake_find)
+    monkeypatch.setattr(press_engine, "find_rule_matches", fake_find)
 
-    results, actions = press_v2_engine.evaluate_rules(runtime_rules)
+    results, actions = press_engine.evaluate_rules(runtime_rules)
 
     assert len(results) == 2
     assert results[0]["match_count"] == 2
@@ -26,12 +26,12 @@ def test_evaluate_rules_returns_all_matches(monkeypatch):
 
 def test_evaluate_rule_on_frame_returns_best_match(monkeypatch):
     monkeypatch.setattr(
-        press_v2_engine,
+        press_engine,
         "find_rule_matches",
         lambda _frame, _rule: [(0.97, (40, 50)), (0.92, (60, 70))],
     )
 
-    score, center = press_v2_engine.evaluate_rule_on_frame(object(), {"id": "a"})
+    score, center = press_engine.evaluate_rule_on_frame(object(), {"id": "a"})
 
     assert score == 0.97
     assert center == (40, 50)
@@ -41,14 +41,14 @@ def test_execute_match_uses_click_enter(monkeypatch):
     called = {}
 
     monkeypatch.setattr(
-        press_v2_engine,
+        press_engine,
         "do_action",
         lambda mode, center, text_before_enter=None: called.update(
             mode=mode, center=center, text=text_before_enter
         ),
     )
 
-    press_v2_engine.execute_match(
+    press_engine.execute_match(
         {
             "center": (40, 50),
             "action": "click+type+enter",
@@ -67,17 +67,17 @@ def test_execute_matches_waits_between_actions(monkeypatch):
     calls = []
 
     monkeypatch.setattr(
-        press_v2_engine,
+        press_engine,
         "execute_match",
         lambda match: calls.append(("exec", match["center"])),
     )
     monkeypatch.setattr(
-        press_v2_engine.time,
+        press_engine.time,
         "sleep",
         lambda seconds: calls.append(("sleep", seconds)),
     )
 
-    press_v2_engine.execute_matches(
+    press_engine.execute_matches(
         [
             {"center": (10, 10)},
             {"center": (20, 20)},

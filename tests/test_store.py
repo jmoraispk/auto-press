@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import press_store
 
 
@@ -9,27 +7,60 @@ def test_config_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(press_store, "TEMPLATES_DIR", templates_dir)
     monkeypatch.setattr(press_store, "CONFIG_PATH", config_path)
 
-    cfg = press_store.default_config(num_targets=2)
-    cfg["mode"] = "watch-run"
-    cfg["run_templates"] = ["run_template_1.png"]
-    cfg["targets"][0]["click_target"] = [100, 200]
-    cfg["targets"][0]["run_roi"] = [10, 20, 300, 100]
-    cfg["targets"][1]["state_roi"] = [11, 22, 333, 120]
-    cfg["targets"][1]["state_template"] = "state_t2.png"
+    cfg = press_store.default_config()
+    cfg["interval_seconds"] = 15
+    rule = press_store.default_rule("ContinueButton")
+    rule["template_path"] = "rule_a.png"
+    rule["search_region"] = [10, 20, 300, 200]
+    rule["action"] = press_store.ACTION_CLICK_TYPE_ENTER
+    rule["text"] = "continue"
+    cfg["rules"].append(rule)
 
     press_store.save_config(cfg)
-    loaded = press_store.load_config(num_targets=2)
+    loaded = press_store.load_config()
 
-    assert loaded["mode"] == "watch-run"
-    assert loaded["run_templates"] == ["run_template_1.png"]
-    assert loaded["targets"][0]["click_target"] == [100, 200]
-    assert loaded["targets"][0]["run_roi"] == [10, 20, 300, 100]
-    assert loaded["targets"][1]["state_roi"] == [11, 22, 333, 120]
-    assert loaded["targets"][1]["state_template"] == "state_t2.png"
+    assert loaded["interval_seconds"] == 15.0
+    assert len(loaded["rules"]) == 1
+    assert loaded["rules"][0]["name"] == "ContinueButton"
+    assert loaded["rules"][0]["template_path"] == "rule_a.png"
+    assert loaded["rules"][0]["search_region"] == [10, 20, 300, 200]
+    assert loaded["rules"][0]["action"] == press_store.ACTION_CLICK_TYPE_ENTER
 
 
-def test_template_path_uses_templates_dir(tmp_path, monkeypatch):
+def test_relativize_template_path_prefers_templates_relative(tmp_path, monkeypatch):
     templates_dir = tmp_path / "templates"
     monkeypatch.setattr(press_store, "TEMPLATES_DIR", templates_dir)
-    p = press_store.template_path("foo.png")
-    assert p == templates_dir / "foo.png"
+    path = templates_dir / "rule_x.png"
+    assert press_store.relativize_template_path(path) == "rule_x.png"
+
+
+def test_normalize_config_reassigns_priorities():
+    cfg = {
+        "interval_seconds": 5,
+        "rules": [
+            {"name": "A", "priority": 9},
+            {"name": "B", "priority": 99},
+        ],
+    }
+    normalized = press_store.normalize_config(cfg)
+    assert [rule["priority"] for rule in normalized["rules"]] == [1, 2]
+
+
+def test_serialize_template_path_keeps_absolute_outside_templates(tmp_path, monkeypatch):
+    templates_dir = tmp_path / "templates"
+    outside = tmp_path / "elsewhere" / "sample.png"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"fake")
+    monkeypatch.setattr(press_store, "TEMPLATES_DIR", templates_dir)
+    stored = press_store.serialize_template_path(outside)
+    assert stored == str(outside.resolve())
+
+
+def test_list_template_files_only_returns_images(tmp_path, monkeypatch):
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir(parents=True)
+    (templates_dir / "one.png").write_bytes(b"fake")
+    (templates_dir / "two.jpg").write_bytes(b"fake")
+    (templates_dir / "notes.txt").write_text("ignore", encoding="utf-8")
+    monkeypatch.setattr(press_store, "TEMPLATES_DIR", templates_dir)
+    assert press_store.list_template_files() == ["one.png", "two.jpg"]

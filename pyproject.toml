@@ -1,7 +1,7 @@
 [project]
 name = "auto-press"
 version = "3.0.0"
-description = "Auto clicker with optional Enter key press, global hotkeys, and calibration"
+description = "Rule-based screen automation for Cursor and other desktop apps"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

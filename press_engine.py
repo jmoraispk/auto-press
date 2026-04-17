@@ -1,4 +1,4 @@
-"""Rule-based screen scanning engine for the simplified v2 UI."""
+"""Rule-based screen scanning engine."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 import pyautogui
 
 from press_core import MODE_CLICK, MODE_CLICK_ENTER, do_action, load_template_gray, try_import_vision
-from press_v2_store import ACTION_CLICK, ACTION_CLICK_TYPE_ENTER, resolve_template_path
+from press_store import ACTION_CLICK, ACTION_CLICK_TYPE_ENTER, resolve_template_path
 
 
 ACTION_SETTLE_DELAY_SEC = 0.20
