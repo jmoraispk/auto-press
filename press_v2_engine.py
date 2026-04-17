@@ -16,7 +16,7 @@ ACTION_SETTLE_DELAY_SEC = 0.20
 def ensure_vision() -> tuple[object, object]:
     cv2, np, err = try_import_vision()
     if err:
-        raise RuntimeError("Vision deps missing. Install with: uv sync --extra vision")
+        raise RuntimeError("Vision deps missing. Install with: uv sync")
     return cv2, np
 
 

@@ -15,7 +15,7 @@
     {
       "id": "9208cf0d",
       "name": "continue-agent",
-      "enabled": true,
+      "enabled": false,
       "template_path": "v2_rule_9208cf0d.png",
       "search_region": null,
       "threshold": 0.9,
@@ -26,7 +26,7 @@
     {
       "id": "890cbef2",
       "name": "click-fetch",
-      "enabled": true,
+      "enabled": false,
       "template_path": "v2_rule_890cbef2.png",
       "search_region": null,
       "threshold": 0.9,
@@ -37,13 +37,24 @@
     {
       "id": "a904c7ff",
       "name": "click-accept",
-      "enabled": true,
+      "enabled": false,
       "template_path": "v2_rule_a904c7ff.png",
       "search_region": null,
       "threshold": 0.9,
       "action": "click",
       "text": "continue",
       "priority": 4
+    },
+    {
+      "id": "6e0f651e",
+      "name": "Rule 5",
+      "enabled": false,
+      "template_path": "v2_rule_6e0f651e.png",
+      "search_region": null,
+      "threshold": 0.9,
+      "action": "click",
+      "text": "continue",
+      "priority": 5
     }
   ]
 }

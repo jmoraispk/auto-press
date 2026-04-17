@@ -31,7 +31,7 @@ def _require_vision():
     """Return (cv2, np) or raise a helpful dependency error."""
     cv2, np, err = try_import_vision()
     if err:
-        raise RuntimeError("Vision deps missing. Install with: uv sync --extra vision")
+        raise RuntimeError("Vision deps missing. Install with: uv sync")
     return cv2, np
 
 

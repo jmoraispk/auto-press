@@ -12,6 +12,7 @@ from tkinter.scrolledtext import ScrolledText
 import pyautogui
 
 from press_core import save_gray_image
+from press_tray import PYSTRAY_AVAILABLE, PYSTRAY_IMPORT_ERROR, TrayController
 from press_v2_engine import build_runtime_rules, capture_screen_gray, ensure_vision, evaluate_rule_on_frame, evaluate_rules, execute_matches
 from press_v2_store import (
     ACTION_CLICK,
@@ -110,6 +111,8 @@ def run_v2_ui(initial_seconds: float) -> None:
     hotkey_thread_stop = threading.Event()
     hotkey_thread_id = {"tid": None}
     hotkey_ok = {"ok": True, "err": ""}
+    window_visible = {"value": True}
+    tray: TrayController | None = None
 
     def log_event(message: str) -> None:
         line = f"[{time.strftime('%H:%M:%S')}] {message}\n"
@@ -311,6 +314,11 @@ def run_v2_ui(initial_seconds: float) -> None:
         else:
             status_var.set("Stopped")
             status_label.configure(text_color=STATUS_STOPPED)
+        if tray is not None:
+            try:
+                tray.update_status(running)
+            except Exception as exc:
+                log_event(f"[tray] update failed: {exc}")
 
     def save_selected_rule() -> bool:
         idx = selected_index()
@@ -760,7 +768,33 @@ def run_v2_ui(initial_seconds: float) -> None:
     update_timer()
     log_event(f"[ready] loaded {V2_CONFIG_PATH}")
 
-    def on_close() -> None:
+    def show_window() -> None:
+        window_visible["value"] = True
+        try:
+            root.deiconify()
+            root.lift()
+            root.focus_force()
+        except Exception:
+            pass
+        if tray is not None:
+            tray.refresh_menu()
+
+    def hide_window() -> None:
+        window_visible["value"] = False
+        try:
+            root.withdraw()
+        except Exception:
+            pass
+        if tray is not None:
+            tray.refresh_menu()
+
+    def toggle_window_visibility() -> None:
+        if window_visible["value"]:
+            hide_window()
+        else:
+            show_window()
+
+    def quit_app() -> None:
         state["running"] = False
         state["next_tick_at"] = None
         running_event.clear()
@@ -770,7 +804,43 @@ def run_v2_ui(initial_seconds: float) -> None:
         with cfg_lock:
             cfg["interval_seconds"] = current_interval()
             save_config(cfg)
-        root.destroy()
+        if tray is not None:
+            try:
+                tray.stop()
+            except Exception:
+                pass
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+    def on_close() -> None:
+        if tray is not None:
+            hide_window()
+            log_event("[tray] window minimized to tray (right-click the tray icon to quit)")
+        else:
+            quit_app()
+
+    if PYSTRAY_AVAILABLE:
+        try:
+            tray = TrayController(
+                on_show_hide=lambda: root.after(0, toggle_window_visibility),
+                on_toggle_running=lambda: root.after(0, toggle_running),
+                on_quit=lambda: root.after(0, quit_app),
+                is_running=lambda: bool(state["running"]),
+                is_window_visible=lambda: bool(window_visible["value"]),
+            )
+            tray.start()
+            tray.update_status(False)
+            log_event("[tray] system tray icon active (red = stopped, green = running)")
+        except Exception as exc:
+            tray = None
+            log_event(f"[tray] unavailable: {exc}")
+    else:
+        log_event(
+            "[tray] pystray is not installed; closing the window will quit the app. "
+            f"Install with `uv add pystray`. ({PYSTRAY_IMPORT_ERROR})"
+        )
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()

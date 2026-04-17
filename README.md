@@ -9,6 +9,7 @@ Auto clicker with mode selection, global hotkeys, multi-target support, timer UI
 - Always-on countdown timer in UI
 - Bottom log panel with `Show Logs` toggle
 - Global hotkeys (Windows) for start/stop and click calibration
+- System tray indicator (red = stopped, green = running) with show/hide and quit
 - Optional per-target region state detection:
   - finished match above threshold -> click + `continue` + enter
   - otherwise -> click + enter
@@ -25,11 +26,13 @@ Auto clicker with mode selection, global hotkeys, multi-target support, timer UI
 - Windows recommended (global hotkeys use Win32 API)
 - Python 3.10+ (run through `uv`)
 
-Optional state detection dependencies:
+Install all dependencies:
 
 ```bash
-uv sync --extra vision
+uv sync
 ```
+
+`numpy`, `opencv-python`, and `pillow` are required because the default v2 UI relies on screen scanning and template matching. `pystray` powers the system tray indicator.
 
 ## Usage
 
@@ -103,10 +106,37 @@ Target status legend in UI:
 - Templates and config are stored in `templates/`
 - Main config path: `templates/config.json`
 
+## System tray
+
+The v2 UI shows a small icon in the Windows system tray:
+
+- Red dot = stopped, green dot = running.
+- Left-click the icon to show or hide the main window.
+- Right-click for a menu with `Start` / `Stop`, `Show window` / `Hide window`, and `Quit Auto Press`.
+- Closing the window with the X button minimizes to the tray; use the tray menu's `Quit` (or press `PageDown` to stop, then quit) to exit fully.
+
+If `pystray` is not installed, the X button quits the app as before. Install with `uv add pystray` (or `uv sync`).
+
+### Keeping the tray icon always visible (Windows)
+
+By default Windows tucks new tray icons into the overflow flyout (the `^` chevron
+next to the clock). Windows does not let an application force its icon to be
+always visible; it is a per-user setting you toggle once:
+
+- **Windows 11**: Settings -> Personalization -> Taskbar -> Other system tray
+  icons -> turn on `Auto Press` (or `python.exe` while the app is running).
+- **Windows 10**: Settings -> Personalization -> Taskbar -> "Select which icons
+  appear on the taskbar" -> turn on `Auto Press`.
+
+After that, the red/green dot will sit permanently next to the clock whenever
+Auto Press is running.
+
 ## Code Layout
 
 - `main_press.py`: CLI entrypoint (headless + UI dispatch)
 - `press_ui.py`: Tk UI and single-loop target orchestration
+- `press_v2_ui.py`: v2 rule-based UI (with system tray indicator)
+- `press_tray.py`: optional `pystray` wrapper for the tray icon
 - `press_headless.py`: headless runtime loop and console calibration
 - `press_core.py`: click/type and template-match core helpers
 - `press_store.py`: config/template persistence helpers
