@@ -1,7 +1,6 @@
 # 🖱️ auto-press
 
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg)](https://www.microsoft.com/windows)
 [![uv](https://img.shields.io/badge/packaged%20with-uv-261230.svg)](https://github.com/astral-sh/uv)
 [![Status](https://img.shields.io/badge/status-active-2e7d32.svg)](#)
 
@@ -9,17 +8,21 @@
 
 auto-press was built to keep [Cursor](https://cursor.com/) agents moving without babysitting. Cloud sandboxes take minutes to spin up and don't work for every workflow; if you already have a Cursor window (or a Cloud Codex extension tab) open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's fast, it's local, and it works on anything you can see on your screen.
 
-![auto-press UI](imgs/ui.png)
+<p align="center">
+  <img src="imgs/ui.png" alt="auto-press UI" width="720">
+</p>
 
 ## ✨ Why
 
 - 🧠 **Built for LLM agents** — keeps Cursor and Cloud Codex loops unblocked while you do other work.
 - 🖥️ **No sandbox required** — if you can see it, auto-press can click it.
-- ⚡ **Fast screen scans** — configurable interval and a configurable search region, so you pay for exactly the pixels you care about.
+- ⚡ **Fast** — configurable scan interval and search region.
 - 🎯 **Template-matching rules** — screenshot the button once, forget about it.
 - 🔕 **Stays out of the way** — lives in the system tray with a red/green status dot.
 
 ## 🚀 Quickstart
+
+Install [uv](https://github.com/astral-sh/uv), then:
 
 ```bash
 uv sync
@@ -41,10 +44,12 @@ Repeat for every button you want automated (run, continue, accept, etc.). Reorde
 
 auto-press sits in the Windows system tray. The dot color tells you what it's doing:
 
-| Icon | State |
-|---|---|
-| ![stopped](imgs/tray_off.png) | 🔴 Stopped — not scanning |
-| ![running](imgs/tray_on.png) | 🟢 Running — scanning and firing rules |
+<p>
+  <img src="imgs/tray_off.png" alt="Stopped" width="140">&nbsp;&nbsp;<strong>Stopped</strong> — not scanning
+</p>
+<p>
+  <img src="imgs/tray_on.png" alt="Running" width="140">&nbsp;&nbsp;<strong>Running</strong> — scanning and firing rules
+</p>
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
@@ -106,9 +111,3 @@ Per-rule matching options (template, threshold, search region, action, optional 
 - [templates/](templates/) — captured template images and `config.json`
 </details>
 
-## 📦 Requirements
-
-- **Windows** recommended (global hotkeys and tray use Win32 APIs)
-- **Python 3.10+** — managed through [`uv`](https://github.com/astral-sh/uv)
-
-Dependencies (`numpy`, `opencv-python`, `pillow`, `pystray`, `customtkinter`) are installed automatically by `uv sync`.
