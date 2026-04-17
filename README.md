@@ -6,7 +6,7 @@
 
 **Automate LLMs that run outside of sandboxes — no containers, no APIs, just your screen.**
 
-auto-press was built to keep [Cursor](https://cursor.com/) agents moving without babysitting. Cloud sandboxes take minutes to spin up and don't work for every workflow; if you already have a Cursor window (or a Cloud Codex extension tab) open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's fast, it's local, and it works on anything you can see on your screen.
+auto-press was built to keep [Cursor](https://cursor.com/) agents moving without babysitting. Sandboxes take time to spin up and don't work for every workflow; if you already have a Cursor window open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's fast, local, and it works on anything you can see on your screen.
 
 <p align="center">
   <img src="imgs/ui.png" alt="auto-press UI" width="720">
@@ -14,10 +14,11 @@ auto-press was built to keep [Cursor](https://cursor.com/) agents moving without
 
 ## ✨ Why
 
-- 🧠 **Built for LLM agents** — keeps Cursor and Cloud Codex loops unblocked while you do other work.
+- 🧠 **Built for LLM agents** — keeps Cursor loops unblocked while you do other work.
 - 🖥️ **No sandbox required** — if you can see it, auto-press can click it.
 - ⚡ **Fast** — configurable scan interval and search region.
 - 🎯 **Template-matching rules** — screenshot the button once, forget about it.
+- 🌙 **Runs overnight** — type `continue, continue, continue…` back to the agent whenever it stalls, so it keeps working while you sleep.
 - 🔕 **Stays out of the way** — lives in the system tray with a red/green status dot.
 
 ## 🚀 Quickstart
