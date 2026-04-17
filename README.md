@@ -1,143 +1,173 @@
-# auto-press
+# 🖱️ auto-press
 
-Auto clicker with mode selection, global hotkeys, multi-target support, timer UI, per-target state detection, and watch-run automation.
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg)](https://www.microsoft.com/windows)
+[![uv](https://img.shields.io/badge/packaged%20with-uv-261230.svg)](https://github.com/astral-sh/uv)
+[![Status](https://img.shields.io/badge/status-active-2e7d32.svg)](#)
 
-## Features
+**Automate LLMs that run outside of sandboxes — no containers, no APIs, just your screen.**
 
-- Click-only, enter-only, click+enter, and watch-run modes
-- Multi-target rotation (1-3 targets)
-- Always-on countdown timer in UI
-- Bottom log panel with `Show Logs` toggle
-- Global hotkeys (Windows) for start/stop and click calibration
-- System tray indicator (red = stopped, green = running) with show/hide and quit
-- Inline template preview in the rule editor (follows the dropdown selection)
-- Optional per-target region state detection:
-  - finished match above threshold -> click + `continue` + enter
-  - otherwise -> click + enter
-- Watch-run single-loop flow (per target):
-  - Check run ROI against global run templates first
-  - If run is found, click run center and skip state check on that tick
-  - If run is not found, fall back to state detection/action
-- Extra UI checks: `Test Capture` (state score) and `Test Word` (typing reliability)
-- Run setup UI: `Capture Run Template`, `Test Run`, and watch-run calibrate-to-ROI
-- Persistent setup stored in `templates/config.json`
+auto-press was built to keep [Cursor](https://cursor.com/) agents moving without babysitting. Cloud sandboxes take minutes to spin up and don't work for every workflow; if you already have a Cursor window (or a Cloud Codex extension tab) open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's fast, it's local, and it works on anything you can see on your screen.
 
-## Requirements
+![auto-press UI](imgs/ui.png)
 
-- Windows recommended (global hotkeys use Win32 API)
-- Python 3.10+ (run through `uv`)
+## ✨ Why
 
-Install all dependencies:
+- 🧠 **Built for LLM agents** — keeps Cursor and Cloud Codex loops unblocked while you do other work.
+- 🖥️ **No sandbox required** — if you can see it, auto-press can click it.
+- ⚡ **Fast screen scans** — configurable interval and a configurable search region, so you pay for exactly the pixels you care about.
+- 🎯 **Template-matching rules** — screenshot the button once, forget about it.
+- 🔕 **Stays out of the way** — lives in the system tray with a red/green status dot.
+
+## 🚀 Quickstart
 
 ```bash
 uv sync
+uv run main_press.py
 ```
 
-`numpy`, `opencv-python`, and `pillow` are required because the default v2 UI relies on screen scanning and template matching. `pystray` powers the system tray indicator.
+That's it — the UI opens and you're ready to add your first rule.
 
-## Usage
+## 🧭 The workflow
+
+Setting up an automation is two steps, full stop:
+
+1. **Add a rule.** Pick an action: click on an element, or send `Enter` to it (optionally typing a word first).
+2. **Take a screenshot of where the action should happen.** Use `Capture Pattern` in the UI to crop the button or region. auto-press will scan the screen for that template and fire the action when it matches.
+
+Repeat for every button you want automated (run, continue, accept, etc.). Reorder them in the list and press **Start / Stop**.
+
+## 🟢🔴 Tray indicator
+
+auto-press sits in the Windows system tray. The dot color tells you what it's doing:
+
+| Icon | State |
+|---|---|
+| ![stopped](imgs/tray_off.png) | 🔴 Stopped — not scanning |
+| ![running](imgs/tray_on.png) | 🟢 Running — scanning and firing rules |
+
+Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
+
+## ❓ FAQ
+
+<details>
+<summary><strong>How do I keep the tray icon always visible on Windows?</strong></summary>
+
+By default Windows hides new tray icons inside the `^` overflow flyout. Windows doesn't let apps force the icon to be pinned — it's a per-user setting you toggle once:
+
+- **Windows 11**: Settings → Personalization → Taskbar → *Other system tray icons* → turn on `Auto Press` (or `python.exe` while the app is running).
+- **Windows 10**: Settings → Personalization → Taskbar → *Select which icons appear on the taskbar* → turn on `Auto Press`.
+
+After that, the red/green dot stays next to the clock whenever auto-press is running.
+</details>
+
+<details>
+<summary><strong>What's the scan interval and why does it matter?</strong></summary>
+
+The interval (seconds) controls how often auto-press captures the screen and tests the active rules. Lower = more responsive, higher = less CPU. You can also restrict the search region per rule so scans are cheap even at sub-second intervals.
+</details>
+
+<details>
+<summary><strong>Does this work on macOS / Linux?</strong></summary>
+
+Core logic is cross-platform, but the global hotkeys and tray integration are tuned for Windows. You can run the UI on other platforms, but some features may degrade.
+</details>
+
+<details>
+<summary><strong>pystray isn't installed — what happens?</strong></summary>
+
+The app still runs; you just lose the tray indicator and the X button closes the app normally. Run `uv sync` (or `uv add pystray`) to get it back.
+</details>
+
+## 🧩 Advanced
+
+<details>
+<summary><strong>CLI options</strong></summary>
 
 ```bash
 uv run main_press.py [seconds] [options]
 ```
 
-### Core options
+**Core options**
 
 | Option | Default | Description |
-|--------|---------|-------------|
-| `seconds` | `10.0` | Interval between actions in seconds |
+|---|---|---|
+| `seconds` | `10.0` | Interval between actions (seconds) |
 | `--mode` | `click+enter` | `enter`, `click`, `click+enter`, or `watch-run` |
-| `--targets` | `1` | Number of targets (1-3), click modes only |
-| `--headless` | off | Run without UI |
-| `--toggle` | `PAGEDOWN` | Global hotkey to start/stop (UI) |
-| `--calibrate-key` | `PAGEUP` | Global hotkey to set click position (UI) |
-| `--x`, `--y` | - | Click target coordinate in headless |
-| `--calibrate` | off | Force console calibration in headless |
+| `--targets` | `1` | Number of targets (1–3), click modes only |
+| `--headless` | off | Run without the UI |
+| `--toggle` | `PAGEDOWN` | Global hotkey to start/stop |
+| `--calibrate-key` | `PAGEUP` | Global hotkey to set the click position |
+| `--x`, `--y` | — | Click target coordinate (headless) |
+| `--calibrate` | off | Force console calibration (headless) |
+| `--ui` | `v2` | `v2` (default) or `legacy` |
 
-### State detection options (headless)
+**State detection (headless)**
 
 | Option | Default | Description |
-|--------|---------|-------------|
+|---|---|---|
 | `--state-detect` | off | Enable state detection in `click+enter` mode |
-| `--state-word` | `continue` | Word typed before Enter when state is finished |
-| `--state-bbox` | - | Region as `left,top,width,height` |
-| `--state-finished-template` | - | Path to FINISHED template image |
+| `--state-word` | `continue` | Word typed before Enter when state is *finished* |
+| `--state-bbox` | — | Region as `left,top,width,height` |
+| `--state-finished-template` | — | Path to the FINISHED template image |
 | `--state-threshold` | `0.80` | Minimum confidence for best match |
 
-## Examples
+**Examples**
 
 ```bash
-# UI, default mode (click+enter)
+# Default UI (click+enter)
 uv run main_press.py
 
-# UI, click + enter mode with 2 targets
+# 2-target click+enter from the UI
 uv run main_press.py 10 --mode click+enter --targets 2
 
-# Headless enter-only (replacement for old simple mode)
+# Headless enter-only
 uv run main_press.py 5 --headless --mode enter
 
-# Headless click-only
-uv run main_press.py 5 --headless --mode click --x 500 --y 300
-
-# Headless click+enter with state detection
+# Headless click with state detection
 uv run main_press.py 5 --headless --mode click+enter \
   --x 500 --y 300 \
   --state-detect \
   --state-bbox 120,80,900,140 \
   --state-finished-template finished.png
 ```
+</details>
 
-## UI state detection workflow
+<details>
+<summary><strong>State detection & watch-run modes</strong></summary>
 
-1. Start in `click+enter` mode.
-2. Choose setup target (`T1`, `T2`, etc.).
-3. Set click point with `Calibrate`.
-4. Use `Drag Capture` while target is in finished state.
-5. Optionally use `Test Capture` and `Test Word`.
-6. Enable `State Detection`.
-7. Start run.
+**State detection** lets a rule react differently when a template is matched above a threshold — useful for typing `continue` before Enter when an agent finishes its turn.
 
-Target status legend in UI:
-- `C*` click point set
-- `S*` state ROI + template set
-- `R*` run ROI set
+**Watch-run** single-loop flow (per target):
 
-## Persistence
+1. Check the run ROI against global run templates first.
+2. If run is found, click its center and skip state detection for that tick.
+3. Otherwise, fall back to state detection / the default action.
 
-- Templates and config are stored in `templates/`
-- Main config path: `templates/config.json`
+In-UI target legend:
 
-## System tray
+- `C*` — click point set
+- `S*` — state ROI + template set
+- `R*` — run ROI set
+</details>
 
-The v2 UI shows a small icon in the Windows system tray:
+<details>
+<summary><strong>Code layout</strong></summary>
 
-- Red dot = stopped, green dot = running.
-- Left-click the icon to show or hide the main window.
-- Right-click for a menu with `Start` / `Stop`, `Show window` / `Hide window`, and `Quit Auto Press`.
-- Closing the window with the X button minimizes to the tray; use the tray menu's `Quit` (or press `PageDown` to stop, then quit) to exit fully.
+- [main_press.py](main_press.py) — CLI entrypoint (headless + UI dispatch)
+- [press_v2_ui.py](press_v2_ui.py) — v2 rule-based UI (default, with tray indicator)
+- [press_ui.py](press_ui.py) — legacy Tk UI and single-loop target orchestration
+- [press_tray.py](press_tray.py) — `pystray` wrapper for the tray icon
+- [press_headless.py](press_headless.py) — headless runtime loop and console calibration
+- [press_core.py](press_core.py) — click/type and template-match core helpers
+- [press_store.py](press_store.py), [press_v2_store.py](press_v2_store.py) — config/template persistence
+- [press_v2_engine.py](press_v2_engine.py) — v2 rule-matching engine
+- [templates/](templates/) — captured template images and `config.json` / `v2_config.json`
+</details>
 
-If `pystray` is not installed, the X button quits the app as before. Install with `uv add pystray` (or `uv sync`).
+## 📦 Requirements
 
-### Keeping the tray icon always visible (Windows)
+- **Windows** recommended (global hotkeys and tray use Win32 APIs)
+- **Python 3.10+** — managed through [`uv`](https://github.com/astral-sh/uv)
 
-By default Windows tucks new tray icons into the overflow flyout (the `^` chevron
-next to the clock). Windows does not let an application force its icon to be
-always visible; it is a per-user setting you toggle once:
-
-- **Windows 11**: Settings -> Personalization -> Taskbar -> Other system tray
-  icons -> turn on `Auto Press` (or `python.exe` while the app is running).
-- **Windows 10**: Settings -> Personalization -> Taskbar -> "Select which icons
-  appear on the taskbar" -> turn on `Auto Press`.
-
-After that, the red/green dot will sit permanently next to the clock whenever
-Auto Press is running.
-
-## Code Layout
-
-- `main_press.py`: CLI entrypoint (headless + UI dispatch)
-- `press_ui.py`: Tk UI and single-loop target orchestration
-- `press_v2_ui.py`: v2 rule-based UI (with system tray indicator)
-- `press_tray.py`: optional `pystray` wrapper for the tray icon
-- `press_headless.py`: headless runtime loop and console calibration
-- `press_core.py`: click/type and template-match core helpers
-- `press_store.py`: config/template persistence helpers
+Dependencies (`numpy`, `opencv-python`, `pillow`, `pystray`, `customtkinter`) are installed automatically by `uv sync`.
