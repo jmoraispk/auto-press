@@ -18,7 +18,7 @@ auto-press was built to keep [Cursor](https://cursor.com/) agents moving without
 - 🖥️ **No sandbox required** — if you can see it, auto-press can click it.
 - ⚡ **Fast** — configurable scan interval and search region.
 - 🎯 **Template-matching rules** — screenshot the button once, forget about it.
-- 🌙 **Runs overnight** — type `continue, continue, continue…` back to the agent whenever it stalls, so it keeps working while you sleep.
+- 🌙 **Runs overnight** — types `continue` whenever the agent stalls so it works while you sleep.
 - 🔕 **Stays out of the way** — lives in the system tray with a red/green status dot.
 
 ## 🚀 Quickstart
@@ -34,11 +34,13 @@ That's it — the UI opens and you're ready to add your first rule.
 
 ## 🧭 The workflow
 
-Setting up an automation is three steps, full stop:
+Each rule is a few clicks:
 
-1. **Add a rule.** Pick an action: click on an element, or send `Enter` to it (optionally typing a word first).
-2. **Take a screenshot of where the action should happen.** Use `Capture Pattern` in the UI to crop the button or region. auto-press will scan the screen for that template and fire the action when it matches.
-3. **Press Start.** Repeat steps 1–2 for every button you want automated (run, continue, accept, etc.).
+1. **Add a rule.** Name it and toggle it on.
+2. **Pick an action.** Click, click + Enter, or click + send (send = type a word, then Enter).
+3. **Pick a region.** Whole screen or a crop — it's both what triggers the rule and where the cursor clicks (center of the region).
+4. **Test & Save.** Run a single match to confirm, then save.
+5. **Press Page Down** to start / stop. The window can stay in the background or hide to the tray.
 
 ## 🟢🔴 Tray indicator
 
