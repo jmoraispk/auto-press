@@ -1,11 +1,16 @@
 """Auto Press entrypoint."""
 
 import argparse
+import os
 import sys
 
-from PySide6.QtWidgets import QApplication
+# Silence Qt's benign "DPI already set" warning on Windows (the process
+# manifest or app compat can set per-monitor V2 before Qt's own call).
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
-from press_ui import MainWindow
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from press_ui import MainWindow  # noqa: E402
 
 
 def main() -> None:
@@ -25,7 +30,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("Auto Press")
-    app.setQuitOnLastWindowClosed(False)  # tray keeps the process alive
+    app.setQuitOnLastWindowClosed(False)
 
     window = MainWindow(initial_seconds=float(args.seconds))
     window.show()
