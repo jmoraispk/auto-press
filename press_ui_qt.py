@@ -388,6 +388,14 @@ class EngineWorker(QObject):
             return self._running
 
     def run(self) -> None:
+        # Pin PER_MONITOR_AWARE_V2 on this worker thread once. On Windows,
+        # SetThreadDpiAwarenessContext is sticky for the thread lifetime, so
+        # subsequent capture / click iterations all share one coord system.
+        if IS_WINDOWS:
+            try:
+                ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+            except Exception:
+                pass
         while not self._stop:
             if not self.is_running():
                 time.sleep(0.1)

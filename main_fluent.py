@@ -6,6 +6,7 @@ This file boots the Fluent / QFluentWidgets draft.
 
 import argparse
 import os
+import signal
 import sys
 
 # Force PER_MONITOR_AWARE_V2 before any Qt / PIL import so every thread in
@@ -22,9 +23,33 @@ if sys.platform.startswith("win"):
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
+from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from press_ui_fluent import MainWindow  # noqa: E402
+
+
+def _install_sigint(app: QApplication, window: MainWindow) -> QTimer:
+    """Let Ctrl+C kill the app cleanly.
+
+    Qt's C event loop doesn't yield to Python often enough for a SIGINT
+    handler to run. A 100 ms no-op timer forces Python bytecode to execute,
+    which is where signal handlers are dispatched.
+    """
+
+    def handler(*_):
+        print("\n[ctrl+c] shutting down...", flush=True)
+        try:
+            window._quit_app()
+        except Exception:
+            app.quit()
+
+    signal.signal(signal.SIGINT, handler)
+    timer = QTimer()
+    timer.setInterval(100)
+    timer.timeout.connect(lambda: None)
+    timer.start()
+    return timer
 
 
 def main() -> None:
@@ -48,6 +73,7 @@ def main() -> None:
 
     window = MainWindow(initial_seconds=float(args.seconds))
     window.show()
+    _keepalive = _install_sigint(app, window)
     sys.exit(app.exec())
 
 

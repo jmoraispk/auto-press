@@ -6,6 +6,7 @@ in main_press.py + press_ui.py. Run this one as `uv run main_qt.py`.
 
 import argparse
 import os
+import signal
 import sys
 
 # Force PER_MONITOR_AWARE_V2 before any Qt / PIL import so every thread in
@@ -20,9 +21,26 @@ if sys.platform.startswith("win"):
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
+from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from press_ui_qt import MainWindow  # noqa: E402
+
+
+def _install_sigint(app: QApplication, window: MainWindow) -> QTimer:
+    def handler(*_):
+        print("\n[ctrl+c] shutting down...", flush=True)
+        try:
+            window._quit_app()
+        except Exception:
+            app.quit()
+
+    signal.signal(signal.SIGINT, handler)
+    timer = QTimer()
+    timer.setInterval(100)
+    timer.timeout.connect(lambda: None)
+    timer.start()
+    return timer
 
 
 def main() -> None:
@@ -46,6 +64,7 @@ def main() -> None:
 
     window = MainWindow(initial_seconds=float(args.seconds))
     window.show()
+    _keepalive = _install_sigint(app, window)
     sys.exit(app.exec())
 
 

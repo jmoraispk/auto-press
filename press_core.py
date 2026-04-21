@@ -1,5 +1,6 @@
 """Core click / type / vision helpers used by the engine and UI."""
 
+import sys
 import time
 
 import pyautogui
@@ -7,6 +8,24 @@ import pyautogui
 
 MODE_CLICK = "click"
 MODE_CLICK_ENTER = "click+enter"
+
+
+def _pin_thread_v2_dpi() -> None:
+    """Ensure current thread is PER_MONITOR_AWARE_V2 before any Win32 pixel call.
+
+    pyautogui uses SetCursorPos / mouse_event under the hood, which both
+    interpret coordinates in the CURRENT THREAD's DPI context. If the thread
+    has drifted off V2 (stale inheritance, another library resetting it),
+    physical pixel coords land on the wrong spot. Idempotent, nanoseconds.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        pass
 
 WORD_PRE_DELAY_SEC = 0.30
 WORD_RETRY_DELAY_SEC = 0.30
@@ -63,6 +82,7 @@ def type_word_with_retry(word: str) -> None:
 
 
 def do_action(mode: str, click_target: tuple[int, int], text_before_enter: str | None = None) -> None:
+    _pin_thread_v2_dpi()
     x, y = click_target
     old = pyautogui.position()
     pyautogui.moveTo(x, y, duration=0)
