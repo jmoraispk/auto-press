@@ -101,6 +101,41 @@ class _VLine(QFrame):
         self.setStyleSheet("background: rgba(255,255,255,24); border: none;")
 
 
+class CollapsibleCard(HeaderCardWidget):
+    """HeaderCardWidget with a chevron toggle that hides/shows the body."""
+
+    def __init__(self, title: str = "", parent=None, expanded: bool = True):
+        super().__init__(parent)
+        self.setTitle(title)
+
+        self._toggle_btn = ToolButton(FIF.UP, self)
+        self._toggle_btn.setFixedSize(28, 28)
+        self._toggle_btn.setToolTip("Collapse / expand")
+        self._toggle_btn.clicked.connect(self._toggle)
+
+        # HeaderCardWidget's headerLayout holds the title label; push our
+        # chevron to the far right edge.
+        self.headerLayout.addStretch(1)
+        self.headerLayout.addWidget(self._toggle_btn)
+
+        self._expanded = True
+        if not expanded:
+            self._toggle()
+
+        # Let the header remain clickable for toggling too
+        self.headerView.setCursor(Qt.PointingHandCursor)
+        self.headerView.mousePressEvent = lambda _e: self._toggle()
+
+    def _toggle(self) -> None:
+        self._expanded = not self._expanded
+        self.view.setVisible(self._expanded)
+        self._toggle_btn.setIcon(FIF.UP if self._expanded else FIF.DOWN)
+
+    def setExpanded(self, expanded: bool) -> None:
+        if self._expanded != expanded:
+            self._toggle()
+
+
 class MainWindow(QMainWindow):
     hotkey_triggered = Signal()
 
@@ -332,8 +367,7 @@ class MainWindow(QMainWindow):
         return outer
 
     def _build_basics_card(self) -> QWidget:
-        card = HeaderCardWidget()
-        card.setTitle("Basics")
+        card = CollapsibleCard("Basics")
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -366,8 +400,7 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_template_card(self) -> QWidget:
-        card = HeaderCardWidget()
-        card.setTitle("Template")
+        card = CollapsibleCard("Template")
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -431,8 +464,7 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_scope_card(self) -> QWidget:
-        card = HeaderCardWidget()
-        card.setTitle("Search scope")
+        card = CollapsibleCard("Search scope")
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -474,25 +506,11 @@ class MainWindow(QMainWindow):
         card = HeaderCardWidget()
         card.setTitle("Log")
 
-        body = QVBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(6)
-
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 0)
-        header_row.setSpacing(6)
-        header_row.addStretch(1)
-        clear_btn = PushButton(FIF.BROOM, "Clear")
-        clear_btn.clicked.connect(lambda: self._log_box.clear())
-        header_row.addWidget(clear_btn)
-        body.addLayout(header_row)
-
         self._log_box = FluentPlainTextEdit()
         self._log_box.setReadOnly(True)
         self._log_box.setMaximumBlockCount(1000)
-        body.addWidget(self._log_box, 1)
 
-        card.viewLayout.addLayout(body)
+        card.viewLayout.addWidget(self._log_box)
         return card
 
     def _build_tray(self) -> None:
