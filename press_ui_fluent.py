@@ -319,9 +319,11 @@ class MainWindow(QMainWindow):
 
         self._rules_list = TableWidget()
         self._rules_list.setColumnCount(3)
-        self._rules_list.setHorizontalHeaderLabels(["Rule", "", "Action"])
+        self._rules_list.setHorizontalHeaderLabels(["Name", "On", "Action"])
         self._rules_list.verticalHeader().setVisible(False)
-        self._rules_list.horizontalHeader().setVisible(False)
+        self._rules_list.horizontalHeader().setVisible(True)
+        self._rules_list.horizontalHeader().setHighlightSections(False)
+        self._rules_list.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self._rules_list.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._rules_list.setSelectionMode(QAbstractItemView.SingleSelection)
         self._rules_list.setEditTriggers(QAbstractItemView.NoEditTriggers)

@@ -21,17 +21,38 @@ def ensure_vision() -> tuple[object, object]:
     return cv2, np
 
 
+def _pin_thread_v2_dpi() -> None:
+    """Ensure the current thread is PER_MONITOR_AWARE_V2.
+
+    Windows inherits thread DPI context from the process default at thread
+    creation. If a background thread was started before Qt/main set V2,
+    GetSystemMetrics and ImageGrab disagree with V2-aware callers. Pinning V2
+    here is idempotent and cheap; it guarantees every capture path agrees on
+    physical pixels.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        pass
+
+
 def _virtual_screen_origin() -> tuple[int, int]:
     """Top-left screen coordinate of the virtual desktop (can be negative on Windows)."""
     if sys.platform.startswith("win"):
         import ctypes
 
+        _pin_thread_v2_dpi()
         gm = ctypes.windll.user32.GetSystemMetrics
         return gm(76), gm(77)  # SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN
     return (0, 0)
 
 
 def _grab_screen(region: tuple[int, int, int, int] | None):
+    _pin_thread_v2_dpi()
     bbox = None
     if region:
         left, top, width, height = region

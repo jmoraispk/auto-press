@@ -8,8 +8,16 @@ import argparse
 import os
 import sys
 
-# Silence Qt's benign "DPI already set" warning on Windows (the process
-# manifest or app compat can set per-monitor V2 before Qt's own call).
+# Force PER_MONITOR_AWARE_V2 before any Qt / PIL import so every thread in
+# the process agrees on physical pixel coordinates.
+if sys.platform.startswith("win"):
+    try:
+        import ctypes
+
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        pass
+
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402

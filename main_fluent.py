@@ -8,6 +8,18 @@ import argparse
 import os
 import sys
 
+# Force PER_MONITOR_AWARE_V2 before any Qt / PIL import so every thread in
+# the process agrees on physical pixel coordinates. Without this, Windows'
+# app-compat shim leaves python.exe at V1, which gives ImageGrab and
+# GetSystemMetrics an inconsistent virtual-screen origin on mixed-DPI setups.
+if sys.platform.startswith("win"):
+    try:
+        import ctypes
+
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        pass
+
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
