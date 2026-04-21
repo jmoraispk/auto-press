@@ -55,6 +55,17 @@
       "action": "click",
       "text": "continue",
       "priority": 5
+    },
+    {
+      "id": "cf1af927",
+      "name": "continue claude",
+      "enabled": false,
+      "template_path": "rule_cf1af927.png",
+      "search_region": null,
+      "threshold": 0.9,
+      "action": "click",
+      "text": "continue",
+      "priority": 6
     }
   ]
 }

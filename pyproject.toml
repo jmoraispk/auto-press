@@ -5,12 +5,11 @@ description = "Rule-based screen automation for Cursor and other desktop apps"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "customtkinter>=5.2.2",
     "numpy>=1.26.0",
     "opencv-python>=4.10.0",
     "pillow>=10.0.0",
     "pyautogui>=0.9.54",
-    "pystray>=0.19.5",
+    "pyside6>=6.6.0",
     "pytest>=8.0.0",
 ]
 

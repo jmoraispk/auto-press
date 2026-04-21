@@ -3,28 +3,9 @@
 import argparse
 import sys
 
+from PySide6.QtWidgets import QApplication
 
-def _enable_per_monitor_v2_dpi() -> None:
-    """Force PER_MONITOR_AWARE_V2 before any GUI toolkit imports.
-
-    CustomTkinter only sets per-monitor V1, which misreports coordinates on
-    mixed-DPI multi-monitor setups. V2 must be set before any other DPI-aware
-    call in the process.
-    """
-    if not sys.platform.startswith("win"):
-        return
-    try:
-        import ctypes
-
-        PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)
-    except (AttributeError, OSError, Exception):
-        pass
-
-
-_enable_per_monitor_v2_dpi()
-
-from press_ui import run_ui  # noqa: E402  (DPI init must come first)
+from press_ui import MainWindow
 
 
 def main() -> None:
@@ -41,7 +22,14 @@ def main() -> None:
     args = parser.parse_args()
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
-    run_ui(args.seconds)
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("Auto Press")
+    app.setQuitOnLastWindowClosed(False)  # tray keeps the process alive
+
+    window = MainWindow(initial_seconds=float(args.seconds))
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
