@@ -60,11 +60,20 @@ if IS_WINDOWS:
     WM_QUIT = 0x0012
     MOD_NOREPEAT = 0x4000
     VK_PAGEDOWN = 0x22
+    VK_LBUTTON = 0x01
+    VK_ESCAPE = 0x1B
 
     SM_XVIRTUALSCREEN = 76
     SM_YVIRTUALSCREEN = 77
     SM_CXVIRTUALSCREEN = 78
     SM_CYVIRTUALSCREEN = 79
+
+    GetAsyncKeyState = user32.GetAsyncKeyState
+    GetAsyncKeyState.argtypes = [ctypes.c_int]
+    GetAsyncKeyState.restype = ctypes.c_short
+    GetCursorPos = user32.GetCursorPos
+    GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+    GetCursorPos.restype = wintypes.BOOL
 
     class MSG(ctypes.Structure):
         _fields_ = [
@@ -218,15 +227,84 @@ def run_ui(initial_seconds: float) -> None:
         attach_tooltip(badge, text)
         return badge
 
-    def capture_drag_bbox() -> list[int] | None:
+    def _screen_cursor_pos() -> tuple[int, int]:
+        point = wintypes.POINT()
+        GetCursorPos(ctypes.byref(point))
+        return int(point.x), int(point.y)
+
+    def _global_drag_bbox_windows() -> list[int] | None:
+        """Track a left-mouse drag across every monitor using Win32 polling."""
+        info = tk.Toplevel(root)
+        info.overrideredirect(True)
+        info.attributes("-topmost", True)
+        info.configure(bg="#1f1f1f")
+        status_var_local = tk.StringVar(value="Click and drag on any monitor  ·  Esc to cancel")
+        tk.Label(
+            info,
+            textvariable=status_var_local,
+            bg="#1f1f1f",
+            fg="#f0f0f0",
+            padx=18,
+            pady=10,
+            font=("Segoe UI", 11),
+            relief="solid",
+            borderwidth=1,
+        ).pack()
+        info.update_idletasks()
+        vx, vy, vw, _vh = virtual_screen_rect()
+        info.geometry(f"+{vx + max(0, (vw - info.winfo_reqwidth()) // 2)}+{vy + 40}")
+
+        # Drain stale key states so a prior click/escape doesn't short-circuit us.
+        GetAsyncKeyState(VK_LBUTTON)
+        GetAsyncKeyState(VK_ESCAPE)
+
+        start = None
+        end = None
+        cancelled = False
+        try:
+            while True:
+                if GetAsyncKeyState(VK_ESCAPE) & 0x8000:
+                    cancelled = True
+                    break
+                if GetAsyncKeyState(VK_LBUTTON) & 0x8000:
+                    start = _screen_cursor_pos()
+                    break
+                root.update()
+                time.sleep(0.01)
+
+            if not cancelled and start is not None:
+                while True:
+                    if GetAsyncKeyState(VK_ESCAPE) & 0x8000:
+                        cancelled = True
+                        break
+                    if not (GetAsyncKeyState(VK_LBUTTON) & 0x8000):
+                        end = _screen_cursor_pos()
+                        break
+                    cx, cy = _screen_cursor_pos()
+                    w = abs(cx - start[0])
+                    h = abs(cy - start[1])
+                    status_var_local.set(f"Drag: {w}×{h}  ·  ({min(start[0], cx)},{min(start[1], cy)})  ·  release to capture")
+                    root.update()
+                    time.sleep(0.01)
+        finally:
+            info.destroy()
+
+        if cancelled or start is None or end is None:
+            return None
+        x0, y0 = start
+        x1, y1 = end
+        left, right = sorted((x0, x1))
+        top, bottom = sorted((y0, y1))
+        width = right - left
+        height = bottom - top
+        if width < 5 or height < 5:
+            return None
+        return [left, top, width, height]
+
+    def _tk_overlay_drag_bbox() -> list[int] | None:
         result = {"bbox": None}
         overlay = tk.Toplevel(root)
-        if IS_WINDOWS:
-            overlay.overrideredirect(True)
-            vx, vy, vw, vh = virtual_screen_rect()
-            overlay.geometry(f"{vw}x{vh}+{vx}+{vy}")
-        else:
-            overlay.attributes("-fullscreen", True)
+        overlay.attributes("-fullscreen", True)
         overlay.attributes("-topmost", True)
         overlay.attributes("-alpha", 0.22)
         overlay.configure(bg="black")
@@ -273,6 +351,11 @@ def run_ui(initial_seconds: float) -> None:
         canvas.bind("<ButtonRelease-1>", on_release)
         root.wait_window(overlay)
         return result["bbox"]
+
+    def capture_drag_bbox() -> list[int] | None:
+        if IS_WINDOWS:
+            return _global_drag_bbox_windows()
+        return _tk_overlay_drag_bbox()
 
     def selected_index() -> int | None:
         selection = rule_list.curselection()
