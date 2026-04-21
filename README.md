@@ -1,7 +1,7 @@
 # 🖱️ auto-press
 
-[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#-cross-platform-status)
+[![Python](https://img.shields.io/badge/python-3.14%20preferred-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#-faq)
 [![uv](https://img.shields.io/badge/packaged%20with-uv-261230.svg)](https://github.com/astral-sh/uv)
 [![Status](https://img.shields.io/badge/status-active-2e7d32.svg)](#)
 
@@ -33,6 +33,8 @@ uv run main.py
 
 That's it — the UI opens and you're ready to add your first rule.
 
+The project pins **Python 3.14** via `.python-version`; `uv sync` will fetch it automatically. The code itself supports Python 3.10+ if you want to use something older — just delete `.python-version` or run `uv python pin 3.11` (or whichever version you'd like).
+
 ## 🧭 The workflow
 
 Each rule is a few clicks:
@@ -56,15 +58,15 @@ auto-press sits in the Windows system tray. The dot color tells you what it's do
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
-## 🖥️ Cross-platform status
+## 📦 Standalone executable
 
-Today auto-press is **Windows-only in practice**. The engine, UI, and template matching are cross-platform (PySide6 + Pillow + OpenCV run everywhere), but three pieces lean on Win32 APIs:
+If 5 s Python startup bothers you, build a Nuitka-compiled single exe. Qt ships `pyside6-deploy` for this; it handles compilation, Qt plugin selection, and packaging:
 
-- Per-monitor-v2 DPI awareness for reliable capture across mixed-DPI monitors.
-- Physical-pixel cursor and monitor enumeration (`GetCursorPos`, `EnumDisplayMonitors`).
-- Global **Page Down** hotkey (`RegisterHotKey`).
+```bash
+uv run pyside6-deploy -c pysidedeploy.spec
+```
 
-macOS / Linux parity is on the roadmap but **low priority** — happy to pick it up if someone finds it useful. The bits that'd need writing are the three items above; the rest already works. Contributions welcome.
+First invocation will download a compatible MinGW toolchain automatically (~200 MB, cached for later). Output lands in `dist/main.exe` — a single binary with no Python dependency on the target machine. Double-click to launch; subsequent runs are much snappier than `uv run`.
 
 ## ❓ FAQ
 
@@ -86,9 +88,15 @@ The interval (seconds) controls how often auto-press captures the screen and tes
 </details>
 
 <details>
-<summary><strong>Does this work on macOS / Linux?</strong></summary>
+<summary><strong>Does this work on macOS or Linux?</strong></summary>
 
-Not yet. See the **Cross-platform status** section above — the core will run but a few Windows-only primitives need cross-platform equivalents before capture and global hotkeys behave reliably.
+Today auto-press is **Windows-only in practice**. The engine, UI, and template matching are cross-platform (PySide6 + Pillow + OpenCV run everywhere), but three pieces lean on Win32 APIs:
+
+- Per-monitor-v2 DPI awareness for reliable capture across mixed-DPI monitors.
+- Physical-pixel cursor and monitor enumeration (`GetCursorPos`, `EnumDisplayMonitors`).
+- Global **Page Down** hotkey (`RegisterHotKey`).
+
+macOS / Linux parity is on the roadmap but **low priority** — happy to pick it up if someone finds it useful. Contributions welcome; the three items above are all that'd need writing, the rest already works.
 
 </details>
 
@@ -97,17 +105,6 @@ Not yet. See the **Cross-platform status** section above — the core will run b
 
 The two monitors are probably at different DPI scalings. Template matching is not scale-invariant — a button rendered at 100% looks pixel-different from the same button at 150%. Either capture the template on the monitor you want to match on, or set both monitors to the same Windows display scaling.
 </details>
-
-## 📦 Single-file executable (optional)
-
-If 5 s Python startup bothers you, build a Nuitka-compiled single exe:
-
-```bash
-uv add nuitka pyside6-project-tool
-uv run pyside6-deploy -c pysidedeploy.spec
-```
-
-Output lands in `dist/main.exe` — a standalone binary, no Python required on the target machine. First run is a little slower than a warm Python process (it self-extracts once), subsequent runs are noticeably snappier than `uv run`.
 
 ## 🧩 Advanced
 
@@ -134,5 +131,5 @@ Per-rule matching options (template, threshold, search region, action, optional 
 - [press_store.py](press_store.py) — config and template persistence
 - [press_core.py](press_core.py) — click / type / vision primitives
 - [templates/](templates/) — captured template images and `config.json`
-- [pysidedeploy.spec](pysidedeploy.spec) — Nuitka config for the single-exe build
+- [pysidedeploy.spec](pysidedeploy.spec) — Nuitka config for the standalone-exe build
 </details>

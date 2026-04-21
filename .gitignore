@@ -1,2 +1,10 @@
 __pycache__/
 *.py[cod]
+
+# Nuitka / pyside6-deploy build artefacts
+dist/
+build/
+main.build/
+main.dist/
+main.onefile-build/
+deployment/

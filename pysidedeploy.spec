@@ -2,7 +2,7 @@
 title = Auto Press
 project_dir = .
 input_file = main.py
-project_file = pyproject.toml
+project_file =
 exec_directory = dist
 icon =
 
