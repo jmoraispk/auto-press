@@ -60,13 +60,24 @@ Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit
 
 ## 📦 Standalone executable
 
-If 5 s Python startup bothers you, build a Nuitka-compiled single exe. Qt ships `pyside6-deploy` for this; it handles compilation, Qt plugin selection, and packaging:
+If 5 s Python startup bothers you, build a Nuitka-compiled single exe:
 
 ```bash
-uv run pyside6-deploy -c pysidedeploy.spec
+uv run python -m nuitka \
+  --onefile \
+  --enable-plugin=pyside6 \
+  --include-package=qfluentwidgets \
+  --include-package=qframelesswindow \
+  --include-package=cv2 --include-package=PIL --include-package=numpy --include-package=pyautogui \
+  --noinclude-qt-translations --lto=yes \
+  --output-dir=dist --output-filename=auto-press.exe \
+  --assume-yes-for-downloads \
+  main.py
 ```
 
-First invocation will download a compatible MinGW toolchain automatically (~200 MB, cached for later). Output lands in `dist/main.exe` — a single binary with no Python dependency on the target machine. Double-click to launch; subsequent runs are much snappier than `uv run`.
+First invocation downloads a MinGW toolchain (~200 MB, cached). Output lands in `dist/auto-press.exe` — a single binary, no Python required on the target machine. Double-click to launch; subsequent runs are much snappier than `uv run`.
+
+> Qt ships `pyside6-deploy` as a higher-level wrapper, but it currently fails on paths with spaces (e.g. `OneDrive - …`); driving Nuitka directly works either way.
 
 ## ❓ FAQ
 
