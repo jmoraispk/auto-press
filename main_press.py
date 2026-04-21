@@ -1,16 +1,30 @@
 """Auto Press entrypoint."""
 
 import argparse
-import os
 import sys
 
-# Silence Qt's benign "DPI already set" warning on Windows (the process
-# manifest or app compat can set per-monitor V2 before Qt's own call).
-os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
+def _enable_per_monitor_v2_dpi() -> None:
+    """Force PER_MONITOR_AWARE_V2 before any GUI toolkit imports.
 
-from press_ui import MainWindow  # noqa: E402
+    CustomTkinter only sets per-monitor V1, which misreports coordinates on
+    mixed-DPI multi-monitor setups. V2 must be set before any other DPI-aware
+    call in the process.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+
+        PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)
+    except (AttributeError, OSError, Exception):
+        pass
+
+
+_enable_per_monitor_v2_dpi()
+
+from press_ui import run_ui  # noqa: E402  (DPI init must come first)
 
 
 def main() -> None:
@@ -27,14 +41,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
-
-    app = QApplication(sys.argv)
-    app.setApplicationName("Auto Press")
-    app.setQuitOnLastWindowClosed(False)
-
-    window = MainWindow(initial_seconds=float(args.seconds))
-    window.show()
-    sys.exit(app.exec())
+    run_ui(args.seconds)
 
 
 if __name__ == "__main__":
