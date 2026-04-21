@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-import pyautogui
+from PIL import ImageGrab
 
 from press_core import MODE_CLICK, MODE_CLICK_ENTER, do_action, load_template_gray, try_import_vision
 from press_store import ACTION_CLICK, ACTION_CLICK_TYPE_ENTER, resolve_template_path
@@ -20,10 +20,20 @@ def ensure_vision() -> tuple[object, object]:
     return cv2, np
 
 
+def _grab_screen(region: tuple[int, int, int, int] | None):
+    bbox = None
+    if region:
+        left, top, width, height = region
+        bbox = (left, top, left + width, top + height)
+    try:
+        return ImageGrab.grab(bbox=bbox, all_screens=True)
+    except TypeError:
+        return ImageGrab.grab(bbox=bbox)
+
+
 def capture_screen_gray(region: tuple[int, int, int, int] | None = None):
     cv2, np = ensure_vision()
-    img = pyautogui.screenshot(region=region)
-    arr = np.array(img)
+    arr = np.array(_grab_screen(region).convert("RGB"))
     return cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
 
 

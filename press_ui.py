@@ -61,6 +61,11 @@ if IS_WINDOWS:
     MOD_NOREPEAT = 0x4000
     VK_PAGEDOWN = 0x22
 
+    SM_XVIRTUALSCREEN = 76
+    SM_YVIRTUALSCREEN = 77
+    SM_CXVIRTUALSCREEN = 78
+    SM_CYVIRTUALSCREEN = 79
+
     class MSG(ctypes.Structure):
         _fields_ = [
             ("hwnd", wintypes.HWND),
@@ -70,6 +75,50 @@ if IS_WINDOWS:
             ("time", wintypes.DWORD),
             ("pt", wintypes.POINT),
         ]
+
+    class _RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    _MONITORENUMPROC = ctypes.WINFUNCTYPE(
+        ctypes.c_int,
+        wintypes.HMONITOR,
+        wintypes.HDC,
+        ctypes.POINTER(_RECT),
+        wintypes.LPARAM,
+    )
+
+    def virtual_screen_rect() -> tuple[int, int, int, int]:
+        gm = user32.GetSystemMetrics
+        return (
+            gm(SM_XVIRTUALSCREEN),
+            gm(SM_YVIRTUALSCREEN),
+            gm(SM_CXVIRTUALSCREEN),
+            gm(SM_CYVIRTUALSCREEN),
+        )
+
+    def enumerate_monitors() -> list[tuple[int, int, int, int]]:
+        monitors: list[tuple[int, int, int, int]] = []
+
+        def _proc(_hmonitor, _hdc, lprect, _lparam):
+            r = lprect.contents
+            monitors.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
+            return 1
+
+        user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(_proc), 0)
+        return monitors
+
+else:
+
+    def virtual_screen_rect() -> tuple[int, int, int, int]:
+        return (0, 0, 0, 0)
+
+    def enumerate_monitors() -> list[tuple[int, int, int, int]]:
+        return []
 
 
 def run_ui(initial_seconds: float) -> None:
@@ -172,7 +221,12 @@ def run_ui(initial_seconds: float) -> None:
     def capture_drag_bbox() -> list[int] | None:
         result = {"bbox": None}
         overlay = tk.Toplevel(root)
-        overlay.attributes("-fullscreen", True)
+        if IS_WINDOWS:
+            overlay.overrideredirect(True)
+            vx, vy, vw, vh = virtual_screen_rect()
+            overlay.geometry(f"{vw}x{vh}+{vx}+{vy}")
+        else:
+            overlay.attributes("-fullscreen", True)
         overlay.attributes("-topmost", True)
         overlay.attributes("-alpha", 0.22)
         overlay.configure(bg="black")
@@ -279,7 +333,7 @@ def run_ui(initial_seconds: float) -> None:
         action_var.set(ACTION_CLICK)
         text_var.set("continue")
         template_choice_var.set("")
-        region_var.set("Whole screen")
+        region_var.set("All monitors")
         update_action_fields()
 
     def load_selected_rule(_event=None) -> None:
@@ -294,7 +348,7 @@ def run_ui(initial_seconds: float) -> None:
         text_var.set(rule.get("text", "continue"))
         template_choice_var.set(rule.get("template_path") or "")
         region = rule.get("search_region")
-        region_var.set("Whole screen" if not region else f"{tuple(region)}")
+        region_var.set("All monitors" if not region else f"{tuple(region)}")
         update_action_fields()
 
     def refresh_template_choices(selected: str | None = None) -> None:
@@ -435,7 +489,7 @@ def run_ui(initial_seconds: float) -> None:
         region_var.set(str(tuple(bbox)))
         log_event(f"[capture] search region set to {tuple(bbox)}")
 
-    def use_whole_screen() -> None:
+    def use_all_monitors() -> None:
         idx = selected_index()
         if idx is None:
             log_event("[capture] select a rule first")
@@ -443,8 +497,50 @@ def run_ui(initial_seconds: float) -> None:
         with cfg_lock:
             cfg["rules"][idx]["search_region"] = None
         persist_and_refresh(idx)
-        region_var.set("Whole screen")
-        log_event("[capture] rule now scans the whole screen")
+        region_var.set("All monitors")
+        log_event("[capture] rule now scans all monitors")
+
+    def pick_monitor() -> None:
+        idx = selected_index()
+        if idx is None:
+            log_event("[monitor] select a rule first")
+            return
+        monitors = enumerate_monitors()
+        if not monitors:
+            log_event("[monitor] no monitors detected (only supported on Windows)")
+            return
+
+        dialog = tk.Toplevel(root)
+        dialog.title("Pick Monitor")
+        dialog.transient(root)
+        dialog.attributes("-topmost", True)
+        dialog.resizable(False, False)
+        dialog.configure(bg="#1f1f1f")
+
+        ctk.CTkLabel(dialog, text="Restrict the scan to a single monitor:", font=FONT).pack(
+            padx=14, pady=(14, 8)
+        )
+
+        def choose(bbox: tuple[int, int, int, int]) -> None:
+            left, top, width, height = bbox
+            region = [left, top, width, height]
+            with cfg_lock:
+                cfg["rules"][idx]["search_region"] = region
+            persist_and_refresh(idx)
+            region_var.set(f"Monitor {width}×{height} @ ({left},{top})")
+            log_event(f"[monitor] search region set to {width}x{height} @ ({left},{top})")
+            dialog.destroy()
+
+        for i, monitor in enumerate(monitors, start=1):
+            left, top, width, height = monitor
+            label = f"Monitor {i}: {width}×{height} @ ({left},{top})"
+            ctk.CTkButton(dialog, text=label, width=260, command=lambda b=monitor: choose(b)).pack(
+                padx=14, pady=4
+            )
+
+        ctk.CTkButton(dialog, text="Cancel", width=100, command=dialog.destroy).pack(
+            padx=14, pady=(8, 14)
+        )
 
     def test_selected_rule() -> None:
         idx = selected_index()
@@ -531,7 +627,7 @@ def run_ui(initial_seconds: float) -> None:
     action_var = tk.StringVar(value=ACTION_CLICK)
     text_var = tk.StringVar(value="continue")
     template_choice_var = tk.StringVar(value="")
-    region_var = tk.StringVar(value="Whole screen")
+    region_var = tk.StringVar(value="All monitors")
 
     editor_header = ctk.CTkFrame(editor, fg_color="transparent")
     editor_header.pack(anchor="w", pady=(0, 10))
@@ -641,12 +737,13 @@ def run_ui(initial_seconds: float) -> None:
     search_header = ctk.CTkFrame(search_section, fg_color="transparent")
     search_header.pack(anchor="w", padx=12, pady=(10, 4))
     ctk.CTkLabel(search_header, text="Search Scope", font=("Segoe UI", 12, "bold")).pack(side="left")
-    info_badge(search_header, "Whole screen scans everywhere. A search region makes matching faster and reduces false positives.")
+    info_badge(search_header, "All Monitors scans every display. Capture Search Region drags a crop (can span multiple monitors). Pick Monitor restricts the scan to one display.")
     search_row = ctk.CTkFrame(search_section, fg_color="transparent")
     search_row.pack(fill="x", padx=12, pady=(0, 10))
     ctk.CTkLabel(search_row, textvariable=region_var, font=FONT_SMALL, text_color=MUTED).pack(side="left", padx=(0, 12))
     ctk.CTkButton(search_row, text="Capture Search Region", command=capture_search_region, width=160).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(search_row, text="Use Whole Screen", command=use_whole_screen, width=130).pack(side="left")
+    ctk.CTkButton(search_row, text="All Monitors", command=use_all_monitors, width=110).pack(side="left", padx=(0, 8))
+    ctk.CTkButton(search_row, text="Pick Monitor", command=pick_monitor, width=110).pack(side="left")
 
     editor_actions = ctk.CTkFrame(editor, fg_color="transparent")
     editor_actions.pack(fill="x", pady=(4, 0))
