@@ -60,17 +60,12 @@ if IS_WINDOWS:
     WM_QUIT = 0x0012
     MOD_NOREPEAT = 0x4000
     VK_PAGEDOWN = 0x22
-    VK_LBUTTON = 0x01
-    VK_ESCAPE = 0x1B
 
     SM_XVIRTUALSCREEN = 76
     SM_YVIRTUALSCREEN = 77
     SM_CXVIRTUALSCREEN = 78
     SM_CYVIRTUALSCREEN = 79
 
-    GetAsyncKeyState = user32.GetAsyncKeyState
-    GetAsyncKeyState.argtypes = [ctypes.c_int]
-    GetAsyncKeyState.restype = ctypes.c_short
     GetCursorPos = user32.GetCursorPos
     GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
     GetCursorPos.restype = wintypes.BOOL
@@ -232,74 +227,87 @@ def run_ui(initial_seconds: float) -> None:
         GetCursorPos(ctypes.byref(point))
         return int(point.x), int(point.y)
 
-    def _global_drag_bbox_windows() -> list[int] | None:
-        """Track a left-mouse drag across every monitor using Win32 polling."""
-        info = tk.Toplevel(root)
-        info.overrideredirect(True)
-        info.attributes("-topmost", True)
-        info.configure(bg="#1f1f1f")
-        status_var_local = tk.StringVar(value="Click and drag on any monitor  ·  Esc to cancel")
-        tk.Label(
-            info,
-            textvariable=status_var_local,
-            bg="#1f1f1f",
-            fg="#f0f0f0",
-            padx=18,
-            pady=10,
-            font=("Segoe UI", 11),
-            relief="solid",
-            borderwidth=1,
-        ).pack()
-        info.update_idletasks()
-        vx, vy, vw, _vh = virtual_screen_rect()
-        info.geometry(f"+{vx + max(0, (vw - info.winfo_reqwidth()) // 2)}+{vy + 40}")
+    def _per_monitor_drag_bbox_windows() -> list[int] | None:
+        """Cover every monitor with its own dim overlay, track the drag, return screen coords."""
+        monitors = enumerate_monitors()
+        if not monitors:
+            return _tk_overlay_drag_bbox()
 
-        # Drain stale key states so a prior click/escape doesn't short-circuit us.
-        GetAsyncKeyState(VK_LBUTTON)
-        GetAsyncKeyState(VK_ESCAPE)
+        state_cap: dict = {"bbox": None, "start": None}
+        overlays: list = []  # list of (Toplevel, Canvas, (left, top, width, height))
 
-        start = None
-        end = None
-        cancelled = False
-        try:
-            while True:
-                if GetAsyncKeyState(VK_ESCAPE) & 0x8000:
-                    cancelled = True
-                    break
-                if GetAsyncKeyState(VK_LBUTTON) & 0x8000:
-                    start = _screen_cursor_pos()
-                    break
-                root.update()
-                time.sleep(0.01)
+        def cleanup(_event=None) -> None:
+            for ov, _canvas, _mon in overlays:
+                try:
+                    ov.destroy()
+                except Exception:
+                    pass
+            overlays.clear()
 
-            if not cancelled and start is not None:
-                while True:
-                    if GetAsyncKeyState(VK_ESCAPE) & 0x8000:
-                        cancelled = True
-                        break
-                    if not (GetAsyncKeyState(VK_LBUTTON) & 0x8000):
-                        end = _screen_cursor_pos()
-                        break
-                    cx, cy = _screen_cursor_pos()
-                    w = abs(cx - start[0])
-                    h = abs(cy - start[1])
-                    status_var_local.set(f"Drag: {w}×{h}  ·  ({min(start[0], cx)},{min(start[1], cy)})  ·  release to capture")
-                    root.update()
-                    time.sleep(0.01)
-        finally:
-            info.destroy()
+        def draw_rect() -> None:
+            if state_cap["start"] is None:
+                return
+            sx, sy = state_cap["start"]
+            cx, cy = _screen_cursor_pos()
+            left_r, right_r = sorted((sx, cx))
+            top_r, bottom_r = sorted((sy, cy))
+            for _ov, canvas, (ml, mt, mw, mh) in overlays:
+                canvas.delete("drag_rect")
+                il = max(left_r, ml)
+                it = max(top_r, mt)
+                ir = min(right_r, ml + mw)
+                ib = min(bottom_r, mt + mh)
+                if ir <= il or ib <= it:
+                    continue
+                canvas.create_rectangle(
+                    il - ml, it - mt, ir - ml, ib - mt,
+                    outline="#00c853", width=2, tags="drag_rect",
+                )
 
-        if cancelled or start is None or end is None:
-            return None
-        x0, y0 = start
-        x1, y1 = end
-        left, right = sorted((x0, x1))
-        top, bottom = sorted((y0, y1))
-        width = right - left
-        height = bottom - top
-        if width < 5 or height < 5:
-            return None
-        return [left, top, width, height]
+        def on_press(_event) -> None:
+            state_cap["start"] = _screen_cursor_pos()
+            for _ov, canvas, _mon in overlays:
+                canvas.delete("drag_rect")
+
+        def on_motion(_event) -> None:
+            draw_rect()
+
+        def on_release(_event) -> None:
+            if state_cap["start"] is None:
+                cleanup()
+                return
+            sx, sy = state_cap["start"]
+            ex, ey = _screen_cursor_pos()
+            left_r, right_r = sorted((sx, ex))
+            top_r, bottom_r = sorted((sy, ey))
+            width = right_r - left_r
+            height = bottom_r - top_r
+            if width >= 5 and height >= 5:
+                state_cap["bbox"] = [left_r, top_r, width, height]
+            cleanup()
+
+        for mon in monitors:
+            left, top, width, height = mon
+            ov = tk.Toplevel(root)
+            ov.overrideredirect(True)
+            ov.attributes("-topmost", True)
+            ov.attributes("-alpha", 0.30)
+            ov.configure(bg="black")
+            ov.config(cursor="crosshair")
+            ov.geometry(f"{width}x{height}+{left}+{top}")
+            canvas = tk.Canvas(ov, bg="black", highlightthickness=0)
+            canvas.pack(fill="both", expand=True)
+            canvas.bind("<ButtonPress-1>", on_press)
+            canvas.bind("<B1-Motion>", on_motion)
+            canvas.bind("<ButtonRelease-1>", on_release)
+            ov.bind("<Escape>", cleanup)
+            overlays.append((ov, canvas, mon))
+
+        if overlays:
+            first = overlays[0][0]
+            first.focus_force()
+            root.wait_window(first)
+        return state_cap["bbox"]
 
     def _tk_overlay_drag_bbox() -> list[int] | None:
         result = {"bbox": None}
@@ -354,7 +362,7 @@ def run_ui(initial_seconds: float) -> None:
 
     def capture_drag_bbox() -> list[int] | None:
         if IS_WINDOWS:
-            return _global_drag_bbox_windows()
+            return _per_monitor_drag_bbox_windows()
         return _tk_overlay_drag_bbox()
 
     def selected_index() -> int | None:
