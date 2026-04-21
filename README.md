@@ -63,12 +63,18 @@ Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit
 Build a single `auto-press.exe` — no Python required on the target machine. Double-click to launch:
 
 ```bash
-uv run pyinstaller --noconfirm auto-press.spec
+uv run nuitka --onefile --windows-console-mode=disable \
+  --enable-plugin=pyside6 \
+  --include-package=qfluentwidgets --include-package=qframelesswindow \
+  --include-package=cv2 --include-package=PIL --include-package=numpy --include-package=pyautogui \
+  --noinclude-qt-translations --lto=yes \
+  --output-dir=dist --output-filename=auto-press.exe \
+  --assume-yes-for-downloads main.py
 ```
 
-Takes ~2–3 min, produces ~105 MB at `dist/auto-press.exe`. The spec file (`auto-press.spec`) bundles PySide6 + qfluentwidgets + OpenCV + Pillow + numpy + pyautogui and strips the Qt modules we don't use (WebEngine, Qt3D, Charts, QML/Quick, etc.).
+Compiles Python to C → native binary via Nuitka, roughly 10–15 min on first build (cached after), lands in `dist/auto-press.exe`. Cold-start is markedly snappier than `uv run main.py`.
 
-> Nuitka produces a faster-starting binary but requires MSVC Build Tools on Python 3.13+. PyInstaller works with zero setup and the runtime difference is ~1 s on cold start — not worth the toolchain overhead unless you're shipping the binary to end users at scale.
+**Requires** [Visual Studio Build Tools 2022](https://aka.ms/vs/17/release/vs_BuildTools.exe) with the **Desktop development with C++** workload (MSVC v143 + Windows 11 SDK). Nuitka dropped MinGW on Python 3.13+, so MSVC is the only supported toolchain now.
 
 ## ❓ FAQ
 

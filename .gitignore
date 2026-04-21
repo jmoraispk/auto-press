@@ -8,3 +8,10 @@ main.build/
 main.dist/
 main.onefile-build/
 deployment/
+build.log
+nuitka-crash-report.xml
+
+# User-specific rule configs + captured template images. The folder
+# itself is preserved via templates/.gitkeep so the app can write into it.
+templates/*
+!templates/.gitkeep

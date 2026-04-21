@@ -528,8 +528,7 @@ class MainWindow(QMainWindow):
         self._next_tick_at: Optional[float] = None
         self._running = False
         self._quitting = False
-        self._remembered_workspace_h = 460
-        self._remembered_log_h = 180
+        self._remembered_body_h = 600
 
         self._icon_running = _make_dot_icon(QColor(STATUS_RUNNING))
         self._icon_stopped = _make_dot_icon(QColor(STATUS_STOPPED))
@@ -576,23 +575,31 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._build_command_bar(initial_seconds))
 
-        self._v_splitter = QSplitter(Qt.Vertical)
-        self._v_splitter.setChildrenCollapsible(False)
-        self._v_splitter.setHandleWidth(6)
+        # Body: Horizontal split. Left column stacks Rules over Log.
+        self._body_splitter = QSplitter(Qt.Horizontal)
+        self._body_splitter.setChildrenCollapsible(False)
+        self._body_splitter.setHandleWidth(6)
 
-        self._workspace_panel = self._build_workspace_panel()
+        self._left_splitter = QSplitter(Qt.Vertical)
+        self._left_splitter.setChildrenCollapsible(False)
+        self._left_splitter.setHandleWidth(6)
+        rules_card = self._build_rules_card()
         self._log_panel = self._build_log_panel()
-
-        self._v_splitter.addWidget(self._workspace_panel)
-        self._v_splitter.addWidget(self._log_panel)
-        self._v_splitter.setStretchFactor(0, 3)
-        self._v_splitter.setStretchFactor(1, 1)
-        self._v_splitter.setSizes([self._remembered_workspace_h, self._remembered_log_h])
-        self._v_splitter.splitterMoved.connect(self._on_splitter_moved)
-        self._workspace_panel.setMinimumHeight(140)
+        rules_card.setMinimumHeight(140)
         self._log_panel.setMinimumHeight(110)
+        self._left_splitter.addWidget(rules_card)
+        self._left_splitter.addWidget(self._log_panel)
+        self._left_splitter.setStretchFactor(0, 2)
+        self._left_splitter.setStretchFactor(1, 1)
+        self._left_splitter.setSizes([380, 200])
 
-        root.addWidget(self._v_splitter, 1)
+        self._body_splitter.addWidget(self._left_splitter)
+        self._body_splitter.addWidget(self._build_editor_scroll())
+        self._body_splitter.setStretchFactor(0, 1)
+        self._body_splitter.setStretchFactor(1, 2)
+        self._body_splitter.setSizes([340, 740])
+
+        root.addWidget(self._body_splitter, 1)
         self.setCentralWidget(central)
 
     def _build_command_bar(self, initial_seconds: float) -> QWidget:
@@ -641,28 +648,13 @@ class MainWindow(QMainWindow):
 
         lay.addStretch(1)
 
-        self._workspace_toggle = CheckBox("Workspace")
-        self._workspace_toggle.setChecked(True)
-        self._workspace_toggle.toggled.connect(self._on_workspace_toggled)
-        lay.addWidget(self._workspace_toggle)
-
-        self._log_toggle = CheckBox("Log")
-        self._log_toggle.setChecked(True)
-        self._log_toggle.toggled.connect(self._on_log_toggled)
-        lay.addWidget(self._log_toggle)
+        self._collapse_btn = ToolButton(FIF.UP)
+        self._collapse_btn.setToolTip("Collapse to toolbar only")
+        self._collapse_btn.setFixedSize(32, 28)
+        self._collapse_btn.clicked.connect(self._toggle_body_collapsed)
+        lay.addWidget(self._collapse_btn)
 
         return bar
-
-    def _build_workspace_panel(self) -> QWidget:
-        split = QSplitter(Qt.Horizontal)
-        split.setChildrenCollapsible(False)
-        split.setHandleWidth(6)
-        split.addWidget(self._build_rules_card())
-        split.addWidget(self._build_editor_scroll())
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 2)
-        split.setSizes([320, 760])
-        return split
 
     def _build_rules_card(self) -> QWidget:
         card = HeaderCardWidget()
@@ -754,27 +746,32 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(6)
 
-        grid.addWidget(CaptionLabel("Name"), 0, 0)
-        grid.addWidget(CaptionLabel("Action"), 0, 1)
-        grid.addWidget(CaptionLabel("Text"), 0, 2)
+        # Header labels over every input column (Enabled's label sits inside
+        # the checkbox, so col 1 has no header).
+        self._name_label = CaptionLabel("Name")
+        self._action_label = CaptionLabel("Action")
+        self._text_label = CaptionLabel("Text")
+        grid.addWidget(self._name_label, 0, 0)
+        grid.addWidget(self._action_label, 0, 2)
+        grid.addWidget(self._text_label, 0, 3)
 
         self._name_edit = LineEdit()
+        self._enabled_check = CheckBox("Enabled")
         self._action_combo = ComboBox()
         self._action_combo.addItems(ACTION_TYPES)
         self._action_combo.currentTextChanged.connect(self._update_action_fields)
         self._text_edit = LineEdit()
-        self._text_edit.setPlaceholderText("used when action is click+type+enter")
+        self._text_edit.setPlaceholderText("typed before Enter")
 
         grid.addWidget(self._name_edit, 1, 0)
-        grid.addWidget(self._action_combo, 1, 1)
-        grid.addWidget(self._text_edit, 1, 2)
+        grid.addWidget(self._enabled_check, 1, 1)
+        grid.addWidget(self._action_combo, 1, 2)
+        grid.addWidget(self._text_edit, 1, 3)
 
-        self._enabled_check = CheckBox("Enabled")
-        grid.addWidget(self._enabled_check, 2, 0)
-
-        grid.setColumnStretch(0, 2)
-        grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(2, 2)
+        grid.setColumnStretch(0, 3)  # Name — wider
+        grid.setColumnStretch(1, 0)  # Enabled — content-width
+        grid.setColumnStretch(2, 2)  # Action
+        grid.setColumnStretch(3, 3)  # Text
 
         card.viewLayout.addLayout(grid)
         return card
@@ -789,22 +786,19 @@ class MainWindow(QMainWindow):
 
         self._template_combo = ComboBox()
         self._template_combo.setMinimumWidth(200)
-        self._template_combo.currentTextChanged.connect(self._update_template_preview)
-        use_existing_btn = PushButton(FIF.LINK, "Use existing")
-        use_existing_btn.clicked.connect(self._use_selected_template)
+        self._template_combo.currentTextChanged.connect(self._on_template_selected)
         capture_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
         capture_btn.clicked.connect(self._capture_template)
 
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
         top_row.addWidget(self._template_combo, 1)
-        top_row.addWidget(use_existing_btn)
         top_row.addWidget(capture_btn)
         grid.addLayout(top_row, 0, 0, 1, 2)
 
         self._preview_label = QLabel("(no template selected)")
         self._preview_label.setAlignment(Qt.AlignCenter)
-        self._preview_label.setFixedSize(240, 128)
+        self._preview_label.setFixedSize(120, 64)
         self._preview_label.setStyleSheet(
             "QLabel { background: rgba(0,0,0,0.25); "
             "border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; "
@@ -912,38 +906,21 @@ class MainWindow(QMainWindow):
         self._tray.activated.connect(self._on_tray_activated)
         self._tray.show()
 
-    # ---------- panel toggle auto-resize ----------
+    # ---------- body collapse ----------
 
-    def _on_workspace_toggled(self, checked: bool) -> None:
-        if checked:
-            self._workspace_panel.setVisible(True)
-            self._v_splitter.setSizes([self._remembered_workspace_h, self._v_splitter.sizes()[1]])
-            self.resize(self.width(), self.height() + self._remembered_workspace_h)
+    def _toggle_body_collapsed(self) -> None:
+        """Collapse the whole body (rules / log / editor) into toolbar-only mode."""
+        if self._body_splitter.isVisible():
+            self._remembered_body_h = self._body_splitter.height()
+            self._body_splitter.setVisible(False)
+            self.resize(self.width(), max(self.minimumHeight(), self.height() - self._remembered_body_h))
+            self._collapse_btn.setIcon(FIF.DOWN)
+            self._collapse_btn.setToolTip("Expand window")
         else:
-            sizes = self._v_splitter.sizes()
-            if sizes[0] > 0:
-                self._remembered_workspace_h = sizes[0]
-            self.resize(self.width(), max(self.minimumHeight(), self.height() - sizes[0]))
-            self._workspace_panel.setVisible(False)
-
-    def _on_log_toggled(self, checked: bool) -> None:
-        if checked:
-            self._log_panel.setVisible(True)
-            self._v_splitter.setSizes([self._v_splitter.sizes()[0], self._remembered_log_h])
-            self.resize(self.width(), self.height() + self._remembered_log_h)
-        else:
-            sizes = self._v_splitter.sizes()
-            if sizes[1] > 0:
-                self._remembered_log_h = sizes[1]
-            self.resize(self.width(), max(self.minimumHeight(), self.height() - sizes[1]))
-            self._log_panel.setVisible(False)
-
-    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
-        sizes = self._v_splitter.sizes()
-        if self._workspace_panel.isVisible() and sizes[0] > 0:
-            self._remembered_workspace_h = sizes[0]
-        if self._log_panel.isVisible() and sizes[1] > 0:
-            self._remembered_log_h = sizes[1]
+            self._body_splitter.setVisible(True)
+            self.resize(self.width(), self.height() + self._remembered_body_h)
+            self._collapse_btn.setIcon(FIF.UP)
+            self._collapse_btn.setToolTip("Collapse to toolbar only")
 
     # ---------- cfg helpers ----------
 
@@ -1037,7 +1014,9 @@ class MainWindow(QMainWindow):
         self._update_action_fields()
 
     def _update_action_fields(self, *_args) -> None:
-        self._text_edit.setEnabled(self._action_combo.currentText() == ACTION_CLICK_TYPE_ENTER)
+        wants_text = self._action_combo.currentText() == ACTION_CLICK_TYPE_ENTER
+        self._text_label.setVisible(wants_text)
+        self._text_edit.setVisible(wants_text)
 
     def _add_rule(self) -> None:
         with self._cfg_lock:
@@ -1113,41 +1092,51 @@ class MainWindow(QMainWindow):
         name = (name or "").strip()
         if not name:
             self._preview_label.setPixmap(QPixmap())
-            self._preview_label.setText("(no template selected)")
+            self._preview_label.setText("(no template)")
             self._template_meta.setText(""); return
         path = resolve_template_path(name)
         if path is None or not Path(path).exists():
             self._preview_label.setPixmap(QPixmap())
-            self._preview_label.setText("(file missing)")
-            self._template_meta.setText(f"File: {name}\n(not found under templates/)"); return
+            self._preview_label.setText("(missing)")
+            self._template_meta.setText("not found under templates/"); return
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
             self._preview_label.setPixmap(QPixmap())
-            self._preview_label.setText("(preview error)")
-            self._template_meta.setText(f"File: {name}"); return
+            self._preview_label.setText("(error)")
+            self._template_meta.setText(""); return
         nw, nh = pixmap.width(), pixmap.height()
         bw, bh = self._preview_label.width() - 8, self._preview_label.height() - 8
         if nw > bw or nh > bh:
             scaled = pixmap.scaled(bw, bh, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            note = "fit to preview"
+            note = "fit"
         else:
             scaled = pixmap
-            note = "actual size"
+            note = "actual"
         self._preview_label.setPixmap(scaled)
         self._preview_label.setText("")
-        self._template_meta.setText(f"{name}\n{nw} × {nh} px  ·  {note}")
+        self._template_meta.setText(f"{nw} × {nh} px  ·  {note}")
 
-    def _use_selected_template(self) -> None:
+    def _on_template_selected(self, name: str) -> None:
+        """Dropdown-driven template assignment: update preview + persist if a rule is selected.
+
+        No-op if no rule is active so that programmatic reloads (refresh,
+        loading a rule) don't double-save.
+        """
+        self._update_template_preview(name)
         idx = self._current_rule_index()
         if idx is None:
-            self._log("[template] select a rule first"); return
-        choice = self._template_combo.currentText().strip()
-        if not choice:
-            self._log("[template] choose an existing template first"); return
+            return
         with self._cfg_lock:
-            self._cfg["rules"][idx]["template_path"] = choice
-        self._persist(); self._refresh_rule_list(idx)
-        self._log(f"[template] selected {choice}")
+            current = self._cfg["rules"][idx].get("template_path") or ""
+        choice = (name or "").strip()
+        if choice == current:
+            return
+        with self._cfg_lock:
+            self._cfg["rules"][idx]["template_path"] = choice or None
+        self._persist()
+        self._refresh_rule_list(idx)
+        if choice:
+            self._log(f"[template] {choice}")
 
     def _capture_template(self) -> None:
         idx = self._current_rule_index()
