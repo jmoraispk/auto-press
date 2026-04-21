@@ -87,6 +87,63 @@ from press_store import (
 
 IS_WINDOWS = sys.platform.startswith("win")
 
+
+if IS_WINDOWS:
+    from ctypes import wintypes as _wintypes
+
+    _user32 = ctypes.windll.user32
+
+    class _RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    _MONITORENUMPROC = ctypes.WINFUNCTYPE(
+        ctypes.c_int,
+        _wintypes.HMONITOR,
+        _wintypes.HDC,
+        ctypes.POINTER(_RECT),
+        _wintypes.LPARAM,
+    )
+
+    def enumerate_physical_monitors() -> list[tuple[int, int, int, int]]:
+        """Every connected monitor's rect in physical pixels (per-monitor-v2 context)."""
+        monitors: list[tuple[int, int, int, int]] = []
+
+        def _proc(_hm, _hdc, lprect, _lp):
+            r = lprect.contents
+            monitors.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
+            return 1
+
+        _user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(_proc), 0)
+        return monitors
+
+    def physical_cursor_pos() -> tuple[int, int]:
+        """Cursor position in physical screen pixels, consistent with ImageGrab."""
+        p = _wintypes.POINT()
+        _user32.GetCursorPos(ctypes.byref(p))
+        return int(p.x), int(p.y)
+
+else:
+
+    def enumerate_physical_monitors() -> list[tuple[int, int, int, int]]:
+        from PySide6.QtGui import QGuiApplication as _QGuiApp
+
+        return [
+            (s.geometry().left(), s.geometry().top(), s.geometry().width(), s.geometry().height())
+            for s in _QGuiApp.screens()
+        ]
+
+    def physical_cursor_pos() -> tuple[int, int]:
+        from PySide6.QtGui import QCursor as _QCursor
+
+        pos = _QCursor.pos()
+        return pos.x(), pos.y()
+
+
 # ----- theme ----------------------------------------------------------
 
 ACCENT = "#3b82f6"
@@ -368,33 +425,44 @@ class EngineWorker(QObject):
 
 
 class CaptureOverlay(QWidget):
-    def __init__(self, screen_rect: QRect, controller: "CaptureController"):
+    """Per-monitor overlay. start/current in controller are PHYSICAL pixel coords."""
+
+    def __init__(self, qt_screen, physical_rect: tuple[int, int, int, int], controller: "CaptureController"):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setCursor(Qt.CrossCursor)
-        self._screen_rect = screen_rect
+        self._qt_screen = qt_screen
+        self._physical_rect = physical_rect  # (left, top, w, h) in physical px
         self._controller = controller
-        self.setGeometry(screen_rect)
+        self.setGeometry(qt_screen.geometry())  # Qt places us at the physical monitor
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         p = QPainter(self)
         p.fillRect(self.rect(), QColor(0, 0, 0, 100))
         if self._controller.start is None:
             return
+        # Everything in the controller is physical.
         sx, sy = self._controller.start
         cx, cy = self._controller.current
-        left = min(sx, cx)
-        right = max(sx, cx)
-        top = min(sy, cy)
-        bottom = max(sy, cy)
-        ml, mt = self._screen_rect.left(), self._screen_rect.top()
-        mr, mb = self._screen_rect.right() + 1, self._screen_rect.bottom() + 1
+        left = min(sx, cx); right = max(sx, cx)
+        top = min(sy, cy); bottom = max(sy, cy)
+        ml, mt, mw, mh = self._physical_rect
+        mr, mb = ml + mw, mt + mh
         il = max(left, ml); it = max(top, mt)
         ir = min(right, mr); ib = min(bottom, mb)
         if ir <= il or ib <= it:
             return
-        inner = QRect(il - ml, it - mt, ir - il, ib - it)
+        # Translate physical → overlay-local logical for Qt painting
+        from PySide6.QtCore import QRectF
+
+        dpr = self._qt_screen.devicePixelRatio() or 1.0
+        inner = QRectF(
+            (il - ml) / dpr,
+            (it - mt) / dpr,
+            (ir - il) / dpr,
+            (ib - it) / dpr,
+        )
         p.setCompositionMode(QPainter.CompositionMode_Source)
         p.fillRect(inner, QColor(0, 0, 0, 0))
         p.setCompositionMode(QPainter.CompositionMode_SourceOver)
@@ -403,18 +471,15 @@ class CaptureOverlay(QWidget):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton:
-            pos = QCursor.pos()
-            self._controller.on_press(pos.x(), pos.y())
+            self._controller.on_press(*physical_cursor_pos())
 
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+    def mouseMoveEvent(self, _event) -> None:  # noqa: N802
         if self._controller.start is not None:
-            pos = QCursor.pos()
-            self._controller.on_motion(pos.x(), pos.y())
+            self._controller.on_motion(*physical_cursor_pos())
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.LeftButton and self._controller.start is not None:
-            pos = QCursor.pos()
-            self._controller.on_release(pos.x(), pos.y())
+            self._controller.on_release(*physical_cursor_pos())
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() == Qt.Key_Escape:
@@ -434,8 +499,17 @@ class CaptureController(QObject):
         self.start = None
         self.current = None
         self._overlays = []
-        for screen in QGuiApplication.screens():
-            overlay = CaptureOverlay(screen.geometry(), self)
+        qt_screens = QGuiApplication.screens()
+        physical = enumerate_physical_monitors()
+        for i, screen in enumerate(qt_screens):
+            if i < len(physical):
+                pr = physical[i]
+            else:
+                # Fallback: multiply Qt logical by dpr
+                g = screen.geometry()
+                d = screen.devicePixelRatio() or 1.0
+                pr = (int(g.left() * d), int(g.top() * d), int(g.width() * d), int(g.height() * d))
+            overlay = CaptureOverlay(screen, pr, self)
             overlay.show()
             self._overlays.append(overlay)
         if self._overlays:
@@ -504,11 +578,12 @@ class MonitorPickDialog(QDialog):
         title.setProperty("role", "hint")
         layout.addWidget(title)
 
-        for i, screen in enumerate(QGuiApplication.screens(), start=1):
-            geom = screen.geometry()
-            bbox = [geom.left(), geom.top(), geom.width(), geom.height()]
+        # Physical monitor rects match what the engine passes to ImageGrab.
+        for i, rect in enumerate(enumerate_physical_monitors(), start=1):
+            left, top, width, height = rect
+            bbox = [left, top, width, height]
             btn = QPushButton(
-                f"Monitor {i}   ·   {geom.width()} × {geom.height()}   ·   ({geom.left()}, {geom.top()})"
+                f"Monitor {i}   ·   {width} × {height}   ·   ({left}, {top})"
             )
             btn.setMinimumWidth(340)
             btn.clicked.connect(lambda _c=False, b=bbox: self._choose(b))
