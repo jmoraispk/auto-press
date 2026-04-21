@@ -11,6 +11,7 @@ dependencies = [
     "pillow>=10.0.0",
     "pyautogui>=0.9.54",
     "pyside6>=6.6.0",
+    "pyside6-fluent-widgets>=1.11.2",
     "pystray>=0.19.5",
     "pytest>=8.0.0",
 ]
@@ -18,3 +19,4 @@ dependencies = [
 [project.scripts]
 auto-press = "main_press:main"
 auto-press-qt = "main_qt:main"
+auto-press-fluent = "main_fluent:main"
