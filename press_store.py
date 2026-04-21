@@ -29,9 +29,17 @@ def default_rule(name: str = "New Rule") -> dict:
     }
 
 
+# Windows Virtual-Key code for the default global start/stop hotkey.
+# 0x22 is VK_PAGEDOWN; modifiers bitmask matches RegisterHotKey MOD_* flags.
+DEFAULT_HOTKEY_VK = 0x22
+DEFAULT_HOTKEY_MODS = 0
+
+
 def default_config() -> dict:
     return {
         "interval_seconds": 10.0,
+        "hotkey_vk": DEFAULT_HOTKEY_VK,
+        "hotkey_mods": DEFAULT_HOTKEY_MODS,
         "rules": [],
     }
 
@@ -85,11 +93,22 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
     return base
 
 
+def _valid_vk(value) -> bool:
+    try:
+        return 0 <= int(value) <= 0xFFFF
+    except (TypeError, ValueError):
+        return False
+
+
 def normalize_config(config: dict | None) -> dict:
     base = default_config()
     if isinstance(config, dict):
         if "interval_seconds" in config:
             base["interval_seconds"] = _clamp_float(config["interval_seconds"], 10.0, 0.1, 86400.0)
+        if _valid_vk(config.get("hotkey_vk")):
+            base["hotkey_vk"] = int(config["hotkey_vk"])
+        if _valid_vk(config.get("hotkey_mods")):
+            base["hotkey_mods"] = int(config["hotkey_mods"])
         raw_rules = config.get("rules")
         if isinstance(raw_rules, list):
             base["rules"] = [_normalize_rule(rule, idx + 1) for idx, rule in enumerate(raw_rules)]

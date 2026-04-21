@@ -204,6 +204,134 @@ def _make_dot_icon(color: QColor) -> QIcon:
     return QIcon(pm)
 
 
+# ---- hotkey picker --------------------------------------------------
+
+# Win32 RegisterHotKey modifier flags.
+_MOD_ALT = 0x0001
+_MOD_CONTROL = 0x0002
+_MOD_SHIFT = 0x0004
+_MOD_WIN = 0x0008
+
+# Non-letter / non-digit Qt.Key -> Win32 VK mapping.
+_QT_KEY_TO_VK = {
+    Qt.Key_F1: 0x70, Qt.Key_F2: 0x71, Qt.Key_F3: 0x72, Qt.Key_F4: 0x73,
+    Qt.Key_F5: 0x74, Qt.Key_F6: 0x75, Qt.Key_F7: 0x76, Qt.Key_F8: 0x77,
+    Qt.Key_F9: 0x78, Qt.Key_F10: 0x79, Qt.Key_F11: 0x7A, Qt.Key_F12: 0x7B,
+    Qt.Key_PageUp: 0x21, Qt.Key_PageDown: 0x22,
+    Qt.Key_Home: 0x24, Qt.Key_End: 0x23,
+    Qt.Key_Insert: 0x2D, Qt.Key_Delete: 0x2E,
+    Qt.Key_Tab: 0x09, Qt.Key_Backtab: 0x09,
+    Qt.Key_Space: 0x20, Qt.Key_Return: 0x0D, Qt.Key_Enter: 0x0D,
+    Qt.Key_Left: 0x25, Qt.Key_Up: 0x26, Qt.Key_Right: 0x27, Qt.Key_Down: 0x28,
+    Qt.Key_Escape: 0x1B, Qt.Key_Backspace: 0x08,
+}
+
+# VK -> short display name. A-Z / 0-9 / F1-F12 are generated on the fly.
+_VK_DISPLAY = {
+    0x21: "PgUp", 0x22: "PgDn",
+    0x24: "Home", 0x23: "End",
+    0x2D: "Ins", 0x2E: "Del",
+    0x09: "Tab", 0x20: "Space", 0x0D: "Enter",
+    0x25: "←", 0x26: "↑", 0x27: "→", 0x28: "↓",
+    0x1B: "Esc", 0x08: "Backspace",
+}
+
+
+def _qt_key_to_vk(qt_key: int) -> int:
+    if Qt.Key_A <= qt_key <= Qt.Key_Z:
+        return int(qt_key)  # matches VK_A..VK_Z
+    if Qt.Key_0 <= qt_key <= Qt.Key_9:
+        return int(qt_key)  # matches VK_0..VK_9
+    return _QT_KEY_TO_VK.get(qt_key, 0)
+
+
+def _vk_name(vk: int) -> str:
+    if 0x41 <= vk <= 0x5A:
+        return chr(vk)
+    if 0x30 <= vk <= 0x39:
+        return chr(vk)
+    if 0x70 <= vk <= 0x7B:
+        return f"F{vk - 0x70 + 1}"
+    return _VK_DISPLAY.get(vk, f"VK{vk:02X}")
+
+
+def _format_hotkey(vk: int, mods: int) -> str:
+    parts: list[str] = []
+    if mods & _MOD_CONTROL:
+        parts.append("Ctrl")
+    if mods & _MOD_ALT:
+        parts.append("Alt")
+    if mods & _MOD_SHIFT:
+        parts.append("Shift")
+    if mods & _MOD_WIN:
+        parts.append("Win")
+    parts.append(_vk_name(vk))
+    return "+".join(parts)
+
+
+class HotkeyButton(PushButton):
+    """Push-button that shows the current global hotkey and captures a new one on click."""
+
+    hotkey_changed = Signal(int, int)  # (vk, mods) — Win32 codes.
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(132)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self._capturing = False
+        self._vk = 0x22
+        self._mods = 0
+        self._refresh()
+        self.clicked.connect(self._begin_capture)
+
+    def set_hotkey(self, vk: int, mods: int) -> None:
+        self._vk = int(vk)
+        self._mods = int(mods)
+        self._refresh()
+
+    def _begin_capture(self) -> None:
+        self._capturing = True
+        self.setText("Press keys…")
+        self.setFocus()
+
+    def _end_capture(self) -> None:
+        self._capturing = False
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self.setText(_format_hotkey(self._vk, self._mods))
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if not self._capturing:
+            super().keyPressEvent(event)
+            return
+        key = event.key()
+        # Ignore bare modifier presses — we're waiting for the payload key.
+        if key in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
+            return
+        if key == Qt.Key_Escape:
+            self._end_capture()
+            return
+        vk = _qt_key_to_vk(key)
+        if vk == 0:
+            # Can't express this key as a Win32 VK; keep waiting.
+            return
+        mods = event.modifiers()
+        win_mods = 0
+        if mods & Qt.ControlModifier:
+            win_mods |= _MOD_CONTROL
+        if mods & Qt.AltModifier:
+            win_mods |= _MOD_ALT
+        if mods & Qt.ShiftModifier:
+            win_mods |= _MOD_SHIFT
+        if mods & Qt.MetaModifier:
+            win_mods |= _MOD_WIN
+        self._vk = vk
+        self._mods = win_mods
+        self._end_capture()
+        self.hotkey_changed.emit(vk, win_mods)
+
+
 # ---- engine worker --------------------------------------------------
 
 
@@ -555,10 +683,14 @@ class MainWindow(QMainWindow):
         self._countdown_timer.start()
 
         # Hotkey
+        self._hotkey_vk = int(self._cfg.get("hotkey_vk", 0x22))
+        self._hotkey_mods = int(self._cfg.get("hotkey_mods", 0))
         self._hotkey_stop = threading.Event()
         self._hotkey_thread_id: dict[str, int | None] = {"tid": None}
+        # Sync the picker with persisted config before we spawn the thread.
+        self._hotkey_button.set_hotkey(self._hotkey_vk, self._hotkey_mods)
         if IS_WINDOWS:
-            threading.Thread(target=self._hotkey_loop, daemon=True).start()
+            self._start_hotkey_thread()
 
         self._refresh_template_choices()
         self._refresh_rule_list(0 if self._cfg.get("rules") else None)
@@ -613,6 +745,11 @@ class MainWindow(QMainWindow):
         self._start_btn.setFixedWidth(108)
         self._start_btn.clicked.connect(self._toggle_running)
         lay.addWidget(self._start_btn)
+
+        lay.addWidget(CaptionLabel("Hotkey"))
+        self._hotkey_button = HotkeyButton()
+        self._hotkey_button.hotkey_changed.connect(self._on_hotkey_changed)
+        lay.addWidget(self._hotkey_button)
 
         lay.addWidget(_VLine())
 
@@ -1351,14 +1488,29 @@ class MainWindow(QMainWindow):
 
     # ---------- global hotkey ----------
 
-    def _hotkey_loop(self) -> None:
+    def _start_hotkey_thread(self) -> None:
         if not IS_WINDOWS:
             return
+        self._hotkey_stop = threading.Event()
+        threading.Thread(target=self._hotkey_loop, daemon=True).start()
+
+    def _stop_hotkey_thread(self, wait: bool = True) -> None:
+        if not IS_WINDOWS:
+            return
+        self._hotkey_stop.set()
+        self._post_wm_quit()
+        # PostThreadMessage needs a short grace period for the loop to unwind.
+        if wait:
+            for _ in range(20):
+                if self._hotkey_thread_id.get("tid") is None:
+                    break
+                time.sleep(0.02)
+
+    def _hotkey_loop(self) -> None:
         user32 = ctypes.WinDLL("user32", use_last_error=True)
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         from ctypes import wintypes
 
-        VK_PAGEDOWN = 0x22
         WM_HOTKEY = 0x0312
         MOD_NOREPEAT = 0x4000
         HOTKEY_ID = 1
@@ -1373,19 +1525,25 @@ class MainWindow(QMainWindow):
                 ("pt", wintypes.POINT),
             ]
 
+        vk = int(self._hotkey_vk)
+        mods = int(self._hotkey_mods) | MOD_NOREPEAT
         self._hotkey_thread_id["tid"] = int(kernel32.GetCurrentThreadId())
-        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_PAGEDOWN):
-            return
-        msg = MSG()
-        while not self._hotkey_stop.is_set():
-            ok = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
-            if ok <= 0:
-                break
-            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-                self.hotkey_triggered.emit()
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-        user32.UnregisterHotKey(None, HOTKEY_ID)
+        try:
+            if not user32.RegisterHotKey(None, HOTKEY_ID, mods, vk):
+                self._log("[hotkey] failed to register (already taken by another app?)")
+                return
+            msg = MSG()
+            while not self._hotkey_stop.is_set():
+                ok = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if ok <= 0:
+                    break
+                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                    self.hotkey_triggered.emit()
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+            user32.UnregisterHotKey(None, HOTKEY_ID)
+        finally:
+            self._hotkey_thread_id["tid"] = None
 
     def _post_wm_quit(self) -> None:
         tid = self._hotkey_thread_id.get("tid")
@@ -1397,3 +1555,15 @@ class MainWindow(QMainWindow):
             user32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
         except Exception:
             pass
+
+    def _on_hotkey_changed(self, vk: int, mods: int) -> None:
+        """Swap the global hotkey at runtime; persists to config."""
+        self._stop_hotkey_thread(wait=True)
+        self._hotkey_vk = int(vk)
+        self._hotkey_mods = int(mods)
+        with self._cfg_lock:
+            self._cfg["hotkey_vk"] = self._hotkey_vk
+            self._cfg["hotkey_mods"] = self._hotkey_mods
+            save_config(self._cfg)
+        self._start_hotkey_thread()
+        self._log(f"[hotkey] rebound to {self._hotkey_button.text()}")

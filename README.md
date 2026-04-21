@@ -43,7 +43,7 @@ Each rule is a few clicks:
 2. **Pick an action.** Click, click + Enter, or click + send (send = type a word, then Enter).
 3. **Capture the target.** A crop of the button — triggers the rule; the cursor clicks its center.
 4. **Test & Save.** Run a single match to confirm, then save.
-5. **Press Page Down** to start / stop. The window can stay in the background or hide to the tray.
+5. **Press Page Down** to start / stop. Prefer a different key? Click the **Hotkey** button in the toolbar, press any key (with modifiers if you like), and it's saved. The window can stay in the background or hide to the tray.
 
 ## 🟢🔴 Tray indicator
 
@@ -109,35 +109,30 @@ macOS / Linux parity is on the roadmap but **low priority** — happy to pick it
 </details>
 
 <details>
-<summary><strong>My template matches on one monitor but not another.</strong></summary>
+<summary><strong>Why does my template match on one monitor but not another?</strong></summary>
 
-The two monitors are probably at different DPI scalings. Template matching is not scale-invariant — a button rendered at 100% looks pixel-different from the same button at 150%. Either capture the template on the monitor you want to match on, or set both monitors to the same Windows display scaling.
-</details>
-
-## 🧩 Advanced
-
-<details>
-<summary><strong>CLI & hotkeys</strong></summary>
-
-```bash
-uv run main.py [seconds]
-```
-
-- `seconds` (optional) — default scan interval; can also be edited live in the UI. Default: `10.0`.
-- **Page Down** (Windows) — global hotkey to Start/Stop without focusing the window.
-- **Ctrl+C** (terminal) — clean shutdown.
-
-Per-rule matching options (template, threshold, search region, action, optional text) all live in the UI.
+The two monitors are probably at different DPI scalings. Template matching is not scale-invariant — a button rendered at 100% looks pixel-different from the same button at 150%. Either capture the template on the monitor you want it to match on, or set both monitors to the same Windows display scaling.
 </details>
 
 <details>
-<summary><strong>Code layout</strong></summary>
+<summary><strong>How do I change the Start/Stop hotkey?</strong></summary>
 
-- [main.py](main.py) — entrypoint, forces per-monitor-v2 DPI and installs a SIGINT handler
-- [press_ui.py](press_ui.py) — Fluent-Design UI, engine worker thread, per-monitor capture overlays, tray icon
-- [press_engine.py](press_engine.py) — screen capture + template matching + action dispatch
-- [press_store.py](press_store.py) — config and template persistence
-- [press_core.py](press_core.py) — click / type / vision primitives
-- [templates/](templates/) — captured template images and `config.json`
-- [pysidedeploy.spec](pysidedeploy.spec) — Nuitka config for the standalone-exe build
+Click the **Hotkey** button in the toolbar (next to Start), then press the key combination you want — modifiers included, so `Ctrl+Alt+F9` works just as well as plain `F12`. Your choice is saved to `templates/config.json` and re-registered immediately. Press **Esc** while the button is capturing to cancel.
+</details>
+
+<details>
+<summary><strong>How do I build a standalone executable?</strong></summary>
+
+See the **Standalone executable** section above for the exact Nuitka invocation. You'll need [Visual Studio Build Tools 2022](https://aka.ms/vs/17/release/vs_BuildTools.exe) with the *Desktop development with C++* workload installed first.
+</details>
+
+<details>
+<summary><strong>What does each file do?</strong></summary>
+
+- [main.py](main.py) — entrypoint; forces per-monitor-v2 DPI awareness and installs a SIGINT handler.
+- [press_ui.py](press_ui.py) — Fluent-Design UI, engine worker thread, per-monitor drag-capture overlays, hotkey picker, tray icon.
+- [press_engine.py](press_engine.py) — screen capture + template matching + action dispatch.
+- [press_store.py](press_store.py) — config persistence (rules + hotkey + interval) and template-file helpers.
+- [press_core.py](press_core.py) — click / type / vision primitives used by the engine.
+- [templates/](templates/) — captured template images and `config.json`. User-local; gitignored.
 </details>
