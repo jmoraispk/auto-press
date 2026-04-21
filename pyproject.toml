@@ -19,5 +19,5 @@ auto-press = "main:main"
 
 [dependency-groups]
 dev = [
-    "nuitka>=4.0.8",
+    "pyinstaller>=6.19.0",
 ]

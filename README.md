@@ -60,24 +60,15 @@ Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit
 
 ## 📦 Standalone executable
 
-If 5 s Python startup bothers you, build a Nuitka-compiled single exe:
+Build a single `auto-press.exe` — no Python required on the target machine. Double-click to launch:
 
 ```bash
-uv run python -m nuitka \
-  --onefile \
-  --enable-plugin=pyside6 \
-  --include-package=qfluentwidgets \
-  --include-package=qframelesswindow \
-  --include-package=cv2 --include-package=PIL --include-package=numpy --include-package=pyautogui \
-  --noinclude-qt-translations --lto=yes \
-  --output-dir=dist --output-filename=auto-press.exe \
-  --assume-yes-for-downloads \
-  main.py
+uv run pyinstaller --noconfirm auto-press.spec
 ```
 
-First invocation downloads a MinGW toolchain (~200 MB, cached). Output lands in `dist/auto-press.exe` — a single binary, no Python required on the target machine. Double-click to launch; subsequent runs are much snappier than `uv run`.
+Takes ~2–3 min, produces ~105 MB at `dist/auto-press.exe`. The spec file (`auto-press.spec`) bundles PySide6 + qfluentwidgets + OpenCV + Pillow + numpy + pyautogui and strips the Qt modules we don't use (WebEngine, Qt3D, Charts, QML/Quick, etc.).
 
-> Qt ships `pyside6-deploy` as a higher-level wrapper, but it currently fails on paths with spaces (e.g. `OneDrive - …`); driving Nuitka directly works either way.
+> Nuitka produces a faster-starting binary but requires MSVC Build Tools on Python 3.13+. PyInstaller works with zero setup and the runtime difference is ~1 s on cold start — not worth the toolchain overhead unless you're shipping the binary to end users at scale.
 
 ## ❓ FAQ
 
