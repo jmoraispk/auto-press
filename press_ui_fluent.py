@@ -22,14 +22,15 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
-    QListWidgetItem,
     QMainWindow,
     QMenu,
     QScrollArea,
     QSizePolicy,
     QSplitter,
     QSystemTrayIcon,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -42,7 +43,7 @@ from qfluentwidgets import (
     FluentIcon as FIF,
     HeaderCardWidget,
     LineEdit,
-    ListWidget,
+    TableWidget,
     PlainTextEdit as FluentPlainTextEdit,
     PrimaryPushButton,
     PushButton,
@@ -310,14 +311,35 @@ class MainWindow(QMainWindow):
     def _build_rules_card(self) -> QWidget:
         card = HeaderCardWidget()
         card.setTitle("Rules")
-        card.setMinimumWidth(240)
+        card.setMinimumWidth(260)
         body = QVBoxLayout()
         body.setContentsMargins(2, 0, 2, 0)
         body.setSpacing(8)
 
-        self._rules_list = ListWidget()
+        self._rules_list = TableWidget()
+        self._rules_list.setColumnCount(3)
+        self._rules_list.setHorizontalHeaderLabels(["Rule", "", "Action"])
+        self._rules_list.verticalHeader().setVisible(False)
+        self._rules_list.horizontalHeader().setVisible(False)
+        self._rules_list.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._rules_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._rules_list.currentRowChanged.connect(self._load_selected_rule)
+        self._rules_list.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._rules_list.setShowGrid(False)
+        self._rules_list.setBorderVisible(True)
+        self._rules_list.setBorderRadius(8)
+        self._rules_list.setWordWrap(False)
+        self._rules_list.verticalHeader().setDefaultSectionSize(32)
+
+        header = self._rules_list.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self._rules_list.setColumnWidth(1, 36)
+        self._rules_list.setColumnWidth(2, 140)
+
+        self._rules_list.itemSelectionChanged.connect(
+            lambda: self._load_selected_rule(self._rules_list.currentRow())
+        )
         body.addWidget(self._rules_list, 1)
 
         buttons = QHBoxLayout()
@@ -598,14 +620,31 @@ class MainWindow(QMainWindow):
     def _refresh_rule_list(self, select_idx: Optional[int] = None) -> None:
         current = select_idx if select_idx is not None else self._current_rule_index()
         self._rules_list.blockSignals(True)
-        self._rules_list.clear()
-        for rule in self._cfg.get("rules", []):
-            self._rules_list.addItem(
-                QListWidgetItem(make_rule_summary(rule, self._last_scores.get(rule["id"])))
-            )
+        rules = self._cfg.get("rules", [])
+        self._rules_list.setRowCount(len(rules))
+        for row, rule in enumerate(rules):
+            name_item = QTableWidgetItem(rule.get("name", "(unnamed)"))
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self._rules_list.setItem(row, 0, name_item)
+
+            enabled = bool(rule.get("enabled"))
+            mark_item = QTableWidgetItem("✓" if enabled else "✗")
+            mark_item.setTextAlignment(Qt.AlignCenter)
+            mark_item.setForeground(QColor(STATUS_RUNNING) if enabled else QColor(STATUS_STOPPED))
+            font = mark_item.font()
+            font.setPointSize(11)
+            font.setBold(True)
+            mark_item.setFont(font)
+            self._rules_list.setItem(row, 1, mark_item)
+
+            action_item = QTableWidgetItem(rule.get("action", ACTION_CLICK))
+            action_item.setForeground(QColor("#a1a1aa"))
+            self._rules_list.setItem(row, 2, action_item)
         self._rules_list.blockSignals(False)
-        if current is not None and self._rules_list.count() > 0:
-            self._rules_list.setCurrentRow(max(0, min(self._rules_list.count() - 1, current)))
+
+        if current is not None and self._rules_list.rowCount() > 0:
+            bounded = max(0, min(self._rules_list.rowCount() - 1, current))
+            self._rules_list.selectRow(bounded)
         else:
             self._clear_editor()
 
