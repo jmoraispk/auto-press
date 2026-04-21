@@ -1,6 +1,7 @@
 # 🖱️ auto-press
 
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#-cross-platform-status)
 [![uv](https://img.shields.io/badge/packaged%20with-uv-261230.svg)](https://github.com/astral-sh/uv)
 [![Status](https://img.shields.io/badge/status-active-2e7d32.svg)](#)
 
@@ -27,7 +28,7 @@ Install [uv](https://github.com/astral-sh/uv), then:
 
 ```bash
 uv sync
-uv run main_press.py
+uv run main.py
 ```
 
 That's it — the UI opens and you're ready to add your first rule.
@@ -55,6 +56,16 @@ auto-press sits in the Windows system tray. The dot color tells you what it's do
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
+## 🖥️ Cross-platform status
+
+Today auto-press is **Windows-only in practice**. The engine, UI, and template matching are cross-platform (PySide6 + Pillow + OpenCV run everywhere), but three pieces lean on Win32 APIs:
+
+- Per-monitor-v2 DPI awareness for reliable capture across mixed-DPI monitors.
+- Physical-pixel cursor and monitor enumeration (`GetCursorPos`, `EnumDisplayMonitors`).
+- Global **Page Down** hotkey (`RegisterHotKey`).
+
+macOS / Linux parity is on the roadmap but **low priority** — happy to pick it up if someone finds it useful. The bits that'd need writing are the three items above; the rest already works. Contributions welcome.
+
 ## ❓ FAQ
 
 <details>
@@ -77,14 +88,26 @@ The interval (seconds) controls how often auto-press captures the screen and tes
 <details>
 <summary><strong>Does this work on macOS / Linux?</strong></summary>
 
-Core logic is cross-platform, but the global hotkeys and tray integration are tuned for Windows. You can run the UI on other platforms, but some features may degrade.
+Not yet. See the **Cross-platform status** section above — the core will run but a few Windows-only primitives need cross-platform equivalents before capture and global hotkeys behave reliably.
+
 </details>
 
 <details>
-<summary><strong>pystray isn't installed — what happens?</strong></summary>
+<summary><strong>My template matches on one monitor but not another.</strong></summary>
 
-The app still runs; you just lose the tray indicator and the X button closes the app normally. Run `uv sync` (or `uv add pystray`) to get it back.
+The two monitors are probably at different DPI scalings. Template matching is not scale-invariant — a button rendered at 100% looks pixel-different from the same button at 150%. Either capture the template on the monitor you want to match on, or set both monitors to the same Windows display scaling.
 </details>
+
+## 📦 Single-file executable (optional)
+
+If 5 s Python startup bothers you, build a Nuitka-compiled single exe:
+
+```bash
+uv add nuitka pyside6-project-tool
+uv run pyside6-deploy -c pysidedeploy.spec
+```
+
+Output lands in `dist/main.exe` — a standalone binary, no Python required on the target machine. First run is a little slower than a warm Python process (it self-extracts once), subsequent runs are noticeably snappier than `uv run`.
 
 ## 🧩 Advanced
 
@@ -92,11 +115,12 @@ The app still runs; you just lose the tray indicator and the X button closes the
 <summary><strong>CLI & hotkeys</strong></summary>
 
 ```bash
-uv run main_press.py [seconds]
+uv run main.py [seconds]
 ```
 
 - `seconds` (optional) — default scan interval; can also be edited live in the UI. Default: `10.0`.
 - **Page Down** (Windows) — global hotkey to Start/Stop without focusing the window.
+- **Ctrl+C** (terminal) — clean shutdown.
 
 Per-rule matching options (template, threshold, search region, action, optional text) all live in the UI.
 </details>
@@ -104,12 +128,11 @@ Per-rule matching options (template, threshold, search region, action, optional 
 <details>
 <summary><strong>Code layout</strong></summary>
 
-- [main_press.py](main_press.py) — CLI entrypoint, launches the UI
-- [press_ui.py](press_ui.py) — rule-based UI with the tray indicator
+- [main.py](main.py) — entrypoint, forces per-monitor-v2 DPI and installs a SIGINT handler
+- [press_ui.py](press_ui.py) — Fluent-Design UI, engine worker thread, per-monitor capture overlays, tray icon
 - [press_engine.py](press_engine.py) — screen capture + template matching + action dispatch
 - [press_store.py](press_store.py) — config and template persistence
 - [press_core.py](press_core.py) — click / type / vision primitives
-- [press_tray.py](press_tray.py) — `pystray` wrapper for the tray icon
 - [templates/](templates/) — captured template images and `config.json`
+- [pysidedeploy.spec](pysidedeploy.spec) — Nuitka config for the single-exe build
 </details>
-

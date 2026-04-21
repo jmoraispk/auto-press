@@ -990,10 +990,12 @@ class MainWindow(QMainWindow):
             mark_item = QTableWidgetItem("✓" if enabled else "✗")
             mark_item.setTextAlignment(Qt.AlignCenter)
             mark_item.setForeground(QColor(STATUS_RUNNING) if enabled else QColor(STATUS_STOPPED))
-            font = mark_item.font()
-            font.setPointSize(11)
-            font.setBold(True)
-            mark_item.setFont(font)
+            # Copy the list's resolved font (it has a valid size) and bold it.
+            # Directly calling mark_item.font() returns an unattached QFont whose
+            # pointSize() is -1, which Qt 6 warns about whenever it re-resolves.
+            mark_font = self._rules_list.font()
+            mark_font.setBold(True)
+            mark_item.setFont(mark_font)
             self._rules_list.setItem(row, 1, mark_item)
 
             action_item = QTableWidgetItem(rule.get("action", ACTION_CLICK))
