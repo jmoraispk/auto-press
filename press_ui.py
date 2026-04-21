@@ -1,19 +1,92 @@
-"""Rule-based automation UI."""
+"""Auto Press — Fluent Design UI.
+
+QFluentWidgets on top of PySide6 for a Windows 11 Settings-app look.
+Self-contained: engine worker, drag-capture overlays, monitor picker and
+status widgets all live in this file.
+"""
 
 from __future__ import annotations
 
+import ctypes
 import sys
 import threading
 import time
-import tkinter as tk
 from pathlib import Path
-from tkinter.scrolledtext import ScrolledText
+from typing import Optional
 
-import pyautogui
-from PIL import Image, ImageTk
+from PySide6.QtCore import (
+    QEventLoop,
+    QObject,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QGuiApplication,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QSystemTrayIcon,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from qfluentwidgets import (
+    BodyLabel,
+    CaptionLabel,
+    CheckBox,
+    ComboBox,
+    FluentIcon as FIF,
+    HeaderCardWidget,
+    LineEdit,
+    PlainTextEdit as FluentPlainTextEdit,
+    PrimaryPushButton,
+    PushButton,
+    SimpleCardWidget,
+    StrongBodyLabel,
+    SubtitleLabel,
+    TableWidget,
+    Theme,
+    ToolButton,
+    setTheme,
+    setThemeColor,
+)
+from qfluentwidgets.components.widgets.spin_box import DoubleSpinBox
 
 from press_core import save_gray_image
-from press_engine import build_runtime_rules, capture_screen_gray, ensure_vision, evaluate_rule_on_frame, evaluate_rules, execute_matches
+from press_engine import (
+    build_runtime_rules,
+    capture_screen_gray,
+    ensure_vision,
+    evaluate_rule_on_frame,
+    evaluate_rules,
+    execute_matches,
+)
 from press_store import (
     ACTION_CLICK,
     ACTION_CLICK_TYPE_ENTER,
@@ -28,57 +101,16 @@ from press_store import (
     serialize_template_path,
     template_asset_path,
 )
-from press_tray import PYSTRAY_AVAILABLE, PYSTRAY_IMPORT_ERROR, TrayController
 
 
 IS_WINDOWS = sys.platform.startswith("win")
 
+# ---- Win32 helpers (capture coordinates always in physical pixels) --
+
 if IS_WINDOWS:
-    import ctypes
-    from ctypes import wintypes
+    from ctypes import wintypes as _wintypes
 
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-
-    RegisterHotKey = user32.RegisterHotKey
-    RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
-    RegisterHotKey.restype = wintypes.BOOL
-    UnregisterHotKey = user32.UnregisterHotKey
-    UnregisterHotKey.argtypes = [wintypes.HWND, wintypes.INT]
-    UnregisterHotKey.restype = wintypes.BOOL
-    GetMessageW = user32.GetMessageW
-    GetMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT]
-    GetMessageW.restype = wintypes.BOOL
-    TranslateMessage = user32.TranslateMessage
-    DispatchMessageW = user32.DispatchMessageW
-    PostThreadMessageW = user32.PostThreadMessageW
-    PostThreadMessageW.argtypes = [wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
-    PostThreadMessageW.restype = wintypes.BOOL
-    GetCurrentThreadId = kernel32.GetCurrentThreadId
-    GetCurrentThreadId.restype = wintypes.DWORD
-    WM_HOTKEY = 0x0312
-    WM_QUIT = 0x0012
-    MOD_NOREPEAT = 0x4000
-    VK_PAGEDOWN = 0x22
-
-    SM_XVIRTUALSCREEN = 76
-    SM_YVIRTUALSCREEN = 77
-    SM_CXVIRTUALSCREEN = 78
-    SM_CYVIRTUALSCREEN = 79
-
-    GetCursorPos = user32.GetCursorPos
-    GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
-    GetCursorPos.restype = wintypes.BOOL
-
-    class MSG(ctypes.Structure):
-        _fields_ = [
-            ("hwnd", wintypes.HWND),
-            ("message", wintypes.UINT),
-            ("wParam", wintypes.WPARAM),
-            ("lParam", wintypes.LPARAM),
-            ("time", wintypes.DWORD),
-            ("pt", wintypes.POINT),
-        ]
+    _user32 = ctypes.windll.user32
 
     class _RECT(ctypes.Structure):
         _fields_ = [
@@ -90,1007 +122,1287 @@ if IS_WINDOWS:
 
     _MONITORENUMPROC = ctypes.WINFUNCTYPE(
         ctypes.c_int,
-        wintypes.HMONITOR,
-        wintypes.HDC,
+        _wintypes.HMONITOR,
+        _wintypes.HDC,
         ctypes.POINTER(_RECT),
-        wintypes.LPARAM,
+        _wintypes.LPARAM,
     )
 
-    def virtual_screen_rect() -> tuple[int, int, int, int]:
-        gm = user32.GetSystemMetrics
-        return (
-            gm(SM_XVIRTUALSCREEN),
-            gm(SM_YVIRTUALSCREEN),
-            gm(SM_CXVIRTUALSCREEN),
-            gm(SM_CYVIRTUALSCREEN),
-        )
-
-    def enumerate_monitors() -> list[tuple[int, int, int, int]]:
+    def enumerate_physical_monitors() -> list[tuple[int, int, int, int]]:
+        """Every connected monitor's rect in physical pixels (per-monitor-v2 context)."""
         monitors: list[tuple[int, int, int, int]] = []
 
-        def _proc(_hmonitor, _hdc, lprect, _lparam):
+        def _proc(_hm, _hdc, lprect, _lp):
             r = lprect.contents
             monitors.append((r.left, r.top, r.right - r.left, r.bottom - r.top))
             return 1
 
-        user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(_proc), 0)
+        _user32.EnumDisplayMonitors(None, None, _MONITORENUMPROC(_proc), 0)
         return monitors
+
+    def physical_cursor_pos() -> tuple[int, int]:
+        """Cursor position in physical screen pixels, consistent with ImageGrab."""
+        p = _wintypes.POINT()
+        _user32.GetCursorPos(ctypes.byref(p))
+        return int(p.x), int(p.y)
 
 else:
 
-    def virtual_screen_rect() -> tuple[int, int, int, int]:
-        return (0, 0, 0, 0)
+    def enumerate_physical_monitors() -> list[tuple[int, int, int, int]]:
+        return [
+            (s.geometry().left(), s.geometry().top(), s.geometry().width(), s.geometry().height())
+            for s in QGuiApplication.screens()
+        ]
 
-    def enumerate_monitors() -> list[tuple[int, int, int, int]]:
-        return []
+    def physical_cursor_pos() -> tuple[int, int]:
+        from PySide6.QtGui import QCursor
+
+        pos = QCursor.pos()
+        return pos.x(), pos.y()
 
 
-def run_ui(initial_seconds: float) -> None:
-    import customtkinter as ctk
+# ---- shared colors / status widgets ---------------------------------
 
-    pyautogui.PAUSE = 0
-    pyautogui.FAILSAFE = True
+STATUS_RUNNING = "#22c55e"
+STATUS_STOPPED = "#ef4444"
+RECT_STROKE = "#22c55e"
 
-    ctk.set_appearance_mode("dark")
-    ctk.set_default_color_theme("dark-blue")
+WINDOWS_ACCENT = "#2b7de9"
 
-    cfg = load_config()
-    cfg["interval_seconds"] = float(initial_seconds)
-    save_config(cfg)
 
-    cfg_lock = threading.Lock()
-    state = {
-        "runtime_rules": [],
-        "last_scores": {},
-        "running": False,
-        "last_action": "Idle",
-        "next_tick_at": None,
-    }
+class StatusDot(QWidget):
+    """A small filled circle used as a status indicator."""
 
-    root = ctk.CTk()
-    root.title("Auto Press")
-    root.geometry("900x560")
-    root.attributes("-topmost", True)
+    def __init__(self, diameter: int = 10):
+        super().__init__()
+        self._diameter = diameter
+        self._color = QColor(STATUS_STOPPED)
+        self.setFixedSize(diameter + 2, diameter + 2)
 
-    FONT = ("Segoe UI", 11)
-    FONT_SMALL = ("Segoe UI", 10)
-    MUTED = "#A8A8A8"
-    STATUS_STOPPED = "#d32f2f"
-    STATUS_RUNNING = "#2e7d32"
+    def set_color(self, color: str) -> None:
+        self._color = QColor(color)
+        self.update()
 
-    running_event = threading.Event()
-    stop_event = threading.Event()
-    interrupt_event = threading.Event()
-    tooltip_state = {"window": None}
-    hotkey_thread_stop = threading.Event()
-    hotkey_thread_id = {"tid": None}
-    hotkey_ok = {"ok": True, "err": ""}
-    window_visible = {"value": True}
-    tray: TrayController | None = None
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        p.setBrush(self._color)
+        p.drawEllipse(1, 1, self._diameter, self._diameter)
 
-    def log_event(message: str) -> None:
-        line = f"[{time.strftime('%H:%M:%S')}] {message}\n"
 
-        def append() -> None:
-            log_box.configure(state="normal")
-            log_box.insert("end", line)
-            if int(log_box.index("end-1c").split(".")[0]) > 250:
-                log_box.delete("1.0", "80.0")
-            log_box.see("end")
-            log_box.configure(state="disabled")
+def _make_dot_icon(color: QColor) -> QIcon:
+    size = 64
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setBrush(color)
+    p.setPen(QPen(QColor(20, 20, 22), 3))
+    p.drawEllipse(6, 6, size - 12, size - 12)
+    p.end()
+    return QIcon(pm)
 
-        root.after(0, append)
 
-    def attach_tooltip(widget, text: str) -> None:
-        def hide_tooltip(_event=None) -> None:
-            tip = tooltip_state.get("window")
-            if tip is not None:
-                tip.destroy()
-                tooltip_state["window"] = None
+# ---- engine worker --------------------------------------------------
 
-        def show_tooltip(_event=None) -> None:
-            hide_tooltip()
-            tip = tk.Toplevel(root)
-            tip.wm_overrideredirect(True)
-            tip.attributes("-topmost", True)
-            tip.configure(bg="#1f1f1f")
-            label = tk.Label(
-                tip,
-                text=text,
-                justify="left",
-                wraplength=260,
-                bg="#1f1f1f",
-                fg="#f0f0f0",
-                relief="solid",
-                borderwidth=1,
-                padx=8,
-                pady=6,
-            )
-            label.pack()
-            x = widget.winfo_rootx() + widget.winfo_width() + 8
-            y = widget.winfo_rooty() + widget.winfo_height() + 4
-            tip.geometry(f"+{x}+{y}")
-            tooltip_state["window"] = tip
 
-        widget.bind("<Enter>", show_tooltip, add="+")
-        widget.bind("<Leave>", hide_tooltip, add="+")
-        widget.bind("<ButtonPress>", hide_tooltip, add="+")
+class EngineWorker(QObject):
+    tick_done = Signal(list, list, float)
+    tick_error = Signal(str)
+    running_changed = Signal(bool)
+    needs_rules = Signal()
 
-    def info_badge(parent, text: str, side: str = "left", padx: tuple[int, int] = (4, 0)):
-        badge = ctk.CTkLabel(parent, text="(?)", text_color=MUTED, font=FONT_SMALL)
-        badge.pack(side=side, padx=padx)
-        attach_tooltip(badge, text)
-        return badge
+    def __init__(self, cfg_snapshot):
+        super().__init__()
+        self._cfg_snapshot = cfg_snapshot
+        self._running = False
+        self._stop = False
+        self._interval = 10.0
+        self._lock = threading.Lock()
 
-    def _screen_cursor_pos() -> tuple[int, int]:
-        point = wintypes.POINT()
-        GetCursorPos(ctypes.byref(point))
-        return int(point.x), int(point.y)
+    def set_interval(self, seconds: float) -> None:
+        with self._lock:
+            self._interval = max(0.1, float(seconds))
 
-    def _per_monitor_drag_bbox_windows() -> list[int] | None:
-        """Cover every monitor with its own dim overlay, track the drag, return screen coords."""
-        monitors = enumerate_monitors()
-        if not monitors:
-            return _tk_overlay_drag_bbox()
+    def set_running(self, on: bool) -> None:
+        with self._lock:
+            self._running = bool(on)
+        self.running_changed.emit(bool(on))
 
-        state_cap: dict = {"bbox": None, "start": None}
-        overlays: list = []  # list of (Toplevel, Canvas, (left, top, width, height))
+    def request_stop(self) -> None:
+        self._stop = True
 
-        def cleanup(_event=None) -> None:
-            for ov, _canvas, _mon in overlays:
-                try:
-                    ov.destroy()
-                except Exception:
-                    pass
-            overlays.clear()
+    def is_running(self) -> bool:
+        with self._lock:
+            return self._running
 
-        def draw_rect() -> None:
-            if state_cap["start"] is None:
-                return
-            sx, sy = state_cap["start"]
-            cx, cy = _screen_cursor_pos()
-            left_r, right_r = sorted((sx, cx))
-            top_r, bottom_r = sorted((sy, cy))
-            for _ov, canvas, (ml, mt, mw, mh) in overlays:
-                canvas.delete("drag_rect")
-                il = max(left_r, ml)
-                it = max(top_r, mt)
-                ir = min(right_r, ml + mw)
-                ib = min(bottom_r, mt + mh)
-                if ir <= il or ib <= it:
-                    continue
-                canvas.create_rectangle(
-                    il - ml, it - mt, ir - ml, ib - mt,
-                    outline="#00c853", width=2, tags="drag_rect",
-                )
-
-        def on_press(_event) -> None:
-            state_cap["start"] = _screen_cursor_pos()
-            for _ov, canvas, _mon in overlays:
-                canvas.delete("drag_rect")
-
-        def on_motion(_event) -> None:
-            draw_rect()
-
-        def on_release(_event) -> None:
-            if state_cap["start"] is None:
-                cleanup()
-                return
-            sx, sy = state_cap["start"]
-            ex, ey = _screen_cursor_pos()
-            left_r, right_r = sorted((sx, ex))
-            top_r, bottom_r = sorted((sy, ey))
-            width = right_r - left_r
-            height = bottom_r - top_r
-            if width >= 5 and height >= 5:
-                state_cap["bbox"] = [left_r, top_r, width, height]
-            cleanup()
-
-        for mon in monitors:
-            left, top, width, height = mon
-            ov = tk.Toplevel(root)
-            ov.overrideredirect(True)
-            ov.attributes("-topmost", True)
-            ov.attributes("-alpha", 0.30)
-            ov.configure(bg="black")
-            ov.config(cursor="crosshair")
-            ov.geometry(f"{width}x{height}+{left}+{top}")
-            canvas = tk.Canvas(ov, bg="black", highlightthickness=0)
-            canvas.pack(fill="both", expand=True)
-            canvas.bind("<ButtonPress-1>", on_press)
-            canvas.bind("<B1-Motion>", on_motion)
-            canvas.bind("<ButtonRelease-1>", on_release)
-            ov.bind("<Escape>", cleanup)
-            overlays.append((ov, canvas, mon))
-
-        if overlays:
-            first = overlays[0][0]
-            first.focus_force()
-            root.wait_window(first)
-        return state_cap["bbox"]
-
-    def _tk_overlay_drag_bbox() -> list[int] | None:
-        result = {"bbox": None}
-        overlay = tk.Toplevel(root)
-        overlay.attributes("-fullscreen", True)
-        overlay.attributes("-topmost", True)
-        overlay.attributes("-alpha", 0.22)
-        overlay.configure(bg="black")
-        overlay.config(cursor="crosshair")
-        canvas = tk.Canvas(overlay, bg="black", highlightthickness=0)
-        canvas.pack(fill="both", expand=True)
-        drag = {"start_root": None, "rect": None}
-
-        def on_press(event):
-            drag["start_root"] = (event.x_root, event.y_root)
-            if drag["rect"] is not None:
-                canvas.delete(drag["rect"])
-            drag["rect"] = canvas.create_rectangle(event.x, event.y, event.x, event.y, outline="#00c853", width=2)
-
-        def on_motion(event):
-            if drag["start_root"] is None or drag["rect"] is None:
-                return
-            x0, y0 = drag["start_root"]
-            canvas.coords(
-                drag["rect"],
-                x0 - overlay.winfo_rootx(),
-                y0 - overlay.winfo_rooty(),
-                event.x_root - overlay.winfo_rootx(),
-                event.y_root - overlay.winfo_rooty(),
-            )
-
-        def on_release(event):
-            if drag["start_root"] is None:
-                overlay.destroy()
-                return
-            x0, y0 = drag["start_root"]
-            x1, y1 = event.x_root, event.y_root
-            left, right = sorted((x0, x1))
-            top, bottom = sorted((y0, y1))
-            width = right - left
-            height = bottom - top
-            if width >= 5 and height >= 5:
-                result["bbox"] = [left, top, width, height]
-            overlay.destroy()
-
-        overlay.bind("<Escape>", lambda _e: overlay.destroy())
-        canvas.bind("<ButtonPress-1>", on_press)
-        canvas.bind("<B1-Motion>", on_motion)
-        canvas.bind("<ButtonRelease-1>", on_release)
-        root.wait_window(overlay)
-        return result["bbox"]
-
-    def capture_drag_bbox() -> list[int] | None:
+    def run(self) -> None:
+        # Pin PER_MONITOR_AWARE_V2 on this worker thread once. Sticky for the
+        # thread's lifetime, so every capture + click iteration agrees on
+        # physical pixel coordinates.
         if IS_WINDOWS:
-            return _per_monitor_drag_bbox_windows()
-        return _tk_overlay_drag_bbox()
-
-    def selected_index() -> int | None:
-        selection = rule_list.curselection()
-        if not selection:
-            return None
-        return int(selection[0])
-
-    def selected_rule() -> dict | None:
-        idx = selected_index()
-        if idx is None:
-            return None
-        with cfg_lock:
-            rules = cfg.get("rules", [])
-            if 0 <= idx < len(rules):
-                return rules[idx]
-        return None
-
-    def update_runtime_rules() -> None:
-        try:
-            with cfg_lock:
-                state["runtime_rules"] = build_runtime_rules(cfg)
-        except Exception as exc:
-            state["runtime_rules"] = []
-            log_event(f"[error] runtime rules unavailable: {exc}")
-
-    def persist_and_refresh(select_idx: int | None = None) -> None:
-        with cfg_lock:
-            save_config(cfg)
-        refresh_rule_list(select_idx)
-        update_runtime_rules()
-
-    def refresh_rule_list(select_idx: int | None = None) -> None:
-        current = selected_index() if select_idx is None else select_idx
-        rule_list.delete(0, "end")
-        with cfg_lock:
-            rules = cfg.get("rules", [])
-            for rule in rules:
-                rule_list.insert("end", make_rule_summary(rule, state["last_scores"].get(rule["id"])))
-        if current is not None and rule_list.size() > 0:
-            bounded = max(0, min(rule_list.size() - 1, current))
-            rule_list.selection_clear(0, "end")
-            rule_list.selection_set(bounded)
-            rule_list.activate(bounded)
-            load_selected_rule()
-        else:
-            clear_editor()
-
-    def current_interval() -> float:
-        try:
-            return max(0.1, float(interval_var.get().strip()))
-        except ValueError:
-            return 10.0
-
-    def clear_editor() -> None:
-        name_var.set("")
-        enabled_var.set(True)
-        threshold_var.set("0.90")
-        action_var.set(ACTION_CLICK)
-        text_var.set("continue")
-        template_choice_var.set("")
-        region_var.set("All monitors")
-        update_action_fields()
-
-    def load_selected_rule(_event=None) -> None:
-        rule = selected_rule()
-        if rule is None:
-            clear_editor()
-            return
-        name_var.set(rule.get("name", ""))
-        enabled_var.set(bool(rule.get("enabled", True)))
-        threshold_var.set(f"{float(rule.get('threshold', 0.90)):.2f}")
-        action_var.set(rule.get("action", ACTION_CLICK))
-        text_var.set(rule.get("text", "continue"))
-        template_choice_var.set(rule.get("template_path") or "")
-        region = rule.get("search_region")
-        region_var.set("All monitors" if not region else f"{tuple(region)}")
-        update_action_fields()
-
-    def refresh_template_choices(selected: str | None = None) -> None:
-        options = [""] + list_template_files()
-        template_choice_menu.configure(values=options)
-        if selected is not None:
-            template_choice_var.set(selected if selected in options else "")
-        elif template_choice_var.get() not in options:
-            template_choice_var.set("")
-
-    def update_action_fields(*_args) -> None:
-        text_entry.configure(state="normal" if action_var.get() == ACTION_CLICK_TYPE_ENTER else "disabled")
-
-    def set_running_status(running: bool) -> None:
-        if running:
-            status_var.set("Running")
-            status_label.configure(text_color=STATUS_RUNNING)
-        else:
-            status_var.set("Stopped")
-            status_label.configure(text_color=STATUS_STOPPED)
-        if tray is not None:
             try:
-                tray.update_status(running)
+                ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+            except Exception:
+                pass
+        while not self._stop:
+            if not self.is_running():
+                time.sleep(0.1)
+                continue
+            cfg = self._cfg_snapshot()
+            try:
+                runtime_rules = build_runtime_rules(cfg)
             except Exception as exc:
-                log_event(f"[tray] update failed: {exc}")
-
-    def save_selected_rule() -> bool:
-        idx = selected_index()
-        if idx is None:
-            log_event("[rule] select a rule first")
-            return False
-        with cfg_lock:
-            rule = cfg["rules"][idx]
-            rule["name"] = name_var.get().strip() or f"Rule {idx + 1}"
-            rule["enabled"] = bool(enabled_var.get())
+                self.tick_error.emit(f"runtime rules unavailable: {exc}")
+                self.set_running(False)
+                continue
+            if not runtime_rules:
+                self.needs_rules.emit()
+                self.set_running(False)
+                continue
             try:
-                rule["threshold"] = max(0.0, min(1.0, float(threshold_var.get().strip())))
-            except ValueError:
-                rule["threshold"] = 0.90
-            rule["action"] = action_var.get() if action_var.get() in ACTION_TYPES else ACTION_CLICK
-            rule["text"] = text_var.get().strip() or "continue"
-            for pos, item in enumerate(cfg["rules"], start=1):
+                results, actions = evaluate_rules(runtime_rules)
+                if actions:
+                    execute_matches(actions)
+                self.tick_done.emit(results, actions, self._get_interval())
+            except Exception as exc:
+                self.tick_error.emit(f"tick failed: {exc}")
+            end = time.monotonic() + self._get_interval()
+            while time.monotonic() < end and not self._stop:
+                if not self.is_running():
+                    break
+                time.sleep(0.05)
+
+    def _get_interval(self) -> float:
+        with self._lock:
+            return self._interval
+
+
+# ---- drag capture (per-monitor overlays, physical coords) -----------
+
+
+class CaptureOverlay(QWidget):
+    """One overlay per monitor. Controller stores start/current in PHYSICAL px."""
+
+    def __init__(self, qt_screen, physical_rect: tuple[int, int, int, int], controller: "CaptureController"):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setCursor(Qt.CrossCursor)
+        self._qt_screen = qt_screen
+        self._physical_rect = physical_rect
+        self._controller = controller
+        self.setGeometry(qt_screen.geometry())
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(0, 0, 0, 100))
+        if self._controller.start is None:
+            return
+        sx, sy = self._controller.start
+        cx, cy = self._controller.current
+        left = min(sx, cx); right = max(sx, cx)
+        top = min(sy, cy); bottom = max(sy, cy)
+        ml, mt, mw, mh = self._physical_rect
+        mr, mb = ml + mw, mt + mh
+        il = max(left, ml); it = max(top, mt)
+        ir = min(right, mr); ib = min(bottom, mb)
+        if ir <= il or ib <= it:
+            return
+        dpr = self._qt_screen.devicePixelRatio() or 1.0
+        inner = QRectF(
+            (il - ml) / dpr,
+            (it - mt) / dpr,
+            (ir - il) / dpr,
+            (ib - it) / dpr,
+        )
+        p.setCompositionMode(QPainter.CompositionMode_Source)
+        p.fillRect(inner, QColor(0, 0, 0, 0))
+        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        p.setPen(QPen(QColor(RECT_STROKE), 2))
+        p.drawRect(inner.adjusted(0, 0, -1, -1))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self._controller.on_press(*physical_cursor_pos())
+
+    def mouseMoveEvent(self, _event) -> None:  # noqa: N802
+        if self._controller.start is not None:
+            self._controller.on_motion(*physical_cursor_pos())
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton and self._controller.start is not None:
+            self._controller.on_release(*physical_cursor_pos())
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key_Escape:
+            self._controller.cancel()
+
+
+class CaptureController(QObject):
+    done = Signal(object)
+
+    def __init__(self, parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self.start: Optional[tuple[int, int]] = None
+        self.current: Optional[tuple[int, int]] = None
+        self._overlays: list[CaptureOverlay] = []
+
+    def begin(self) -> None:
+        self.start = None
+        self.current = None
+        self._overlays = []
+        qt_screens = QGuiApplication.screens()
+        physical = enumerate_physical_monitors()
+        for i, screen in enumerate(qt_screens):
+            if i < len(physical):
+                pr = physical[i]
+            else:
+                g = screen.geometry()
+                d = screen.devicePixelRatio() or 1.0
+                pr = (int(g.left() * d), int(g.top() * d), int(g.width() * d), int(g.height() * d))
+            overlay = CaptureOverlay(screen, pr, self)
+            overlay.show()
+            self._overlays.append(overlay)
+        if self._overlays:
+            first = self._overlays[0]
+            first.activateWindow(); first.raise_(); first.setFocus()
+
+    def _redraw(self) -> None:
+        for ov in self._overlays:
+            ov.update()
+
+    def on_press(self, x: int, y: int) -> None:
+        self.start = (x, y); self.current = (x, y); self._redraw()
+
+    def on_motion(self, x: int, y: int) -> None:
+        self.current = (x, y); self._redraw()
+
+    def on_release(self, x: int, y: int) -> None:
+        if self.start is None:
+            self._cleanup(); self.done.emit(None); return
+        sx, sy = self.start
+        left, right = min(sx, x), max(sx, x)
+        top, bottom = min(sy, y), max(sy, y)
+        w, h = right - left, bottom - top
+        self._cleanup()
+        self.done.emit([left, top, w, h] if w >= 5 and h >= 5 else None)
+
+    def cancel(self) -> None:
+        self._cleanup(); self.done.emit(None)
+
+    def _cleanup(self) -> None:
+        for ov in self._overlays:
+            ov.close(); ov.deleteLater()
+        self._overlays = []
+
+
+def capture_drag_bbox(parent: QObject) -> Optional[list[int]]:
+    loop = QEventLoop()
+    result: dict = {"bbox": None}
+    controller = CaptureController(parent)
+
+    def on_done(bbox) -> None:
+        result["bbox"] = bbox
+        loop.quit()
+
+    controller.done.connect(on_done)
+    controller.begin()
+    loop.exec()
+    controller.deleteLater()
+    return result["bbox"]
+
+
+# ---- monitor picker -------------------------------------------------
+
+
+class MonitorPickDialog(QDialog):
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle("Pick Monitor")
+        self.setModal(True)
+        self.selected: Optional[list[int]] = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+        title = QLabel("Restrict the scan to a single monitor:")
+        layout.addWidget(title)
+
+        for i, rect in enumerate(enumerate_physical_monitors(), start=1):
+            left, top, width, height = rect
+            bbox = [left, top, width, height]
+            btn = QPushButton(
+                f"Monitor {i}   ·   {width} × {height}   ·   ({left}, {top})"
+            )
+            btn.setMinimumWidth(340)
+            btn.clicked.connect(lambda _c=False, b=bbox: self._choose(b))
+            layout.addWidget(btn)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _choose(self, bbox: list[int]) -> None:
+        self.selected = bbox
+        self.accept()
+
+
+class _VLine(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setFrameShape(QFrame.VLine)
+        self.setFixedWidth(1)
+        self.setStyleSheet("background: rgba(255,255,255,24); border: none;")
+
+
+class CollapsibleCard(HeaderCardWidget):
+    """HeaderCardWidget with a chevron toggle that hides/shows the body."""
+
+    def __init__(self, title: str = "", parent=None, expanded: bool = True):
+        super().__init__(parent)
+        self.setTitle(title)
+
+        self._toggle_btn = ToolButton(FIF.UP, self)
+        self._toggle_btn.setFixedSize(28, 28)
+        self._toggle_btn.setToolTip("Collapse / expand")
+        self._toggle_btn.clicked.connect(self._toggle)
+
+        # HeaderCardWidget's headerLayout holds the title label; push our
+        # chevron to the far right edge.
+        self.headerLayout.addStretch(1)
+        self.headerLayout.addWidget(self._toggle_btn)
+
+        self._expanded = True
+        if not expanded:
+            self._toggle()
+
+        # Let the header remain clickable for toggling too
+        self.headerView.setCursor(Qt.PointingHandCursor)
+        self.headerView.mousePressEvent = lambda _e: self._toggle()
+
+    def _toggle(self) -> None:
+        self._expanded = not self._expanded
+        self.view.setVisible(self._expanded)
+        self._toggle_btn.setIcon(FIF.UP if self._expanded else FIF.DOWN)
+
+    def setExpanded(self, expanded: bool) -> None:
+        if self._expanded != expanded:
+            self._toggle()
+
+
+class MainWindow(QMainWindow):
+    hotkey_triggered = Signal()
+
+    CHROME_HEIGHT = 120
+
+    def __init__(self, initial_seconds: float):
+        super().__init__()
+        self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
+
+        setTheme(Theme.DARK)
+        setThemeColor(WINDOWS_ACCENT)
+
+        self.setWindowTitle("Auto Press")
+        self.setMinimumSize(620, 240)
+        self.resize(1120, 720)
+
+        # Background matches Fluent dark surface
+        self.setStyleSheet(
+            "QMainWindow { background: #1b1b1f; }"
+            "QWidget { background: transparent; color: #e4e4e7; }"
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }"
+            "QScrollBar::handle:vertical { background: #3a3a42; border-radius: 5px; min-height: 30px; }"
+            "QScrollBar::handle:vertical:hover { background: #4b4b54; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        )
+
+        # State
+        self._cfg = load_config()
+        self._cfg["interval_seconds"] = float(initial_seconds)
+        save_config(self._cfg)
+        self._cfg_lock = threading.Lock()
+        self._last_scores: dict = {}
+        self._next_tick_at: Optional[float] = None
+        self._running = False
+        self._quitting = False
+        self._remembered_workspace_h = 460
+        self._remembered_log_h = 180
+
+        self._icon_running = _make_dot_icon(QColor(STATUS_RUNNING))
+        self._icon_stopped = _make_dot_icon(QColor(STATUS_STOPPED))
+        self.setWindowIcon(self._icon_stopped)
+
+        self._build_central(initial_seconds)
+        self._build_tray()
+
+        # Engine worker
+        self._worker = EngineWorker(self._snapshot_cfg)
+        self._worker_thread = QThread(self)
+        self._worker.moveToThread(self._worker_thread)
+        self._worker_thread.started.connect(self._worker.run)
+        self._worker.tick_done.connect(self._on_tick_done)
+        self._worker.tick_error.connect(self._on_worker_error)
+        self._worker.running_changed.connect(self._on_running_changed)
+        self._worker.needs_rules.connect(self._on_needs_rules)
+        self._worker_thread.start()
+
+        # Countdown
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(100)
+        self._countdown_timer.timeout.connect(self._update_countdown)
+        self._countdown_timer.start()
+
+        # Hotkey
+        self._hotkey_stop = threading.Event()
+        self._hotkey_thread_id: dict[str, int | None] = {"tid": None}
+        if IS_WINDOWS:
+            threading.Thread(target=self._hotkey_loop, daemon=True).start()
+
+        self._refresh_template_choices()
+        self._refresh_rule_list(0 if self._cfg.get("rules") else None)
+        self._set_running_status(False)
+        self._log(f"[ready] loaded {CONFIG_PATH}")
+
+    # ---------- layout ----------
+
+    def _build_central(self, initial_seconds: float) -> None:
+        central = QWidget()
+        root = QVBoxLayout(central)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(12)
+
+        root.addWidget(self._build_command_bar(initial_seconds))
+
+        self._v_splitter = QSplitter(Qt.Vertical)
+        self._v_splitter.setChildrenCollapsible(False)
+        self._v_splitter.setHandleWidth(6)
+
+        self._workspace_panel = self._build_workspace_panel()
+        self._log_panel = self._build_log_panel()
+
+        self._v_splitter.addWidget(self._workspace_panel)
+        self._v_splitter.addWidget(self._log_panel)
+        self._v_splitter.setStretchFactor(0, 3)
+        self._v_splitter.setStretchFactor(1, 1)
+        self._v_splitter.setSizes([self._remembered_workspace_h, self._remembered_log_h])
+        self._v_splitter.splitterMoved.connect(self._on_splitter_moved)
+        self._workspace_panel.setMinimumHeight(140)
+        self._log_panel.setMinimumHeight(110)
+
+        root.addWidget(self._v_splitter, 1)
+        self.setCentralWidget(central)
+
+    def _build_command_bar(self, initial_seconds: float) -> QWidget:
+        bar = SimpleCardWidget()
+        bar.setFixedHeight(62)
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(12)
+
+        self._start_btn = PrimaryPushButton("Start", self, FIF.PLAY)
+        self._start_btn.setFixedWidth(108)
+        self._start_btn.clicked.connect(self._toggle_running)
+        lay.addWidget(self._start_btn)
+
+        lay.addWidget(_VLine())
+
+        lay.addWidget(CaptionLabel("Interval"))
+        self._interval_spin = DoubleSpinBox()
+        self._interval_spin.setRange(0.1, 86400.0)
+        self._interval_spin.setDecimals(1)
+        self._interval_spin.setSingleStep(0.5)
+        self._interval_spin.setValue(float(initial_seconds))
+        self._interval_spin.setFixedWidth(130)
+        self._interval_spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._interval_spin.valueChanged.connect(self._on_interval_changed)
+        lay.addWidget(self._interval_spin)
+        lay.addWidget(CaptionLabel("s"))
+
+        lay.addWidget(_VLine())
+
+        self._status_dot = StatusDot()
+        lay.addWidget(self._status_dot)
+        self._status_label = StrongBodyLabel("Stopped")
+        self._status_label.setStyleSheet(f"color: {STATUS_STOPPED};")
+        lay.addWidget(self._status_label)
+
+        self._countdown_label = CaptionLabel("")
+        self._countdown_label.setStyleSheet("color: #a1a1aa; font-family: Consolas; font-size: 11pt;")
+        self._countdown_label.setFixedWidth(56)
+        lay.addSpacing(4)
+        lay.addWidget(self._countdown_label)
+
+        self._action_status = CaptionLabel("")
+        self._action_status.setStyleSheet("color: #a1a1aa; font-style: italic;")
+        lay.addWidget(self._action_status)
+
+        lay.addStretch(1)
+
+        self._workspace_toggle = CheckBox("Workspace")
+        self._workspace_toggle.setChecked(True)
+        self._workspace_toggle.toggled.connect(self._on_workspace_toggled)
+        lay.addWidget(self._workspace_toggle)
+
+        self._log_toggle = CheckBox("Log")
+        self._log_toggle.setChecked(True)
+        self._log_toggle.toggled.connect(self._on_log_toggled)
+        lay.addWidget(self._log_toggle)
+
+        return bar
+
+    def _build_workspace_panel(self) -> QWidget:
+        split = QSplitter(Qt.Horizontal)
+        split.setChildrenCollapsible(False)
+        split.setHandleWidth(6)
+        split.addWidget(self._build_rules_card())
+        split.addWidget(self._build_editor_scroll())
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 2)
+        split.setSizes([320, 760])
+        return split
+
+    def _build_rules_card(self) -> QWidget:
+        card = HeaderCardWidget()
+        card.setTitle("Rules")
+        card.setMinimumWidth(260)
+        body = QVBoxLayout()
+        body.setContentsMargins(2, 0, 2, 0)
+        body.setSpacing(8)
+
+        self._rules_list = TableWidget()
+        self._rules_list.setColumnCount(3)
+        self._rules_list.setHorizontalHeaderLabels(["Name", "On", "Action"])
+        self._rules_list.verticalHeader().setVisible(False)
+        self._rules_list.horizontalHeader().setVisible(True)
+        self._rules_list.horizontalHeader().setHighlightSections(False)
+        self._rules_list.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._rules_list.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._rules_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._rules_list.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._rules_list.setShowGrid(False)
+        self._rules_list.setBorderVisible(True)
+        self._rules_list.setBorderRadius(8)
+        self._rules_list.setWordWrap(False)
+        self._rules_list.verticalHeader().setDefaultSectionSize(32)
+
+        header = self._rules_list.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self._rules_list.setColumnWidth(1, 36)
+        self._rules_list.setColumnWidth(2, 140)
+
+        self._rules_list.itemSelectionChanged.connect(
+            lambda: self._load_selected_rule(self._rules_list.currentRow())
+        )
+        body.addWidget(self._rules_list, 1)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(6)
+        self._add_btn = PushButton(FIF.ADD, "Add")
+        self._delete_btn = PushButton(FIF.DELETE, "Delete")
+        self._up_btn = ToolButton(FIF.UP)
+        self._down_btn = ToolButton(FIF.DOWN)
+        self._add_btn.clicked.connect(self._add_rule)
+        self._delete_btn.clicked.connect(self._delete_rule)
+        self._up_btn.clicked.connect(lambda: self._move_rule(-1))
+        self._down_btn.clicked.connect(lambda: self._move_rule(1))
+        buttons.addWidget(self._add_btn)
+        buttons.addWidget(self._delete_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(self._up_btn)
+        buttons.addWidget(self._down_btn)
+        body.addLayout(buttons)
+
+        card.viewLayout.addLayout(body)
+        return card
+
+    def _build_editor_scroll(self) -> QWidget:
+        outer = QWidget()
+        outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+        outer_lay.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        content = QWidget()
+        content.setMinimumWidth(340)
+        stack = QVBoxLayout(content)
+        stack.setContentsMargins(2, 0, 6, 0)
+        stack.setSpacing(12)
+
+        stack.addWidget(self._build_basics_card())
+        stack.addWidget(self._build_template_card())
+        stack.addWidget(self._build_scope_card())
+        stack.addWidget(self._build_editor_actions())
+        stack.addStretch(1)
+
+        scroll.setWidget(content)
+        outer_lay.addWidget(scroll, 1)
+        return outer
+
+    def _build_basics_card(self) -> QWidget:
+        card = CollapsibleCard("Basics")
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(6)
+
+        grid.addWidget(CaptionLabel("Name"), 0, 0)
+        grid.addWidget(CaptionLabel("Action"), 0, 1)
+        grid.addWidget(CaptionLabel("Text"), 0, 2)
+
+        self._name_edit = LineEdit()
+        self._action_combo = ComboBox()
+        self._action_combo.addItems(ACTION_TYPES)
+        self._action_combo.currentTextChanged.connect(self._update_action_fields)
+        self._text_edit = LineEdit()
+        self._text_edit.setPlaceholderText("used when action is click+type+enter")
+
+        grid.addWidget(self._name_edit, 1, 0)
+        grid.addWidget(self._action_combo, 1, 1)
+        grid.addWidget(self._text_edit, 1, 2)
+
+        self._enabled_check = CheckBox("Enabled")
+        grid.addWidget(self._enabled_check, 2, 0)
+
+        grid.setColumnStretch(0, 2)
+        grid.setColumnStretch(1, 2)
+        grid.setColumnStretch(2, 2)
+
+        card.viewLayout.addLayout(grid)
+        return card
+
+    def _build_template_card(self) -> QWidget:
+        card = CollapsibleCard("Template")
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+
+        self._template_combo = ComboBox()
+        self._template_combo.setMinimumWidth(200)
+        self._template_combo.currentTextChanged.connect(self._update_template_preview)
+        use_existing_btn = PushButton(FIF.LINK, "Use existing")
+        use_existing_btn.clicked.connect(self._use_selected_template)
+        capture_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
+        capture_btn.clicked.connect(self._capture_template)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
+        top_row.addWidget(self._template_combo, 1)
+        top_row.addWidget(use_existing_btn)
+        top_row.addWidget(capture_btn)
+        grid.addLayout(top_row, 0, 0, 1, 2)
+
+        self._preview_label = QLabel("(no template selected)")
+        self._preview_label.setAlignment(Qt.AlignCenter)
+        self._preview_label.setFixedSize(240, 128)
+        self._preview_label.setStyleSheet(
+            "QLabel { background: rgba(0,0,0,0.25); "
+            "border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; "
+            "color: #a1a1aa; }"
+        )
+        grid.addWidget(self._preview_label, 1, 0, 2, 1)
+
+        meta_box = QWidget()
+        meta_lay = QVBoxLayout(meta_box)
+        meta_lay.setContentsMargins(0, 2, 0, 0)
+        meta_lay.setSpacing(6)
+
+        thr_row = QHBoxLayout()
+        thr_row.setSpacing(6)
+        thr_row.addWidget(CaptionLabel("Threshold"))
+        self._threshold_spin = DoubleSpinBox()
+        self._threshold_spin.setRange(0.0, 1.0)
+        self._threshold_spin.setDecimals(2)
+        self._threshold_spin.setSingleStep(0.01)
+        self._threshold_spin.setValue(0.90)
+        self._threshold_spin.setFixedWidth(130)
+        self._threshold_spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        thr_row.addWidget(self._threshold_spin)
+        thr_row.addStretch(1)
+        meta_lay.addLayout(thr_row)
+
+        self._template_meta = BodyLabel("")
+        self._template_meta.setStyleSheet("color: #9ca3af;")
+        self._template_meta.setWordWrap(True)
+        self._template_meta.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        meta_lay.addWidget(self._template_meta)
+        meta_lay.addStretch(1)
+
+        grid.addWidget(meta_box, 1, 1, 2, 1)
+        grid.setColumnStretch(1, 1)
+
+        card.viewLayout.addLayout(grid)
+        return card
+
+    def _build_scope_card(self) -> QWidget:
+        card = CollapsibleCard("Search scope")
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(10)
+
+        self._region_label = BodyLabel("All monitors")
+        self._region_label.setStyleSheet("color: #d4d4d8;")
+        row.addWidget(self._region_label, 1)
+
+        cap_btn = PushButton(FIF.VIEW, "Capture region")
+        cap_btn.clicked.connect(self._capture_search_region)
+        all_btn = PushButton(FIF.TILES, "All monitors")
+        all_btn.clicked.connect(self._use_all_monitors)
+        pick_btn = PushButton(FIF.ROBOT, "Pick monitor")
+        pick_btn.clicked.connect(self._pick_monitor)
+
+        row.addWidget(cap_btn)
+        row.addWidget(all_btn)
+        row.addWidget(pick_btn)
+
+        card.viewLayout.addLayout(row)
+        return card
+
+    def _build_editor_actions(self) -> QWidget:
+        wrap = QWidget()
+        row = QHBoxLayout(wrap)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(8)
+        row.addStretch(1)
+        test_btn = PushButton(FIF.PLAY, "Test match")
+        test_btn.clicked.connect(self._test_selected_rule)
+        save_btn = PrimaryPushButton(FIF.SAVE, "Save rule")
+        save_btn.clicked.connect(self._save_selected_rule)
+        row.addWidget(test_btn)
+        row.addWidget(save_btn)
+        return wrap
+
+    def _build_log_panel(self) -> QWidget:
+        card = HeaderCardWidget()
+        card.setTitle("Log")
+
+        self._log_box = FluentPlainTextEdit()
+        self._log_box.setReadOnly(True)
+        self._log_box.setMaximumBlockCount(1000)
+
+        card.viewLayout.addWidget(self._log_box)
+        return card
+
+    def _build_tray(self) -> None:
+        self._tray = QSystemTrayIcon(self._icon_stopped, self)
+        self._tray.setToolTip("Auto Press — Stopped")
+        menu = QMenu()
+        self._tray_show_action = QAction("Hide window", self)
+        self._tray_toggle_action = QAction("Start", self)
+        self._tray_quit_action = QAction("Quit Auto Press", self)
+        self._tray_show_action.triggered.connect(self._toggle_window_visibility)
+        self._tray_toggle_action.triggered.connect(self._toggle_running)
+        self._tray_quit_action.triggered.connect(self._quit_app)
+        menu.addAction(self._tray_show_action)
+        menu.addAction(self._tray_toggle_action)
+        menu.addSeparator()
+        menu.addAction(self._tray_quit_action)
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    # ---------- panel toggle auto-resize ----------
+
+    def _on_workspace_toggled(self, checked: bool) -> None:
+        if checked:
+            self._workspace_panel.setVisible(True)
+            self._v_splitter.setSizes([self._remembered_workspace_h, self._v_splitter.sizes()[1]])
+            self.resize(self.width(), self.height() + self._remembered_workspace_h)
+        else:
+            sizes = self._v_splitter.sizes()
+            if sizes[0] > 0:
+                self._remembered_workspace_h = sizes[0]
+            self.resize(self.width(), max(self.minimumHeight(), self.height() - sizes[0]))
+            self._workspace_panel.setVisible(False)
+
+    def _on_log_toggled(self, checked: bool) -> None:
+        if checked:
+            self._log_panel.setVisible(True)
+            self._v_splitter.setSizes([self._v_splitter.sizes()[0], self._remembered_log_h])
+            self.resize(self.width(), self.height() + self._remembered_log_h)
+        else:
+            sizes = self._v_splitter.sizes()
+            if sizes[1] > 0:
+                self._remembered_log_h = sizes[1]
+            self.resize(self.width(), max(self.minimumHeight(), self.height() - sizes[1]))
+            self._log_panel.setVisible(False)
+
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        sizes = self._v_splitter.sizes()
+        if self._workspace_panel.isVisible() and sizes[0] > 0:
+            self._remembered_workspace_h = sizes[0]
+        if self._log_panel.isVisible() and sizes[1] > 0:
+            self._remembered_log_h = sizes[1]
+
+    # ---------- cfg helpers ----------
+
+    def _snapshot_cfg(self) -> dict:
+        with self._cfg_lock:
+            return {
+                "interval_seconds": float(self._cfg.get("interval_seconds", 10.0)),
+                "rules": [dict(rule) for rule in self._cfg.get("rules", [])],
+            }
+
+    def _persist(self) -> None:
+        with self._cfg_lock:
+            save_config(self._cfg)
+
+    def _current_rule_index(self) -> Optional[int]:
+        idx = self._rules_list.currentRow()
+        return idx if idx is not None and idx >= 0 else None
+
+    def _current_rule(self) -> Optional[dict]:
+        idx = self._current_rule_index()
+        if idx is None:
+            return None
+        rules = self._cfg.get("rules", [])
+        return rules[idx] if 0 <= idx < len(rules) else None
+
+    # ---------- log ----------
+
+    def _log(self, message: str) -> None:
+        self._log_box.appendPlainText(f"[{time.strftime('%H:%M:%S')}] {message}")
+
+    # ---------- rule list / editor ----------
+
+    def _refresh_rule_list(self, select_idx: Optional[int] = None) -> None:
+        current = select_idx if select_idx is not None else self._current_rule_index()
+        self._rules_list.blockSignals(True)
+        rules = self._cfg.get("rules", [])
+        self._rules_list.setRowCount(len(rules))
+        for row, rule in enumerate(rules):
+            name_item = QTableWidgetItem(rule.get("name", "(unnamed)"))
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self._rules_list.setItem(row, 0, name_item)
+
+            enabled = bool(rule.get("enabled"))
+            mark_item = QTableWidgetItem("✓" if enabled else "✗")
+            mark_item.setTextAlignment(Qt.AlignCenter)
+            mark_item.setForeground(QColor(STATUS_RUNNING) if enabled else QColor(STATUS_STOPPED))
+            font = mark_item.font()
+            font.setPointSize(11)
+            font.setBold(True)
+            mark_item.setFont(font)
+            self._rules_list.setItem(row, 1, mark_item)
+
+            action_item = QTableWidgetItem(rule.get("action", ACTION_CLICK))
+            action_item.setForeground(QColor("#a1a1aa"))
+            self._rules_list.setItem(row, 2, action_item)
+        self._rules_list.blockSignals(False)
+
+        if current is not None and self._rules_list.rowCount() > 0:
+            bounded = max(0, min(self._rules_list.rowCount() - 1, current))
+            self._rules_list.selectRow(bounded)
+        else:
+            self._clear_editor()
+
+    def _load_selected_rule(self, _row: int = -1) -> None:
+        rule = self._current_rule()
+        if rule is None:
+            self._clear_editor(); return
+        self._name_edit.setText(rule.get("name", ""))
+        self._enabled_check.setChecked(bool(rule.get("enabled", True)))
+        self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
+        self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
+        self._text_edit.setText(rule.get("text", "continue"))
+        self._template_combo.setCurrentText(rule.get("template_path") or "")
+        region = rule.get("search_region")
+        self._region_label.setText(
+            f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
+        )
+        self._update_action_fields()
+        self._update_template_preview(self._template_combo.currentText())
+
+    def _clear_editor(self) -> None:
+        self._name_edit.clear()
+        self._enabled_check.setChecked(True)
+        self._threshold_spin.setValue(0.90)
+        self._action_combo.setCurrentText(ACTION_CLICK)
+        self._text_edit.setText("continue")
+        self._template_combo.setCurrentText("")
+        self._region_label.setText("All monitors")
+        self._update_action_fields()
+
+    def _update_action_fields(self, *_args) -> None:
+        self._text_edit.setEnabled(self._action_combo.currentText() == ACTION_CLICK_TYPE_ENTER)
+
+    def _add_rule(self) -> None:
+        with self._cfg_lock:
+            rule = default_rule(name=f"Rule {len(self._cfg['rules']) + 1}")
+            rule["priority"] = len(self._cfg["rules"]) + 1
+            self._cfg["rules"].append(rule)
+            idx = len(self._cfg["rules"]) - 1
+        self._persist(); self._refresh_rule_list(idx)
+        self._log(f"[rule] added {rule['name']}")
+
+    def _delete_rule(self) -> None:
+        idx = self._current_rule_index()
+        if idx is None:
+            self._log("[rule] select a rule to delete"); return
+        with self._cfg_lock:
+            removed = self._cfg["rules"].pop(idx)
+            for pos, item in enumerate(self._cfg["rules"], start=1):
                 item["priority"] = pos
-        persist_and_refresh(idx)
-        log_event(f"[rule] saved {name_var.get().strip() or f'Rule {idx + 1}'}")
+            self._last_scores.pop(removed["id"], None)
+        self._persist(); self._refresh_rule_list(max(0, idx - 1))
+        self._log(f"[rule] deleted {removed['name']}")
+
+    def _move_rule(self, direction: int) -> None:
+        idx = self._current_rule_index()
+        if idx is None:
+            return
+        new_idx = idx + direction
+        with self._cfg_lock:
+            if not (0 <= new_idx < len(self._cfg["rules"])):
+                return
+            self._cfg["rules"][idx], self._cfg["rules"][new_idx] = (
+                self._cfg["rules"][new_idx],
+                self._cfg["rules"][idx],
+            )
+            for pos, item in enumerate(self._cfg["rules"], start=1):
+                item["priority"] = pos
+        self._persist(); self._refresh_rule_list(new_idx)
+
+    def _save_selected_rule(self) -> bool:
+        idx = self._current_rule_index()
+        if idx is None:
+            self._log("[rule] select a rule first"); return False
+        with self._cfg_lock:
+            rule = self._cfg["rules"][idx]
+            rule["name"] = self._name_edit.text().strip() or f"Rule {idx + 1}"
+            rule["enabled"] = self._enabled_check.isChecked()
+            rule["threshold"] = max(0.0, min(1.0, float(self._threshold_spin.value())))
+            rule["action"] = (
+                self._action_combo.currentText()
+                if self._action_combo.currentText() in ACTION_TYPES
+                else ACTION_CLICK
+            )
+            rule["text"] = self._text_edit.text().strip() or "continue"
+            for pos, item in enumerate(self._cfg["rules"], start=1):
+                item["priority"] = pos
+        self._persist(); self._refresh_rule_list(idx)
+        self._log(f"[rule] saved {self._name_edit.text().strip() or f'Rule {idx + 1}'}")
         return True
 
-    def add_rule() -> None:
-        with cfg_lock:
-            rule = default_rule(name=f"Rule {len(cfg['rules']) + 1}")
-            rule["priority"] = len(cfg["rules"]) + 1
-            cfg["rules"].append(rule)
-            idx = len(cfg["rules"]) - 1
-        persist_and_refresh(idx)
-        log_event(f"[rule] added {rule['name']}")
+    # ---------- templates ----------
 
-    def delete_rule() -> None:
-        idx = selected_index()
-        if idx is None:
-            log_event("[rule] select a rule to delete")
-            return
-        with cfg_lock:
-            removed = cfg["rules"].pop(idx)
-            for pos, item in enumerate(cfg["rules"], start=1):
-                item["priority"] = pos
-            state["last_scores"].pop(removed["id"], None)
-        persist_and_refresh(max(0, idx - 1))
-        log_event(f"[rule] deleted {removed['name']}")
+    def _refresh_template_choices(self, selected: Optional[str] = None) -> None:
+        current = selected if selected is not None else self._template_combo.currentText()
+        items = [""] + list_template_files()
+        self._template_combo.blockSignals(True)
+        self._template_combo.clear()
+        self._template_combo.addItems(items)
+        self._template_combo.setCurrentText(current if current in items else "")
+        self._template_combo.blockSignals(False)
+        self._update_template_preview(self._template_combo.currentText())
 
-    def move_rule(direction: int) -> None:
-        idx = selected_index()
-        if idx is None:
-            log_event("[rule] select a rule to move")
-            return
-        with cfg_lock:
-            new_idx = idx + direction
-            if not (0 <= new_idx < len(cfg["rules"])):
-                return
-            cfg["rules"][idx], cfg["rules"][new_idx] = cfg["rules"][new_idx], cfg["rules"][idx]
-            for pos, item in enumerate(cfg["rules"], start=1):
-                item["priority"] = pos
-        persist_and_refresh(new_idx)
+    def _update_template_preview(self, name: str) -> None:
+        name = (name or "").strip()
+        if not name:
+            self._preview_label.setPixmap(QPixmap())
+            self._preview_label.setText("(no template selected)")
+            self._template_meta.setText(""); return
+        path = resolve_template_path(name)
+        if path is None or not Path(path).exists():
+            self._preview_label.setPixmap(QPixmap())
+            self._preview_label.setText("(file missing)")
+            self._template_meta.setText(f"File: {name}\n(not found under templates/)"); return
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            self._preview_label.setPixmap(QPixmap())
+            self._preview_label.setText("(preview error)")
+            self._template_meta.setText(f"File: {name}"); return
+        nw, nh = pixmap.width(), pixmap.height()
+        bw, bh = self._preview_label.width() - 8, self._preview_label.height() - 8
+        if nw > bw or nh > bh:
+            scaled = pixmap.scaled(bw, bh, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            note = "fit to preview"
+        else:
+            scaled = pixmap
+            note = "actual size"
+        self._preview_label.setPixmap(scaled)
+        self._preview_label.setText("")
+        self._template_meta.setText(f"{name}\n{nw} × {nh} px  ·  {note}")
 
-    def capture_template() -> None:
-        idx = selected_index()
+    def _use_selected_template(self) -> None:
+        idx = self._current_rule_index()
         if idx is None:
-            log_event("[capture] add or select a rule first")
-            return
+            self._log("[template] select a rule first"); return
+        choice = self._template_combo.currentText().strip()
+        if not choice:
+            self._log("[template] choose an existing template first"); return
+        with self._cfg_lock:
+            self._cfg["rules"][idx]["template_path"] = choice
+        self._persist(); self._refresh_rule_list(idx)
+        self._log(f"[template] selected {choice}")
+
+    def _capture_template(self) -> None:
+        idx = self._current_rule_index()
+        if idx is None:
+            self._log("[capture] add or select a rule first"); return
         try:
             ensure_vision()
         except Exception as exc:
-            log_event(f"[error] {exc}")
-            return
-        bbox = capture_drag_bbox()
+            self._log(f"[error] {exc}"); return
+        bbox = capture_drag_bbox(self)
         if not bbox:
-            log_event("[capture] template capture cancelled")
-            return
+            self._log("[capture] template capture cancelled"); return
         try:
             gray = capture_screen_gray(tuple(bbox))
-            file_name = f"rule_{cfg['rules'][idx]['id']}.png"
+            file_name = f"rule_{self._cfg['rules'][idx]['id']}.png"
             path = template_asset_path(file_name)
             save_gray_image(str(path), gray)
             stored_path = serialize_template_path(path)
-            with cfg_lock:
-                cfg["rules"][idx]["template_path"] = stored_path
-            persist_and_refresh(idx)
-            refresh_template_choices(stored_path)
-            log_event(
-                f"[capture] template saved to {path.name} "
-                f"bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]} -> captured {gray.shape[1]}x{gray.shape[0]}"
+            with self._cfg_lock:
+                self._cfg["rules"][idx]["template_path"] = stored_path
+            self._persist(); self._refresh_rule_list(idx); self._refresh_template_choices(stored_path)
+            self._log(
+                f"[capture] {path.name}  bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]} → {gray.shape[1]}x{gray.shape[0]}"
             )
         except Exception as exc:
-            log_event(f"[error] template capture failed: {exc}")
+            self._log(f"[error] template capture failed: {exc}")
 
-    def use_selected_template() -> None:
-        idx = selected_index()
+    def _capture_search_region(self) -> None:
+        idx = self._current_rule_index()
         if idx is None:
-            log_event("[template] select a rule first")
-            return
-        choice = template_choice_var.get().strip()
-        if not choice:
-            log_event("[template] choose an existing template first")
-            return
-        with cfg_lock:
-            cfg["rules"][idx]["template_path"] = choice
-        persist_and_refresh(idx)
-        log_event(f"[template] selected {choice}")
-
-    def capture_search_region() -> None:
-        idx = selected_index()
-        if idx is None:
-            log_event("[capture] select a rule first")
-            return
-        bbox = capture_drag_bbox()
+            self._log("[capture] select a rule first"); return
+        bbox = capture_drag_bbox(self)
         if not bbox:
-            log_event("[capture] search region cancelled")
-            return
-        with cfg_lock:
-            cfg["rules"][idx]["search_region"] = bbox
-        persist_and_refresh(idx)
-        region_var.set(str(tuple(bbox)))
-        log_event(
-            f"[capture] search region set: bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]}"
-        )
+            self._log("[capture] search region cancelled"); return
+        with self._cfg_lock:
+            self._cfg["rules"][idx]["search_region"] = bbox
+        self._persist(); self._refresh_rule_list(idx)
+        self._region_label.setText(f"{bbox[2]} × {bbox[3]} @ ({bbox[0]}, {bbox[1]})")
+        self._log(f"[capture] region set: bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]}")
 
-    def use_all_monitors() -> None:
-        idx = selected_index()
+    def _use_all_monitors(self) -> None:
+        idx = self._current_rule_index()
         if idx is None:
-            log_event("[capture] select a rule first")
-            return
-        with cfg_lock:
-            cfg["rules"][idx]["search_region"] = None
-        persist_and_refresh(idx)
-        region_var.set("All monitors")
-        log_event("[capture] rule now scans all monitors")
+            self._log("[capture] select a rule first"); return
+        with self._cfg_lock:
+            self._cfg["rules"][idx]["search_region"] = None
+        self._persist(); self._refresh_rule_list(idx)
+        self._region_label.setText("All monitors")
+        self._log("[capture] rule now scans all monitors")
 
-    def pick_monitor() -> None:
-        idx = selected_index()
+    def _pick_monitor(self) -> None:
+        idx = self._current_rule_index()
         if idx is None:
-            log_event("[monitor] select a rule first")
-            return
-        monitors = enumerate_monitors()
-        if not monitors:
-            log_event("[monitor] no monitors detected (only supported on Windows)")
-            return
+            self._log("[monitor] select a rule first"); return
+        dialog = MonitorPickDialog(self)
+        if dialog.exec() and dialog.selected:
+            bbox = dialog.selected
+            with self._cfg_lock:
+                self._cfg["rules"][idx]["search_region"] = bbox
+            self._persist(); self._refresh_rule_list(idx)
+            self._region_label.setText(f"Monitor  {bbox[2]} × {bbox[3]} @ ({bbox[0]}, {bbox[1]})")
+            self._log(f"[monitor] region set to {bbox[2]}x{bbox[3]} @ ({bbox[0]},{bbox[1]})")
 
-        dialog = tk.Toplevel(root)
-        dialog.title("Pick Monitor")
-        dialog.transient(root)
-        dialog.attributes("-topmost", True)
-        dialog.resizable(False, False)
-        dialog.configure(bg="#1f1f1f")
-
-        ctk.CTkLabel(dialog, text="Restrict the scan to a single monitor:", font=FONT).pack(
-            padx=14, pady=(14, 8)
-        )
-
-        def choose(bbox: tuple[int, int, int, int]) -> None:
-            left, top, width, height = bbox
-            region = [left, top, width, height]
-            with cfg_lock:
-                cfg["rules"][idx]["search_region"] = region
-            persist_and_refresh(idx)
-            region_var.set(f"Monitor {width}×{height} @ ({left},{top})")
-            log_event(f"[monitor] search region set to {width}x{height} @ ({left},{top})")
-            dialog.destroy()
-
-        for i, monitor in enumerate(monitors, start=1):
-            left, top, width, height = monitor
-            label = f"Monitor {i}: {width}×{height} @ ({left},{top})"
-            ctk.CTkButton(dialog, text=label, width=260, command=lambda b=monitor: choose(b)).pack(
-                padx=14, pady=4
-            )
-
-        ctk.CTkButton(dialog, text="Cancel", width=100, command=dialog.destroy).pack(
-            padx=14, pady=(8, 14)
-        )
-
-    def test_selected_rule() -> None:
-        idx = selected_index()
+    def _test_selected_rule(self) -> None:
+        idx = self._current_rule_index()
         if idx is None:
-            log_event("[test] select a rule first")
-            return
-        if not save_selected_rule():
+            self._log("[test] select a rule first"); return
+        if not self._save_selected_rule():
             return
         try:
-            with cfg_lock:
-                rule = dict(cfg["rules"][idx])
-            template_path = resolve_template_path(rule.get("template_path"))
-            if template_path is None or not Path(template_path).exists():
-                log_event("[test] capture a template first")
-                return
+            with self._cfg_lock:
+                rule = dict(self._cfg["rules"][idx])
+            tpl_path = resolve_template_path(rule.get("template_path"))
+            if tpl_path is None or not Path(tpl_path).exists():
+                self._log("[test] capture a template first"); return
             runtime_rule = build_runtime_rules({"rules": [rule]})
             if not runtime_rule:
-                log_event("[test] rule is not ready")
-                return
+                self._log("[test] rule is not ready"); return
             frame = capture_screen_gray()
             score, center = evaluate_rule_on_frame(frame, runtime_rule[0])
             matched = center is not None and score >= float(rule.get("threshold", 0.90))
-            state["last_scores"][rule["id"]] = score
-            refresh_rule_list(idx)
-            result = "match" if matched else "no-match"
-            log_event(f"[test] {rule['name']} result={result} score={score:.3f} center={center}")
-        except Exception as exc:
-            log_event(f"[error] test failed: {exc}")
-
-    top = ctk.CTkFrame(root)
-    top.pack(fill="x", padx=14, pady=(14, 8))
-
-    status_var = tk.StringVar(value="Stopped")
-    action_status_var = tk.StringVar(value="Idle")
-    interval_var = tk.StringVar(value=str(cfg.get("interval_seconds", initial_seconds)))
-    countdown_var = tk.StringVar(value="")
-    show_workspace_var = tk.BooleanVar(value=True)
-    show_log_var = tk.BooleanVar(value=True)
-
-    ctk.CTkButton(top, text="Start / Stop", command=lambda: toggle_running(), width=120).pack(side="left", padx=(0, 8))
-    interval_frame = ctk.CTkFrame(top, fg_color="transparent")
-    interval_frame.pack(side="left")
-    ctk.CTkLabel(interval_frame, text="Interval (s):", font=FONT, text_color=MUTED).pack(side="left")
-    info_badge(interval_frame, "How often the app captures the screen and evaluates all enabled rules.")
-    ctk.CTkEntry(interval_frame, textvariable=interval_var, width=80).pack(side="left", padx=(6, 14))
-    countdown_label = ctk.CTkLabel(top, textvariable=countdown_var, font=("Consolas", 18, "bold"), text_color=MUTED)
-    status_label = ctk.CTkLabel(top, textvariable=status_var, font=FONT, text_color=STATUS_STOPPED)
-    status_label.pack(side="left", padx=(0, 14))
-    ctk.CTkLabel(top, textvariable=action_status_var, font=FONT_SMALL, text_color=MUTED).pack(side="left")
-    panel_toggle_frame = ctk.CTkFrame(top, fg_color="transparent")
-    panel_toggle_frame.pack(side="right")
-
-    body = ctk.CTkFrame(root)
-    body.pack(fill="both", expand=True, padx=14, pady=(0, 8))
-
-    left = ctk.CTkFrame(body)
-    left.pack(side="left", fill="y", padx=(0, 8), pady=8)
-    right = ctk.CTkFrame(body)
-    right.pack(side="left", fill="both", expand=True, pady=8)
-
-    rules_header = ctk.CTkFrame(left, fg_color="transparent")
-    rules_header.pack(anchor="w", padx=12, pady=(12, 8))
-    ctk.CTkLabel(rules_header, text="Rules", font=("Segoe UI", 14, "bold")).pack(side="left")
-    info_badge(rules_header, "Enabled rules are checked every scan. Use Up and Down to control evaluation order.")
-    rule_list = tk.Listbox(left, width=34, height=14, activestyle="dotbox", exportselection=False)
-    rule_list.pack(padx=12, pady=(0, 10))
-    rule_list.bind("<<ListboxSelect>>", load_selected_rule)
-
-    left_buttons = ctk.CTkFrame(left, fg_color="transparent")
-    left_buttons.pack(fill="x", padx=12, pady=(0, 10))
-    ctk.CTkButton(left_buttons, text="Add", command=add_rule, width=70).pack(side="left", padx=(0, 6))
-    ctk.CTkButton(left_buttons, text="Delete", command=delete_rule, width=70).pack(side="left", padx=(0, 6))
-    ctk.CTkButton(left_buttons, text="Up", command=lambda: move_rule(-1), width=60).pack(side="left", padx=(0, 6))
-    ctk.CTkButton(left_buttons, text="Down", command=lambda: move_rule(1), width=60).pack(side="left")
-
-    ctk.CTkLabel(left, text=f"Config: {CONFIG_PATH.name}", font=FONT_SMALL, text_color=MUTED).pack(anchor="w", padx=12, pady=(0, 12))
-
-    editor = ctk.CTkFrame(right, fg_color="transparent")
-    editor.pack(fill="both", expand=True, padx=14, pady=(14, 8))
-
-    name_var = tk.StringVar()
-    enabled_var = tk.BooleanVar(value=True)
-    threshold_var = tk.StringVar(value="0.90")
-    action_var = tk.StringVar(value=ACTION_CLICK)
-    text_var = tk.StringVar(value="continue")
-    template_choice_var = tk.StringVar(value="")
-    region_var = tk.StringVar(value="All monitors")
-
-    editor_header = ctk.CTkFrame(editor, fg_color="transparent")
-    editor_header.pack(anchor="w", pady=(0, 10))
-    ctk.CTkLabel(editor_header, text="Rule Editor", font=("Segoe UI", 14, "bold")).pack(side="left")
-    info_badge(editor_header, "Edit the selected rule. Rules match a template on screen and then run the chosen action.")
-
-    basics_frame = ctk.CTkFrame(editor, fg_color="transparent")
-    basics_frame.pack(fill="x", pady=(0, 8))
-    ctk.CTkLabel(basics_frame, text="Name", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=0, sticky="w")
-    name_help = ctk.CTkLabel(basics_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
-    name_help.grid(row=0, column=1, sticky="w", padx=(4, 12))
-    attach_tooltip(name_help, "Friendly label used in the rules list and log output.")
-    ctk.CTkLabel(basics_frame, text="Action", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=2, sticky="w")
-    action_help = ctk.CTkLabel(basics_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
-    action_help.grid(row=0, column=3, sticky="w", padx=(4, 12))
-    attach_tooltip(action_help, "Click: click the matched center. Click+type+enter: click, type the text, then press Enter.")
-    ctk.CTkLabel(basics_frame, text="Text (optional)", font=FONT_SMALL, text_color=MUTED).grid(row=0, column=4, sticky="w")
-    text_help = ctk.CTkLabel(basics_frame, text="(?)", text_color=MUTED, font=FONT_SMALL)
-    text_help.grid(row=0, column=5, sticky="w", padx=(4, 0))
-    attach_tooltip(text_help, "Only used by click+type+enter. Leave it as the default if you just want a simple continuation word.")
-    ctk.CTkEntry(basics_frame, textvariable=name_var, width=180).grid(row=1, column=0, sticky="w", padx=(0, 12))
-    ctk.CTkCheckBox(basics_frame, text="Enabled", variable=enabled_var).grid(row=1, column=1, columnspan=2, sticky="w", padx=(0, 12))
-    action_menu = ctk.CTkOptionMenu(basics_frame, values=ACTION_TYPES, variable=action_var, command=update_action_fields, width=150)
-    action_menu.grid(row=1, column=2, columnspan=2, sticky="w", padx=(0, 12))
-    text_entry = ctk.CTkEntry(basics_frame, textvariable=text_var, width=160)
-    text_entry.grid(row=1, column=4, columnspan=2, sticky="w")
-
-    PREVIEW_BOX_W = 240
-    PREVIEW_BOX_H = 120
-    PREVIEW_BG = "#1a1a1a"
-    PREVIEW_PLACEHOLDER = "(no template selected)"
-    preview_meta_var = tk.StringVar(value="")
-
-    template_section = ctk.CTkFrame(editor)
-    template_section.pack(fill="x", pady=(0, 8))
-    template_header = ctk.CTkFrame(template_section, fg_color="transparent")
-    template_header.pack(anchor="w", padx=12, pady=(10, 4))
-    ctk.CTkLabel(template_header, text="Template & Matching", font=("Segoe UI", 12, "bold")).pack(side="left")
-    info_badge(template_header, "Choose or capture the image that defines a match. The preview shows exactly what the engine will search for.")
-
-    template_row = ctk.CTkFrame(template_section, fg_color="transparent")
-    template_row.pack(fill="x", padx=12, pady=(0, 8))
-    template_choice_menu = ctk.CTkOptionMenu(template_row, values=[""], variable=template_choice_var, width=220)
-    template_choice_menu.pack(side="left", padx=(0, 8))
-    ctk.CTkButton(template_row, text="Use Existing", command=use_selected_template, width=110).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(template_row, text="Capture Pattern", command=capture_template, width=130).pack(side="left")
-
-    preview_row = ctk.CTkFrame(template_section, fg_color="transparent")
-    preview_row.pack(fill="x", padx=12, pady=(0, 12))
-
-    preview_container = ctk.CTkFrame(preview_row, width=PREVIEW_BOX_W, height=PREVIEW_BOX_H, fg_color=PREVIEW_BG, corner_radius=6)
-    preview_container.pack(side="left", padx=(0, 14))
-    preview_container.pack_propagate(False)
-    preview_label = tk.Label(preview_container, bg=PREVIEW_BG, fg=MUTED, text=PREVIEW_PLACEHOLDER, font=FONT_SMALL)
-    preview_label.pack(expand=True, fill="both")
-    attach_tooltip(preview_label, "Live preview of the currently selected template. Shown at its native resolution (templates are usually small buttons or icons).")
-
-    preview_details = ctk.CTkFrame(preview_row, fg_color="transparent")
-    preview_details.pack(side="left", fill="both", expand=True)
-
-    threshold_row = ctk.CTkFrame(preview_details, fg_color="transparent")
-    threshold_row.pack(anchor="w")
-    ctk.CTkLabel(threshold_row, text="Match threshold", font=FONT_SMALL, text_color=MUTED).pack(side="left")
-    threshold_help = ctk.CTkLabel(threshold_row, text="(?)", text_color=MUTED, font=FONT_SMALL)
-    threshold_help.pack(side="left", padx=(4, 8))
-    attach_tooltip(threshold_help, "Higher values are stricter. Around 0.90 is a good default for stable button templates.")
-    ctk.CTkEntry(threshold_row, textvariable=threshold_var, width=80).pack(side="left")
-
-    meta_label = ctk.CTkLabel(preview_details, textvariable=preview_meta_var, font=FONT_SMALL, text_color=MUTED, justify="left", anchor="w")
-    meta_label.pack(anchor="w", pady=(10, 0), fill="x")
-
-    def update_template_preview(*_args) -> None:
-        name = template_choice_var.get().strip()
-        if not name:
-            preview_label.configure(image="", text=PREVIEW_PLACEHOLDER, fg=MUTED)
-            preview_label.image = None
-            preview_meta_var.set("")
-            return
-        path = resolve_template_path(name)
-        if path is None or not Path(path).exists():
-            preview_label.configure(image="", text="(file missing)", fg="#ef5350")
-            preview_label.image = None
-            preview_meta_var.set(f"File: {name}\n(not found under templates/)")
-            return
-        try:
-            img = Image.open(path).convert("RGB")
-            native_w, native_h = img.size
-            if native_w > PREVIEW_BOX_W - 8 or native_h > PREVIEW_BOX_H - 8:
-                img = img.copy()
-                img.thumbnail((PREVIEW_BOX_W - 8, PREVIEW_BOX_H - 8), Image.LANCZOS)
-                scale_note = f" (fit to preview)"
-            else:
-                scale_note = " (actual size)"
-            photo = ImageTk.PhotoImage(img)
-            preview_label.configure(image=photo, text="")
-            preview_label.image = photo
-            preview_meta_var.set(f"File: {name}\nSize: {native_w} \u00d7 {native_h} px{scale_note}")
-        except Exception as exc:
-            preview_label.configure(image="", text="(preview error)", fg="#ef5350")
-            preview_label.image = None
-            preview_meta_var.set(f"File: {name}\n({exc})")
-
-    template_choice_var.trace_add("write", update_template_preview)
-
-    search_section = ctk.CTkFrame(editor)
-    search_section.pack(fill="x", pady=(0, 8))
-    search_header = ctk.CTkFrame(search_section, fg_color="transparent")
-    search_header.pack(anchor="w", padx=12, pady=(10, 4))
-    ctk.CTkLabel(search_header, text="Search Scope", font=("Segoe UI", 12, "bold")).pack(side="left")
-    info_badge(search_header, "All Monitors scans every display. Capture Search Region drags a crop (can span multiple monitors). Pick Monitor restricts the scan to one display.")
-    search_row = ctk.CTkFrame(search_section, fg_color="transparent")
-    search_row.pack(fill="x", padx=12, pady=(0, 10))
-    ctk.CTkLabel(search_row, textvariable=region_var, font=FONT_SMALL, text_color=MUTED).pack(side="left", padx=(0, 12))
-    ctk.CTkButton(search_row, text="Capture Search Region", command=capture_search_region, width=160).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(search_row, text="All Monitors", command=use_all_monitors, width=110).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(search_row, text="Pick Monitor", command=pick_monitor, width=110).pack(side="left")
-
-    editor_actions = ctk.CTkFrame(editor, fg_color="transparent")
-    editor_actions.pack(fill="x", pady=(4, 0))
-    ctk.CTkButton(editor_actions, text="Test Match", command=test_selected_rule, width=100).pack(side="left", padx=(0, 8))
-    ctk.CTkButton(editor_actions, text="Save Rule", command=save_selected_rule, width=100).pack(side="left")
-    info_badge(editor_actions, "Test Match runs a single scan without starting the loop. Save Rule persists your edits to disk.", padx=(8, 0))
-
-    log_frame = ctk.CTkFrame(root)
-    log_frame.pack(fill="x", padx=14, pady=(0, 14))
-    log_header = ctk.CTkFrame(log_frame, fg_color="transparent")
-    log_header.pack(anchor="w", padx=12, pady=(10, 8))
-    ctk.CTkLabel(log_header, text="Log", font=("Segoe UI", 14, "bold")).pack(side="left")
-    info_badge(log_header, "Shows setup actions, match results, and runtime errors for the current session.")
-    log_box = ScrolledText(log_frame, height=14, wrap="word")
-    log_box.pack(fill="x", padx=12, pady=(0, 12))
-    log_box.configure(state="disabled")
-
-    def update_panel_visibility() -> None:
-        show_workspace = bool(show_workspace_var.get())
-        show_log = bool(show_log_var.get())
-
-        if show_workspace:
-            if not body.winfo_ismapped():
-                if log_frame.winfo_ismapped():
-                    body.pack(fill="both", expand=True, padx=14, pady=(0, 8), before=log_frame)
-                else:
-                    body.pack(fill="both", expand=True, padx=14, pady=(0, 8))
-        elif body.winfo_ismapped():
-            body.pack_forget()
-
-        if show_log:
-            if not log_frame.winfo_ismapped():
-                log_frame.pack(fill="x", padx=14, pady=(0, 14))
-        elif log_frame.winfo_ismapped():
-            log_frame.pack_forget()
-
-    workspace_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Workspace", variable=show_workspace_var, command=update_panel_visibility, width=110)
-    workspace_toggle.pack(side="left", padx=(0, 6))
-    attach_tooltip(workspace_toggle, "Show or hide the main workspace containing both the rules list and rule editor.")
-    log_toggle = ctk.CTkCheckBox(panel_toggle_frame, text="Log", variable=show_log_var, command=update_panel_visibility, width=70)
-    log_toggle.pack(side="left")
-    attach_tooltip(log_toggle, "Show or hide the log panel. You can hide both workspace and log for a minimal top-bar view.")
-
-    def update_top_row_visibility() -> None:
-        if state["running"]:
-            if interval_frame.winfo_ismapped():
-                interval_frame.pack_forget()
-            if not countdown_label.winfo_ismapped():
-                countdown_label.pack(side="left", padx=(0, 14), before=status_label)
-        else:
-            if countdown_label.winfo_ismapped():
-                countdown_label.pack_forget()
-            if not interval_frame.winfo_ismapped():
-                interval_frame.pack(side="left", before=status_label)
-
-    def update_timer() -> None:
-        if stop_event.is_set():
-            return
-        if state["running"] and state["next_tick_at"] is not None:
-            remaining = max(0.0, float(state["next_tick_at"]) - time.perf_counter())
-            countdown_var.set(f"{remaining:.1f}s")
-        else:
-            countdown_var.set("")
-        root.after(100, update_timer)
-
-    def toggle_running() -> None:
-        if state["running"]:
-            state["running"] = False
-            running_event.clear()
-            interrupt_event.set()
-            state["next_tick_at"] = None
-            set_running_status(False)
-            update_top_row_visibility()
-            action_status_var.set("Idle")
-            log_event("[control] stopped")
-            return
-        with cfg_lock:
-            cfg["interval_seconds"] = current_interval()
-            save_config(cfg)
-        update_runtime_rules()
-        if not state["runtime_rules"]:
-            log_event("[control] add at least one enabled rule with a selected or captured template")
-            return
-        state["running"] = True
-        state["next_tick_at"] = time.perf_counter() + current_interval()
-        interrupt_event.clear()
-        running_event.set()
-        set_running_status(True)
-        update_top_row_visibility()
-        log_event("[control] started")
-
-    def start_hotkeys() -> None:
-        if not IS_WINDOWS:
-            hotkey_ok["ok"] = False
-            hotkey_ok["err"] = "Global hotkeys are only supported on Windows."
-            return
-
-        def hotkey_loop() -> None:
-            tid = GetCurrentThreadId()
-            hotkey_thread_id["tid"] = tid
-            HOTKEY_ID = 1
-
-            if not RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_PAGEDOWN):
-                hotkey_ok["ok"] = False
-                hotkey_ok["err"] = "Failed to register Page Down hotkey."
-                return
-
-            msg = MSG()
-            while not hotkey_thread_stop.is_set():
-                ok = GetMessageW(ctypes.byref(msg), None, 0, 0)
-                if ok <= 0:
-                    break
-                if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
-                    root.after(0, toggle_running)
-                TranslateMessage(ctypes.byref(msg))
-                DispatchMessageW(ctypes.byref(msg))
-            UnregisterHotKey(None, HOTKEY_ID)
-
-        threading.Thread(target=hotkey_loop, daemon=True).start()
-
-    def stop_hotkeys() -> None:
-        if not IS_WINDOWS:
-            return
-        hotkey_thread_stop.set()
-        tid = hotkey_thread_id["tid"]
-        if tid:
-            PostThreadMessageW(tid, WM_QUIT, 0, 0)
-
-    def worker_loop() -> None:
-        while not stop_event.is_set():
-            if not running_event.wait(timeout=0.2):
-                continue
-            try:
-                with cfg_lock:
-                    interval = current_interval()
-                    cfg["interval_seconds"] = interval
-                    runtime_rules = list(state["runtime_rules"])
-                results, actions = evaluate_rules(runtime_rules)
-                for result in results:
-                    state["last_scores"][result["id"]] = float(result["score"])
-                root.after(0, refresh_rule_list)
-                if actions:
-                    execute_matches(actions)
-                    summaries: dict[str, int] = {}
-                    for action in actions:
-                        summaries[action["name"]] = summaries.get(action["name"], 0) + 1
-                    summary_text = ", ".join(f"{name} x{count}" for name, count in summaries.items())
-                    state["last_action"] = summary_text
-                    root.after(0, lambda text=state["last_action"]: action_status_var.set(text))
-                    log_event(f"[tick] matched {summary_text}")
-                else:
-                    state["last_action"] = "No match"
-                    root.after(0, lambda: action_status_var.set("No match"))
-                    log_event("[tick] no eligible rule matched")
-                state["next_tick_at"] = time.perf_counter() + interval
-            except Exception as exc:
-                log_event(f"[error] worker failed: {exc}")
-            if interrupt_event.wait(timeout=current_interval()):
-                interrupt_event.clear()
-
-    worker = threading.Thread(target=worker_loop, daemon=True)
-    worker.start()
-
-    root.bind_all("<Next>", lambda _event: toggle_running())
-    start_hotkeys()
-    if not hotkey_ok["ok"]:
-        log_event(f"[error] {hotkey_ok['err']}")
-
-    update_action_fields()
-    refresh_template_choices()
-    refresh_rule_list(0 if cfg.get("rules") else None)
-    update_runtime_rules()
-    set_running_status(False)
-    update_top_row_visibility()
-    update_panel_visibility()
-    update_timer()
-    log_event(f"[ready] loaded {CONFIG_PATH}")
-
-    def show_window() -> None:
-        window_visible["value"] = True
-        try:
-            root.deiconify()
-            root.lift()
-            root.focus_force()
-        except Exception:
-            pass
-        if tray is not None:
-            tray.refresh_menu()
-
-    def hide_window() -> None:
-        window_visible["value"] = False
-        try:
-            root.withdraw()
-        except Exception:
-            pass
-        if tray is not None:
-            tray.refresh_menu()
-
-    def toggle_window_visibility() -> None:
-        if window_visible["value"]:
-            hide_window()
-        else:
-            show_window()
-
-    def quit_app() -> None:
-        state["running"] = False
-        state["next_tick_at"] = None
-        running_event.clear()
-        interrupt_event.set()
-        stop_event.set()
-        stop_hotkeys()
-        with cfg_lock:
-            cfg["interval_seconds"] = current_interval()
-            save_config(cfg)
-        if tray is not None:
-            try:
-                tray.stop()
-            except Exception:
-                pass
-        try:
-            root.destroy()
-        except Exception:
-            pass
-
-    def on_close() -> None:
-        if tray is not None:
-            hide_window()
-            log_event("[tray] window minimized to tray (right-click the tray icon to quit)")
-        else:
-            quit_app()
-
-    if PYSTRAY_AVAILABLE:
-        try:
-            tray = TrayController(
-                on_show_hide=lambda: root.after(0, toggle_window_visibility),
-                on_toggle_running=lambda: root.after(0, toggle_running),
-                on_quit=lambda: root.after(0, quit_app),
-                is_running=lambda: bool(state["running"]),
-                is_window_visible=lambda: bool(window_visible["value"]),
+            self._last_scores[rule["id"]] = score
+            self._refresh_rule_list(idx)
+            self._log(
+                f"[test] {rule['name']}  {'match' if matched else 'no-match'}  "
+                f"score={score:.3f}  center={center}"
             )
-            tray.start()
-            tray.update_status(False)
-            log_event("[tray] system tray icon active (red = stopped, green = running)")
         except Exception as exc:
-            tray = None
-            log_event(f"[tray] unavailable: {exc}")
-    else:
-        log_event(
-            "[tray] pystray is not installed; closing the window will quit the app. "
-            f"Install with `uv add pystray`. ({PYSTRAY_IMPORT_ERROR})"
-        )
+            self._log(f"[error] test failed: {exc}")
 
-    root.protocol("WM_DELETE_WINDOW", on_close)
-    root.mainloop()
+    # ---------- run control ----------
+
+    def _on_interval_changed(self, value: float) -> None:
+        with self._cfg_lock:
+            self._cfg["interval_seconds"] = float(value)
+        self._worker.set_interval(float(value))
+        if self._running:
+            self._next_tick_at = time.monotonic() + float(value)
+        save_config(self._snapshot_cfg())
+
+    def _toggle_running(self) -> None:
+        if self._running:
+            self._worker.set_running(False)
+            self._next_tick_at = None
+            self._log("[control] stopped")
+            return
+        with self._cfg_lock:
+            self._cfg["interval_seconds"] = float(self._interval_spin.value())
+            save_config(self._cfg)
+        self._worker.set_interval(float(self._interval_spin.value()))
+        self._worker.set_running(True)
+        self._next_tick_at = time.monotonic() + float(self._interval_spin.value())
+        self._log("[control] started")
+
+    def _on_running_changed(self, running: bool) -> None:
+        self._running = running
+        self._set_running_status(running)
+        if not running:
+            self._next_tick_at = None
+            self._action_status.setText("")
+
+    def _on_needs_rules(self) -> None:
+        self._log("[control] add at least one enabled rule with a template")
+
+    def _set_running_status(self, running: bool) -> None:
+        if running:
+            self._status_label.setText("Running")
+            self._status_label.setStyleSheet(f"color: {STATUS_RUNNING};")
+            self._status_dot.set_color(STATUS_RUNNING)
+            self._start_btn.setText("Stop")
+            self._start_btn.setIcon(FIF.PAUSE)
+            self._tray.setIcon(self._icon_running)
+            self._tray.setToolTip("Auto Press — Running")
+            self._tray_toggle_action.setText("Stop")
+            self.setWindowIcon(self._icon_running)
+        else:
+            self._status_label.setText("Stopped")
+            self._status_label.setStyleSheet(f"color: {STATUS_STOPPED};")
+            self._status_dot.set_color(STATUS_STOPPED)
+            self._start_btn.setText("Start")
+            self._start_btn.setIcon(FIF.PLAY)
+            self._tray.setIcon(self._icon_stopped)
+            self._tray.setToolTip("Auto Press — Stopped")
+            self._tray_toggle_action.setText("Start")
+            self.setWindowIcon(self._icon_stopped)
+
+    def _on_tick_done(self, results: list, actions: list, interval: float) -> None:
+        for result in results:
+            self._last_scores[result["id"]] = float(result["score"])
+        self._refresh_rule_list()
+        if actions:
+            summaries: dict[str, int] = {}
+            for action in actions:
+                summaries[action["name"]] = summaries.get(action["name"], 0) + 1
+            summary = ", ".join(f"{name} ×{c}" for name, c in summaries.items())
+            self._action_status.setText(summary)
+            self._log(f"[tick] {summary}")
+        else:
+            self._action_status.setText("no match")
+            self._log("[tick] no match")
+        self._next_tick_at = time.monotonic() + interval
+
+    def _on_worker_error(self, message: str) -> None:
+        self._log(f"[error] {message}")
+
+    def _update_countdown(self) -> None:
+        if self._running and self._next_tick_at is not None:
+            remaining = max(0.0, float(self._next_tick_at) - time.monotonic())
+            self._countdown_label.setText(f"{remaining:.1f}s")
+        else:
+            self._countdown_label.setText("")
+
+    # ---------- tray / window ----------
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self._toggle_window_visibility()
+
+    def _toggle_window_visibility(self) -> None:
+        if self.isVisible():
+            self.hide()
+            self._tray_show_action.setText("Show window")
+        else:
+            self.show(); self.raise_(); self.activateWindow()
+            self._tray_show_action.setText("Hide window")
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._quitting or not self._tray.isVisible():
+            self._shutdown(); event.accept(); return
+        event.ignore()
+        self.hide()
+        self._tray_show_action.setText("Show window")
+        self._log("[tray] window minimized to tray (right-click the tray icon to quit)")
+
+    def _quit_app(self) -> None:
+        self._quitting = True
+        self._shutdown()
+        QApplication.instance().quit()
+
+    def _shutdown(self) -> None:
+        self._worker.set_running(False)
+        self._worker.request_stop()
+        self._worker_thread.quit()
+        self._worker_thread.wait(2000)
+        self._hotkey_stop.set()
+        if IS_WINDOWS:
+            self._post_wm_quit()
+        with self._cfg_lock:
+            self._cfg["interval_seconds"] = float(self._interval_spin.value())
+            save_config(self._cfg)
+        self._tray.hide()
+
+    # ---------- global hotkey ----------
+
+    def _hotkey_loop(self) -> None:
+        if not IS_WINDOWS:
+            return
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        from ctypes import wintypes
+
+        VK_PAGEDOWN = 0x22
+        WM_HOTKEY = 0x0312
+        MOD_NOREPEAT = 0x4000
+        HOTKEY_ID = 1
+
+        class MSG(ctypes.Structure):
+            _fields_ = [
+                ("hwnd", wintypes.HWND),
+                ("message", wintypes.UINT),
+                ("wParam", wintypes.WPARAM),
+                ("lParam", wintypes.LPARAM),
+                ("time", wintypes.DWORD),
+                ("pt", wintypes.POINT),
+            ]
+
+        self._hotkey_thread_id["tid"] = int(kernel32.GetCurrentThreadId())
+        if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_NOREPEAT, VK_PAGEDOWN):
+            return
+        msg = MSG()
+        while not self._hotkey_stop.is_set():
+            ok = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+            if ok <= 0:
+                break
+            if msg.message == WM_HOTKEY and msg.wParam == HOTKEY_ID:
+                self.hotkey_triggered.emit()
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
+        user32.UnregisterHotKey(None, HOTKEY_ID)
+
+    def _post_wm_quit(self) -> None:
+        tid = self._hotkey_thread_id.get("tid")
+        if not tid:
+            return
+        try:
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            WM_QUIT = 0x0012
+            user32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
+        except Exception:
+            pass

@@ -1,5 +1,5 @@
 {
-  "interval_seconds": 10.0,
+  "interval_seconds": 5.0,
   "rules": [
     {
       "id": "81dbee27",

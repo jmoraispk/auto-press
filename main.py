@@ -26,7 +26,7 @@ os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from press_ui_fluent import MainWindow  # noqa: E402
+from press_ui import MainWindow  # noqa: E402
 
 
 def _install_sigint(app: QApplication, window: MainWindow) -> QTimer:
