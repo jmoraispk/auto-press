@@ -547,7 +547,10 @@ def run_ui(initial_seconds: float) -> None:
                 cfg["rules"][idx]["template_path"] = stored_path
             persist_and_refresh(idx)
             refresh_template_choices(stored_path)
-            log_event(f"[capture] template saved to {path.name}")
+            log_event(
+                f"[capture] template saved to {path.name} "
+                f"bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]} -> captured {gray.shape[1]}x{gray.shape[0]}"
+            )
         except Exception as exc:
             log_event(f"[error] template capture failed: {exc}")
 
@@ -578,7 +581,9 @@ def run_ui(initial_seconds: float) -> None:
             cfg["rules"][idx]["search_region"] = bbox
         persist_and_refresh(idx)
         region_var.set(str(tuple(bbox)))
-        log_event(f"[capture] search region set to {tuple(bbox)}")
+        log_event(
+            f"[capture] search region set: bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]}"
+        )
 
     def use_all_monitors() -> None:
         idx = selected_index()
