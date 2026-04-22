@@ -33,7 +33,7 @@ uv run main.py
 
 That's it — the UI opens and you're ready to add your first rule.
 
-The project pins **Python 3.14** via `.python-version`; `uv sync` will fetch it automatically. The code itself supports Python 3.10+ if you want to use something older — just delete `.python-version` or run `uv python pin 3.11` (or whichever version you'd like).
+Python 3.14 is pinned via `.python-version`; the code works on 3.10+ so `uv python pin 3.11` (or any newer) is fine too.
 
 ## 🧭 The workflow
 
@@ -72,12 +72,6 @@ After that, the red/green dot stays next to the clock whenever auto-press is run
 </details>
 
 <details>
-<summary><strong>What's the scan interval and why does it matter?</strong></summary>
-
-The interval (seconds) controls how often auto-press captures the screen and tests the active rules. Lower = more responsive, higher = less CPU. You can also restrict the search region per rule so scans are cheap even at sub-second intervals.
-</details>
-
-<details>
 <summary><strong>Does this work on macOS or Linux?</strong></summary>
 
 Today auto-press is **Windows-only in practice**. The engine, UI, and template matching are cross-platform (PySide6 + Pillow + OpenCV run everywhere), but three pieces lean on Win32 APIs:
@@ -93,13 +87,13 @@ macOS / Linux parity is on the roadmap but **low priority** — happy to pick it
 <details>
 <summary><strong>Why does my template match on one monitor but not another?</strong></summary>
 
-The two monitors are probably at different DPI scalings. Template matching is not scale-invariant — a button rendered at 100% looks pixel-different from the same button at 150%. Either capture the template on the monitor you want it to match on, or set both monitors to the same Windows display scaling.
+Different DPI scalings. Template matching isn't scale-invariant — capture the template on the monitor you want it to match on, or set both monitors to the same Windows display scaling.
 </details>
 
 <details>
-<summary><strong>How do I change the Start/Stop hotkey?</strong></summary>
+<summary><strong>How do I set a custom Start/Stop shortcut?</strong></summary>
 
-Click the **Hotkey** button in the toolbar (next to Start), then press the key combination you want — modifiers included, so `Ctrl+Alt+F9` works just as well as plain `F12`. Your choice is saved to `templates/config.json` and re-registered immediately. Press **Esc** while the button is capturing to cancel.
+Click the **Hotkey** button in the toolbar (next to Start), then press the key combination you want — modifiers included, so `Ctrl+Alt+F9` works just as well as plain `F12`. Your choice is saved to `templates/config.json` and re-registered on the spot. Default is **Page Down**; press **Esc** while capturing to cancel.
 </details>
 
 <details>

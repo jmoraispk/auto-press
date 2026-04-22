@@ -56,27 +56,35 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from qfluentwidgets import (
-    BodyLabel,
-    CaptionLabel,
-    CheckBox,
-    ComboBox,
-    FluentIcon as FIF,
-    HeaderCardWidget,
-    LineEdit,
-    PlainTextEdit as FluentPlainTextEdit,
-    PrimaryPushButton,
-    PushButton,
-    SimpleCardWidget,
-    StrongBodyLabel,
-    SubtitleLabel,
-    TableWidget,
-    Theme,
-    ToolButton,
-    setTheme,
-    setThemeColor,
-)
-from qfluentwidgets.components.widgets.spin_box import DoubleSpinBox
+# qfluentwidgets prints a "QFluentWidgets Pro is now released" banner from
+# common/config.py at import time. Silence it by redirecting stdout only
+# during the first qfluentwidgets import; subsequent imports hit the module
+# cache and don't re-fire the print.
+import contextlib as _contextlib
+import io as _io
+
+with _contextlib.redirect_stdout(_io.StringIO()):
+    from qfluentwidgets import (
+        BodyLabel,
+        CaptionLabel,
+        CheckBox,
+        ComboBox,
+        FluentIcon as FIF,
+        HeaderCardWidget,
+        LineEdit,
+        PlainTextEdit as FluentPlainTextEdit,
+        PrimaryPushButton,
+        PushButton,
+        SimpleCardWidget,
+        StrongBodyLabel,
+        SubtitleLabel,
+        TableWidget,
+        Theme,
+        ToolButton,
+        setTheme,
+        setThemeColor,
+    )
+    from qfluentwidgets.components.widgets.spin_box import DoubleSpinBox
 
 from press_core import save_gray_image
 from press_engine import (
@@ -636,11 +644,15 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(620, 240)
         self.resize(1120, 720)
 
-        # Background matches Fluent dark surface
+        # Background matches Fluent dark surface. The rules here are scoped by
+        # widget class; a blanket "QWidget { background: transparent }" would
+        # bleed through into the combo popup and make it look like a box
+        # inside a box.
         self.setStyleSheet(
-            "QMainWindow { background: #1b1b1f; }"
-            "QWidget { background: transparent; color: #e4e4e7; }"
+            "QMainWindow { background: #1b1b1f; color: #e4e4e7; }"
             "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea > QWidget > QWidget { background: transparent; }"
+            "QSplitter { background: transparent; }"
             "QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }"
             "QScrollBar::handle:vertical { background: #3a3a42; border-radius: 5px; min-height: 30px; }"
             "QScrollBar::handle:vertical:hover { background: #4b4b54; }"
@@ -781,6 +793,11 @@ class MainWindow(QMainWindow):
 
         self._action_status = CaptionLabel("")
         self._action_status.setStyleSheet("color: #a1a1aa; font-style: italic;")
+        # When the toolbar is squeezed horizontally the action-status label
+        # should collapse before any fixed-width control loses a pixel.
+        # Ignored horizontal policy tells Qt this widget has no min width.
+        self._action_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._action_status.setMinimumWidth(0)
         lay.addWidget(self._action_status)
 
         lay.addStretch(1)
@@ -1050,12 +1067,18 @@ class MainWindow(QMainWindow):
         if self._body_splitter.isVisible():
             self._remembered_body_h = self._body_splitter.height()
             self._body_splitter.setVisible(False)
-            self.resize(self.width(), max(self.minimumHeight(), self.height() - self._remembered_body_h))
+            # Drop the min height so the window can shrink tight to the toolbar;
+            # content margins (14 top + 14 bottom) + toolbar card (62) + chrome
+            # fit into roughly 110 px.
+            self._default_min_height = self.minimumHeight()
+            self.setMinimumHeight(110)
+            self.resize(self.width(), 110)
             self._collapse_btn.setIcon(FIF.DOWN)
             self._collapse_btn.setToolTip("Expand window")
         else:
+            self.setMinimumHeight(getattr(self, "_default_min_height", 240))
             self._body_splitter.setVisible(True)
-            self.resize(self.width(), self.height() + self._remembered_body_h)
+            self.resize(self.width(), 110 + self._remembered_body_h)
             self._collapse_btn.setIcon(FIF.UP)
             self._collapse_btn.setToolTip("Collapse to toolbar only")
 

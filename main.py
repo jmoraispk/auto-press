@@ -1,8 +1,4 @@
-"""Auto Press — Fluent Design UI entrypoint (experimental).
-
-The stable tkinter UI is still the daily driver; run `main_press.py` for that.
-This file boots the Fluent / QFluentWidgets draft.
-"""
+"""Auto Press entrypoint."""
 
 import argparse
 import os
