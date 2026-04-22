@@ -58,24 +58,6 @@ auto-press sits in the Windows system tray. The dot color tells you what it's do
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
-## 📦 Standalone executable
-
-Build a single `auto-press.exe` — no Python required on the target machine. Double-click to launch:
-
-```bash
-uv run nuitka --onefile --windows-console-mode=disable \
-  --enable-plugin=pyside6 \
-  --include-package=qfluentwidgets --include-package=qframelesswindow \
-  --include-package=cv2 --include-package=PIL --include-package=numpy --include-package=pyautogui \
-  --noinclude-qt-translations --lto=yes \
-  --output-dir=dist --output-filename=auto-press.exe \
-  --assume-yes-for-downloads main.py
-```
-
-Compiles Python to C → native binary via Nuitka, roughly 10–15 min on first build (cached after), lands in `dist/auto-press.exe`. Cold-start is markedly snappier than `uv run main.py`.
-
-**Requires** [Visual Studio Build Tools 2022](https://aka.ms/vs/17/release/vs_BuildTools.exe) with the **Desktop development with C++** workload (MSVC v143 + Windows 11 SDK). Nuitka dropped MinGW on Python 3.13+, so MSVC is the only supported toolchain now.
-
 ## ❓ FAQ
 
 <details>
@@ -118,12 +100,6 @@ The two monitors are probably at different DPI scalings. Template matching is no
 <summary><strong>How do I change the Start/Stop hotkey?</strong></summary>
 
 Click the **Hotkey** button in the toolbar (next to Start), then press the key combination you want — modifiers included, so `Ctrl+Alt+F9` works just as well as plain `F12`. Your choice is saved to `templates/config.json` and re-registered immediately. Press **Esc** while the button is capturing to cancel.
-</details>
-
-<details>
-<summary><strong>How do I build a standalone executable?</strong></summary>
-
-See the **Standalone executable** section above for the exact Nuitka invocation. You'll need [Visual Studio Build Tools 2022](https://aka.ms/vs/17/release/vs_BuildTools.exe) with the *Desktop development with C++* workload installed first.
 </details>
 
 <details>
