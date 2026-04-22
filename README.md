@@ -1,17 +1,19 @@
-# 🖱️ auto-press
+<p align="center">
+  <img src="imgs/ui.png" alt="auto-press UI" width="760">
+</p>
 
-[![Python](https://img.shields.io/badge/python-3.14%20preferred-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078D6.svg)](#-faq)
-[![uv](https://img.shields.io/badge/packaged%20with-uv-261230.svg)](https://github.com/astral-sh/uv)
-[![Status](https://img.shields.io/badge/status-active-2e7d32.svg)](#)
+<h1 align="center">🖱️ auto-press</h1>
+
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.14%20preferred-blue.svg" alt="Python"></a>
+  <a href="#-faq"><img src="https://img.shields.io/badge/platform-Windows-0078D6.svg" alt="Platform"></a>
+  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/packaged%20with-uv-261230.svg" alt="uv"></a>
+  <a href="#"><img src="https://img.shields.io/badge/status-active-2e7d32.svg" alt="Status"></a>
+</p>
 
 **Automate LLMs that run outside of sandboxes — no containers, no APIs, just your screen.**
 
 auto-press was built to keep [Cursor](https://cursor.com/) agents moving without babysitting. Sandboxes take time to spin up and don't work for every workflow; if you already have a Cursor window open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's fast, local, and it works on anything you can see on your screen.
-
-<p align="center">
-  <img src="imgs/ui.png" alt="auto-press UI" width="720">
-</p>
 
 ## ✨ Why
 
