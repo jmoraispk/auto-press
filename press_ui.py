@@ -853,7 +853,7 @@ class MainWindow(QMainWindow):
 
         self._rules_list = TableWidget()
         self._rules_list.setColumnCount(3)
-        self._rules_list.setHorizontalHeaderLabels(["Name", "Enabled", "Action"])
+        self._rules_list.setHorizontalHeaderLabels(["Name", "On", "Action"])
         self._rules_list.verticalHeader().setVisible(False)
         self._rules_list.horizontalHeader().setVisible(True)
         self._rules_list.horizontalHeader().setHighlightSections(False)
@@ -868,11 +868,14 @@ class MainWindow(QMainWindow):
         self._rules_list.verticalHeader().setDefaultSectionSize(32)
 
         header = self._rules_list.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        # Name fits its content (so it's always readable in full), the On
+        # checkbox column is fixed-width, and Action takes whatever's left and
+        # is the first column to give up space when the window narrows.
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Fixed)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
         self._rules_list.setColumnWidth(1, 60)
-        self._rules_list.setColumnWidth(2, 140)
+        header.setMinimumSectionSize(40)
 
         self._rules_list.itemSelectionChanged.connect(
             lambda: self._load_selected_rule(self._rules_list.currentRow())
@@ -1276,13 +1279,17 @@ class MainWindow(QMainWindow):
 
             # Enabled column hosts a real checkbox so users can toggle rules
             # on/off straight from the table without opening the editor.
+            # Stretches on both sides centre the box regardless of column
+            # width — setAlignment alone leaves it left-hugging in some Qt
+            # styles.
             checkbox = CheckBox()
             checkbox.setChecked(bool(rule.get("enabled")))
             container = QWidget()
             cell_lay = QHBoxLayout(container)
             cell_lay.setContentsMargins(0, 0, 0, 0)
-            cell_lay.setAlignment(Qt.AlignCenter)
+            cell_lay.addStretch(1)
             cell_lay.addWidget(checkbox)
+            cell_lay.addStretch(1)
             self._rules_list.setCellWidget(row, 1, container)
             rule_id = rule["id"]
             checkbox.stateChanged.connect(
