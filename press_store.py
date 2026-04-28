@@ -28,6 +28,7 @@ def default_rule(name: str = "New Rule") -> dict:
         "template_path": None,
         # Color-matcher fields. Empty until a color is captured.
         "color_rgb": None,
+        "color_name": "",
         "color_capture_area": 0,
         "search_region": None,
         "threshold": 0.90,
@@ -113,6 +114,8 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
         base["color_rgb"] = [int(c) for c in base["color_rgb"]]
     else:
         base["color_rgb"] = None
+    if not isinstance(base.get("color_name"), str):
+        base["color_name"] = ""
     try:
         area = int(base.get("color_capture_area") or 0)
     except (TypeError, ValueError):

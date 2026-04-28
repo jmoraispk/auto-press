@@ -173,11 +173,13 @@ def _find_color_matches(
     descending area order; score is a synthetic 1.0 (color matches don't have a
     correlation score).
     """
-    cv2, np = ensure_vision()
+    cv2, _np = ensure_vision()
     if search_rgb is None or search_rgb.size == 0:
         return []
-    target = np.array(target_rgb, dtype=np.uint8)
-    mask = cv2.inRange(search_rgb, target, target)  # 255 where exact match
+    # cv2.inRange wants Scalar bounds (a 3-tuple), not a (3,) ndarray; passing
+    # the latter trips a "sizes do not match" error on some OpenCV builds.
+    bound = (int(target_rgb[0]), int(target_rgb[1]), int(target_rgb[2]))
+    mask = cv2.inRange(search_rgb, bound, bound)  # 255 where exact match
     if not mask.any():
         return []
     min_area = max(1, int(capture_area * COLOR_AREA_RATIO))

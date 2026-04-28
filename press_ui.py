@@ -980,6 +980,13 @@ class MainWindow(QMainWindow):
         self._delete_template_btn.setToolTip("Delete selected template file")
         self._delete_template_btn.setFixedSize(32, 28)
         self._delete_template_btn.clicked.connect(self._delete_selected_template)
+        # Color-matcher source: a dropdown listing every named colour from any
+        # rule. Selecting one copies its RGB + name + capture area onto the
+        # current rule. Hidden in template mode.
+        self._color_library_combo = ComboBox()
+        self._color_library_combo.setMinimumWidth(180)
+        self._color_library_combo.currentIndexChanged.connect(self._on_color_library_selected)
+        self._color_library_combo.setVisible(False)
         capture_pattern_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
         capture_pattern_btn.clicked.connect(self._capture_template)
         capture_color_btn = PushButton(FIF.PALETTE, "Capture color")
@@ -988,6 +995,7 @@ class MainWindow(QMainWindow):
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
         top_row.addWidget(self._template_combo, 1)
+        top_row.addWidget(self._color_library_combo, 1)
         top_row.addWidget(self._rename_template_btn)
         top_row.addWidget(self._delete_template_btn)
         top_row.addSpacing(6)
@@ -1035,6 +1043,18 @@ class MainWindow(QMainWindow):
         self._threshold_row.addWidget(self._threshold_spin)
         self._threshold_row.addStretch(1)
         meta_lay.addLayout(self._threshold_row)
+
+        # Color name (color matcher only) — friendly label that shows up in
+        # the color library dropdown for re-use across rules.
+        self._color_name_row = QHBoxLayout()
+        self._color_name_row.setSpacing(6)
+        self._color_name_label = CaptionLabel("Color name")
+        self._color_name_row.addWidget(self._color_name_label)
+        self._color_name_edit = LineEdit()
+        self._color_name_edit.setPlaceholderText("e.g. RunBlue")
+        self._color_name_edit.editingFinished.connect(self._on_color_name_edited)
+        self._color_name_row.addWidget(self._color_name_edit, 1)
+        meta_lay.addLayout(self._color_name_row)
 
         self._template_meta = BodyLabel("")
         self._template_meta.setStyleSheet("color: #9ca3af;")
@@ -1253,7 +1273,11 @@ class MainWindow(QMainWindow):
         self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
         self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
         self._text_edit.setText(rule.get("text", "continue"))
+        # Block the combo's signal so the programmatic update doesn't fire
+        # _on_template_selected and overwrite a colour rule's matcher.
+        self._template_combo.blockSignals(True)
         self._template_combo.setCurrentText(rule.get("template_path") or "")
+        self._template_combo.blockSignals(False)
         region = rule.get("search_region")
         self._region_label.setText(
             f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
@@ -1366,6 +1390,79 @@ class MainWindow(QMainWindow):
         self._refresh_rule_list(idx)
         self._update_match_preview()
 
+    def _on_color_name_edited(self) -> None:
+        idx = self._current_rule_index()
+        if idx is None:
+            return
+        new_name = self._color_name_edit.text().strip()
+        with self._cfg_lock:
+            rule = self._cfg["rules"][idx]
+            if rule.get("color_name", "") == new_name:
+                return
+            rule["color_name"] = new_name
+        self._persist()
+        self._refresh_color_library(remember_current=True)
+        self._update_match_preview()
+
+    def _refresh_color_library(self, remember_current: bool = False) -> None:
+        """Populate the color library dropdown with every captured color across rules."""
+        items: list[tuple[str, list[int]]] = []  # (label, rgb)
+        seen: set[tuple[int, int, int]] = set()
+        for r in self._cfg.get("rules", []):
+            rgb = r.get("color_rgb")
+            if not rgb or len(rgb) != 3:
+                continue
+            key = tuple(int(c) for c in rgb)
+            if key in seen:
+                continue
+            seen.add(key)
+            hex_label = f"#{key[0]:02X}{key[1]:02X}{key[2]:02X}"
+            name = r.get("color_name") or ""
+            label = f"{name}  ·  {hex_label}" if name else hex_label
+            items.append((label, list(key)))
+        prev = self._color_library_combo.currentData() if remember_current else None
+        self._color_library_combo.blockSignals(True)
+        self._color_library_combo.clear()
+        self._color_library_combo.addItem("— choose a color —", None)
+        for label, rgb in items:
+            self._color_library_combo.addItem(label, rgb)
+        # Restore previous selection if still present.
+        if prev is not None:
+            for i in range(self._color_library_combo.count()):
+                if self._color_library_combo.itemData(i) == prev:
+                    self._color_library_combo.setCurrentIndex(i)
+                    break
+        self._color_library_combo.blockSignals(False)
+
+    def _on_color_library_selected(self, idx: int) -> None:
+        if idx <= 0:
+            return  # placeholder
+        rgb = self._color_library_combo.itemData(idx)
+        if not rgb:
+            return
+        rule_idx = self._current_rule_index()
+        if rule_idx is None:
+            return
+        # Pull name + captured area from the first rule that owns this colour.
+        name = ""
+        area = 0
+        target = tuple(int(c) for c in rgb)
+        for r in self._cfg.get("rules", []):
+            r_rgb = r.get("color_rgb")
+            if r_rgb and tuple(int(c) for c in r_rgb) == target:
+                name = r.get("color_name") or ""
+                area = int(r.get("color_capture_area") or 0)
+                break
+        with self._cfg_lock:
+            rule = self._cfg["rules"][rule_idx]
+            rule["matcher"] = MATCHER_COLOR
+            rule["color_rgb"] = list(rgb)
+            rule["color_name"] = name
+            rule["color_capture_area"] = area
+        self._persist()
+        self._refresh_rule_list(rule_idx)
+        self._update_match_preview()
+
     def _update_match_preview(self) -> None:
         """Render the preview area for whichever matcher the active rule uses."""
         rule = self._current_rule()
@@ -1376,37 +1473,49 @@ class MainWindow(QMainWindow):
             self._matcher_seg.setCurrentItem(matcher)
         finally:
             self._suppress_matcher_signal = False
-        if matcher == MATCHER_COLOR:
-            if not (rule and rule.get("color_rgb")):
-                # Color matcher active but nothing captured yet.
-                self._preview_label.setVisible(False)
-                self._color_swatch.setVisible(True)
+
+        is_color = matcher == MATCHER_COLOR
+        # Source-row widgets: template combo + rename/delete vs colour library.
+        self._template_combo.setVisible(not is_color)
+        self._rename_template_btn.setVisible(not is_color)
+        self._delete_template_btn.setVisible(not is_color)
+        self._color_library_combo.setVisible(is_color)
+        # Threshold only applies to template matching.
+        self._threshold_label.setVisible(not is_color)
+        self._threshold_spin.setVisible(not is_color)
+        # Color name only applies to colour matching.
+        self._color_name_label.setVisible(is_color)
+        self._color_name_edit.setVisible(is_color)
+
+        if is_color:
+            self._refresh_color_library(remember_current=False)
+            if rule and rule.get("color_rgb"):
+                r, g, b = (int(c) for c in rule["color_rgb"])
+                area = int(rule.get("color_capture_area") or 0)
+                self._color_swatch.setStyleSheet(
+                    f"QLabel {{ background: rgb({r},{g},{b}); "
+                    f"border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; }}"
+                )
+                self._template_meta.setText(f"#{r:02X}{g:02X}{b:02X}  ·  {area} px² captured")
+                self._color_name_edit.blockSignals(True)
+                self._color_name_edit.setText(rule.get("color_name") or "")
+                self._color_name_edit.blockSignals(False)
+            else:
                 self._color_swatch.setStyleSheet(
                     "QLabel { background: rgba(0,0,0,0.25); "
                     "border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; }"
                 )
                 self._template_meta.setText("Click 'Capture color' to pick a color")
-                self._threshold_label.setVisible(False)
-                self._threshold_spin.setVisible(False)
-                return
-            r, g, b = (int(c) for c in rule["color_rgb"])
-            area = int(rule.get("color_capture_area") or 0)
+                self._color_name_edit.blockSignals(True)
+                self._color_name_edit.clear()
+                self._color_name_edit.blockSignals(False)
             self._preview_label.setVisible(False)
             self._color_swatch.setVisible(True)
-            self._color_swatch.setStyleSheet(
-                f"QLabel {{ background: rgb({r},{g},{b}); "
-                f"border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; }}"
-            )
-            self._template_meta.setText(f"#{r:02X}{g:02X}{b:02X}  ·  {area} px² captured")
-            self._threshold_label.setVisible(False)
-            self._threshold_spin.setVisible(False)
             return
 
         # Template matcher path: show image preview + threshold.
         self._preview_label.setVisible(True)
         self._color_swatch.setVisible(False)
-        self._threshold_label.setVisible(True)
-        self._threshold_spin.setVisible(True)
         name = (self._template_combo.currentText() or "").strip()
         if not name:
             self._preview_label.setPixmap(QPixmap())
