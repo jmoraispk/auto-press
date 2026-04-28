@@ -853,7 +853,7 @@ class MainWindow(QMainWindow):
 
         self._rules_list = TableWidget()
         self._rules_list.setColumnCount(3)
-        self._rules_list.setHorizontalHeaderLabels(["Name", "On", "Action"])
+        self._rules_list.setHorizontalHeaderLabels(["Name", "Enabled", "Action"])
         self._rules_list.verticalHeader().setVisible(False)
         self._rules_list.horizontalHeader().setVisible(True)
         self._rules_list.horizontalHeader().setHighlightSections(False)
@@ -871,7 +871,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.Fixed)
         header.setSectionResizeMode(2, QHeaderView.Fixed)
-        self._rules_list.setColumnWidth(1, 36)
+        self._rules_list.setColumnWidth(1, 60)
         self._rules_list.setColumnWidth(2, 140)
 
         self._rules_list.itemSelectionChanged.connect(
@@ -933,17 +933,16 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(6)
 
-        # Header labels over every input column (Enabled's label sits inside
-        # the checkbox, so col 1 has no header).
+        # Enabled lives in the rules table now (one checkbox per row), so the
+        # Basics row is just Name | Action | Text.
         self._name_label = CaptionLabel("Name")
         self._action_label = CaptionLabel("Action")
         self._text_label = CaptionLabel("Text")
         grid.addWidget(self._name_label, 0, 0)
-        grid.addWidget(self._action_label, 0, 2)
-        grid.addWidget(self._text_label, 0, 3)
+        grid.addWidget(self._action_label, 0, 1)
+        grid.addWidget(self._text_label, 0, 2)
 
         self._name_edit = LineEdit()
-        self._enabled_check = CheckBox("Enabled")
         self._action_combo = ComboBox()
         self._action_combo.addItems(ACTION_TYPES)
         self._action_combo.currentTextChanged.connect(self._update_action_fields)
@@ -951,14 +950,12 @@ class MainWindow(QMainWindow):
         self._text_edit.setPlaceholderText("typed before Enter")
 
         grid.addWidget(self._name_edit, 1, 0)
-        grid.addWidget(self._enabled_check, 1, 1)
-        grid.addWidget(self._action_combo, 1, 2)
-        grid.addWidget(self._text_edit, 1, 3)
+        grid.addWidget(self._action_combo, 1, 1)
+        grid.addWidget(self._text_edit, 1, 2)
 
-        grid.setColumnStretch(0, 3)  # Name — wider
-        grid.setColumnStretch(1, 0)  # Enabled — content-width
-        grid.setColumnStretch(2, 2)  # Action
-        grid.setColumnStretch(3, 3)  # Text
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 2)
+        grid.setColumnStretch(2, 3)
 
         card.viewLayout.addLayout(grid)
         return card
@@ -1106,7 +1103,7 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_scope_card(self) -> QWidget:
-        card = CollapsibleCard("Search scope")
+        card = CollapsibleCard("Search scope", expanded=False)
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -1277,17 +1274,20 @@ class MainWindow(QMainWindow):
             name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
             self._rules_list.setItem(row, 0, name_item)
 
-            enabled = bool(rule.get("enabled"))
-            mark_item = QTableWidgetItem("✓" if enabled else "✗")
-            mark_item.setTextAlignment(Qt.AlignCenter)
-            mark_item.setForeground(QColor(STATUS_RUNNING) if enabled else QColor(STATUS_STOPPED))
-            # Copy the list's resolved font (it has a valid size) and bold it.
-            # Directly calling mark_item.font() returns an unattached QFont whose
-            # pointSize() is -1, which Qt 6 warns about whenever it re-resolves.
-            mark_font = self._rules_list.font()
-            mark_font.setBold(True)
-            mark_item.setFont(mark_font)
-            self._rules_list.setItem(row, 1, mark_item)
+            # Enabled column hosts a real checkbox so users can toggle rules
+            # on/off straight from the table without opening the editor.
+            checkbox = CheckBox()
+            checkbox.setChecked(bool(rule.get("enabled")))
+            container = QWidget()
+            cell_lay = QHBoxLayout(container)
+            cell_lay.setContentsMargins(0, 0, 0, 0)
+            cell_lay.setAlignment(Qt.AlignCenter)
+            cell_lay.addWidget(checkbox)
+            self._rules_list.setCellWidget(row, 1, container)
+            rule_id = rule["id"]
+            checkbox.stateChanged.connect(
+                lambda state, rid=rule_id: self._on_rule_enabled_toggled(rid, state)
+            )
 
             action_item = QTableWidgetItem(rule.get("action", ACTION_CLICK))
             action_item.setForeground(QColor("#a1a1aa"))
@@ -1300,12 +1300,22 @@ class MainWindow(QMainWindow):
         else:
             self._clear_editor()
 
+    def _on_rule_enabled_toggled(self, rule_id: str, state: int) -> None:
+        from PySide6.QtCore import Qt as _Qt
+
+        enabled = state == _Qt.Checked
+        with self._cfg_lock:
+            for r in self._cfg.get("rules", []):
+                if r.get("id") == rule_id:
+                    r["enabled"] = enabled
+                    break
+        self._persist()
+
     def _load_selected_rule(self, _row: int = -1) -> None:
         rule = self._current_rule()
         if rule is None:
             self._clear_editor(); return
         self._name_edit.setText(rule.get("name", ""))
-        self._enabled_check.setChecked(bool(rule.get("enabled", True)))
         self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
         self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
         self._text_edit.setText(rule.get("text", "continue"))
@@ -1323,7 +1333,6 @@ class MainWindow(QMainWindow):
 
     def _clear_editor(self) -> None:
         self._name_edit.clear()
-        self._enabled_check.setChecked(True)
         self._threshold_spin.setValue(0.90)
         self._action_combo.setCurrentText(ACTION_CLICK)
         self._text_edit.setText("continue")
@@ -1381,7 +1390,8 @@ class MainWindow(QMainWindow):
         with self._cfg_lock:
             rule = self._cfg["rules"][idx]
             rule["name"] = self._name_edit.text().strip() or f"Rule {idx + 1}"
-            rule["enabled"] = self._enabled_check.isChecked()
+            # `enabled` is owned by the rules-table checkbox column; preserve
+            # whatever the user last set there.
             rule["threshold"] = max(0.0, min(1.0, float(self._threshold_spin.value())))
             rule["action"] = (
                 self._action_combo.currentText()
