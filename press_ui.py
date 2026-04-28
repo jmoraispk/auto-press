@@ -868,14 +868,13 @@ class MainWindow(QMainWindow):
         self._rules_list.verticalHeader().setDefaultSectionSize(32)
 
         header = self._rules_list.horizontalHeader()
-        # Name fits its content (so it's always readable in full), the On
-        # checkbox column is fixed-width, and Action takes whatever's left and
-        # is the first column to give up space when the window narrows.
+        # Name and On both fit their content (On is just a small checkbox so
+        # it sizes to the header label), and Action takes whatever's left —
+        # so it's the first column to give up space when the window narrows.
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
-        self._rules_list.setColumnWidth(1, 60)
-        header.setMinimumSectionSize(40)
+        header.setMinimumSectionSize(24)
 
         self._rules_list.itemSelectionChanged.connect(
             lambda: self._load_selected_rule(self._rules_list.currentRow())

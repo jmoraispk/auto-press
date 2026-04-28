@@ -19,10 +19,24 @@ if sys.platform.startswith("win"):
 
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.window=false")
 
-from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtCore import QTimer, QtMsgType, qInstallMessageHandler  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from press_ui import MainWindow  # noqa: E402
+
+
+# qfluentwidgets occasionally creates QFonts with pointSize == -1 (pixel-
+# sized) and Qt fires "QFont::setPointSize: Point size <= 0 (-1)" via
+# qWarning without a category, so QT_LOGGING_RULES can't catch it. Filter
+# those specific lines via a message handler — anything else still prints.
+def _qt_message_filter(msg_type: QtMsgType, _context, message: str) -> None:
+    text = message if isinstance(message, str) else str(message)
+    if "QFont::setPointSize: Point size <= 0" in text:
+        return
+    sys.stderr.write(text + "\n")
+
+
+qInstallMessageHandler(_qt_message_filter)
 
 
 def _install_sigint(app: QApplication, window: MainWindow) -> QTimer:
