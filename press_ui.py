@@ -86,6 +86,25 @@ with _contextlib.redirect_stdout(_io.StringIO()):
         setThemeColor,
     )
     from qfluentwidgets.components.widgets.spin_box import DoubleSpinBox
+    from qfluentwidgets.components.widgets.menu import RoundMenu as _RoundMenu
+
+# RoundMenu (parent of ComboBoxMenu) sets contentsMargins(12, 8, 12, 12) on
+# its layout, which creates a gap between its painted outer rect and the
+# inner item view — the "box inside a box" look that combo dropdowns get.
+# Patching the margin to 0 once means every popup looks like a single
+# unified surface instead.
+_orig_round_menu_init = _RoundMenu.__init__
+
+
+def _patched_round_menu_init(self, *args, **kwargs):
+    _orig_round_menu_init(self, *args, **kwargs)
+    layout = self.layout()
+    if layout is not None:
+        layout.setContentsMargins(0, 0, 0, 0)
+
+
+_RoundMenu.__init__ = _patched_round_menu_init
+
 
 from press_core import save_gray_image
 from press_engine import (
@@ -987,6 +1006,19 @@ class MainWindow(QMainWindow):
         self._color_library_combo.setMinimumWidth(180)
         self._color_library_combo.currentIndexChanged.connect(self._on_color_library_selected)
         self._color_library_combo.setVisible(False)
+        # Rename / delete tools for the colour library, mirroring the template
+        # pair. Library-level: they act on every rule that shares the chosen
+        # colour, so renaming "my red" updates every "my red" rule.
+        self._rename_color_btn = ToolButton(FIF.EDIT)
+        self._rename_color_btn.setToolTip("Rename selected color (all rules using it)")
+        self._rename_color_btn.setFixedSize(32, 28)
+        self._rename_color_btn.setVisible(False)
+        self._rename_color_btn.clicked.connect(self._rename_selected_color)
+        self._delete_color_btn = ToolButton(FIF.DELETE)
+        self._delete_color_btn.setToolTip("Clear selected color from all rules using it")
+        self._delete_color_btn.setFixedSize(32, 28)
+        self._delete_color_btn.setVisible(False)
+        self._delete_color_btn.clicked.connect(self._delete_selected_color)
         capture_pattern_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
         capture_pattern_btn.clicked.connect(self._capture_template)
         capture_color_btn = PushButton(FIF.PALETTE, "Capture color")
@@ -998,6 +1030,8 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self._color_library_combo, 1)
         top_row.addWidget(self._rename_template_btn)
         top_row.addWidget(self._delete_template_btn)
+        top_row.addWidget(self._rename_color_btn)
+        top_row.addWidget(self._delete_color_btn)
         top_row.addSpacing(6)
         top_row.addWidget(capture_pattern_btn)
         top_row.addWidget(capture_color_btn)
@@ -1480,6 +1514,8 @@ class MainWindow(QMainWindow):
         self._rename_template_btn.setVisible(not is_color)
         self._delete_template_btn.setVisible(not is_color)
         self._color_library_combo.setVisible(is_color)
+        self._rename_color_btn.setVisible(is_color)
+        self._delete_color_btn.setVisible(is_color)
         # Threshold only applies to template matching.
         self._threshold_label.setVisible(not is_color)
         self._threshold_spin.setVisible(not is_color)
@@ -1640,6 +1676,79 @@ class MainWindow(QMainWindow):
         self._refresh_rule_list(self._current_rule_index())
         self._log(f"[template] deleted {choice}")
 
+    def _selected_library_color(self) -> Optional[tuple[int, int, int]]:
+        """Return the RGB tuple currently picked in the color library combo."""
+        idx = self._color_library_combo.currentIndex()
+        if idx <= 0:
+            return None
+        rgb = self._color_library_combo.itemData(idx)
+        if not rgb:
+            return None
+        return tuple(int(c) for c in rgb)
+
+    def _rename_selected_color(self) -> None:
+        """Rename a colour library entry. Updates color_name on every rule that
+        shares the chosen RGB, so the friendly label stays consistent."""
+        target = self._selected_library_color()
+        if target is None:
+            self._log("[color] pick a color from the library first"); return
+        current_name = ""
+        for r in self._cfg.get("rules", []):
+            r_rgb = r.get("color_rgb")
+            if r_rgb and tuple(int(c) for c in r_rgb) == target and r.get("color_name"):
+                current_name = r.get("color_name") or ""
+                break
+        from PySide6.QtWidgets import QInputDialog
+
+        new_name, ok = QInputDialog.getText(
+            self, "Rename color", "New name:", text=current_name
+        )
+        if not ok:
+            return
+        new_name = (new_name or "").strip()
+        with self._cfg_lock:
+            for r in self._cfg.get("rules", []):
+                r_rgb = r.get("color_rgb")
+                if r_rgb and tuple(int(c) for c in r_rgb) == target:
+                    r["color_name"] = new_name
+        self._persist()
+        self._refresh_rule_list(self._current_rule_index())
+        self._update_match_preview()
+        hex_label = f"#{target[0]:02X}{target[1]:02X}{target[2]:02X}"
+        self._log(f"[color] {hex_label} renamed to '{new_name or '(unnamed)'}'")
+
+    def _delete_selected_color(self) -> None:
+        """Clear the chosen colour from every rule that uses it. Rules stay in
+        colour matcher mode but lose their RGB data, ready for a re-capture."""
+        target = self._selected_library_color()
+        if target is None:
+            self._log("[color] pick a color from the library first"); return
+        from PySide6.QtWidgets import QMessageBox
+
+        hex_label = f"#{target[0]:02X}{target[1]:02X}{target[2]:02X}"
+        confirm = QMessageBox.question(
+            self,
+            "Delete color",
+            f"Clear {hex_label} from every rule that uses it?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        cleared = 0
+        with self._cfg_lock:
+            for r in self._cfg.get("rules", []):
+                r_rgb = r.get("color_rgb")
+                if r_rgb and tuple(int(c) for c in r_rgb) == target:
+                    r["color_rgb"] = None
+                    r["color_name"] = ""
+                    r["color_capture_area"] = 0
+                    cleared += 1
+        self._persist()
+        self._refresh_rule_list(self._current_rule_index())
+        self._update_match_preview()
+        self._log(f"[color] {hex_label} cleared from {cleared} rule(s)")
+
     def _capture_template(self) -> None:
         idx = self._current_rule_index()
         if idx is None:
@@ -1739,16 +1848,30 @@ class MainWindow(QMainWindow):
             return
         try:
             with self._cfg_lock:
+                # Make the rule enabled for the duration of the test so a
+                # disabled rule still reports its score; we restore the
+                # config's view through normalize on next persist.
                 rule = dict(self._cfg["rules"][idx])
-            tpl_path = resolve_template_path(rule.get("template_path"))
-            if tpl_path is None or not Path(tpl_path).exists():
-                self._log("[test] capture a template first"); return
+                rule["enabled"] = True
+            matcher = rule.get("matcher", MATCHER_TEMPLATE)
+            if matcher == MATCHER_TEMPLATE:
+                tpl_path = resolve_template_path(rule.get("template_path"))
+                if tpl_path is None or not Path(tpl_path).exists():
+                    self._log("[test] capture a template first"); return
+                frame = capture_screen_gray()
+            else:  # MATCHER_COLOR
+                if not rule.get("color_rgb") or int(rule.get("color_capture_area") or 0) <= 0:
+                    self._log("[test] capture a color first"); return
+                frame = capture_screen_rgb()
+
             runtime_rule = build_runtime_rules({"rules": [rule]})
             if not runtime_rule:
                 self._log("[test] rule is not ready"); return
-            frame = capture_screen_gray()
             score, center = evaluate_rule_on_frame(frame, runtime_rule[0])
-            matched = center is not None and score >= float(rule.get("threshold", 0.90))
+            if matcher == MATCHER_COLOR:
+                matched = center is not None
+            else:
+                matched = center is not None and score >= float(rule.get("threshold", 0.90))
             self._last_scores[rule["id"]] = score
             self._refresh_rule_list(idx)
             self._log(
