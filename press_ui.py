@@ -1441,7 +1441,13 @@ class MainWindow(QMainWindow):
         self._update_match_preview()
 
     def _refresh_color_library(self, remember_current: bool = False) -> None:
-        """Populate the color library dropdown with every captured color across rules."""
+        """Populate the color library dropdown with every captured color across rules.
+
+        The combo's selection is anchored to the active rule's own color, so
+        after a refresh the user can still see which entry corresponds to the
+        rule they're editing — picking a different entry won't visually snap
+        back to "— choose a color —".
+        """
         items: list[tuple[str, list[int]]] = []  # (label, rgb)
         seen: set[tuple[int, int, int]] = set()
         for r in self._cfg.get("rules", []):
@@ -1456,20 +1462,23 @@ class MainWindow(QMainWindow):
             name = r.get("color_name") or ""
             label = f"{name}  ·  {hex_label}" if name else hex_label
             items.append((label, list(key)))
-        prev = self._color_library_combo.currentData() if remember_current else None
-        self._color_library_combo.blockSignals(True)
-        self._color_library_combo.clear()
+
+        active_rgb: Optional[tuple[int, int, int]] = None
+        rule = self._current_rule()
+        if rule and rule.get("color_rgb"):
+            active_rgb = tuple(int(c) for c in rule["color_rgb"])
+
         # qfluentwidgets ComboBox.addItem signature is (text, icon=None,
         # userData=None) — the RGB list is user data, not an icon.
+        self._color_library_combo.blockSignals(True)
+        self._color_library_combo.clear()
         self._color_library_combo.addItem("— choose a color —", userData=None)
+        selected_idx = 0
         for label, rgb in items:
             self._color_library_combo.addItem(label, userData=rgb)
-        # Restore previous selection if still present.
-        if prev is not None:
-            for i in range(self._color_library_combo.count()):
-                if self._color_library_combo.itemData(i) == prev:
-                    self._color_library_combo.setCurrentIndex(i)
-                    break
+            if active_rgb is not None and tuple(rgb) == active_rgb:
+                selected_idx = self._color_library_combo.count() - 1
+        self._color_library_combo.setCurrentIndex(selected_idx)
         self._color_library_combo.blockSignals(False)
 
     def _on_color_library_selected(self, idx: int) -> None:
