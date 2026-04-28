@@ -1019,10 +1019,12 @@ class MainWindow(QMainWindow):
         self._delete_color_btn.setFixedSize(32, 28)
         self._delete_color_btn.setVisible(False)
         self._delete_color_btn.clicked.connect(self._delete_selected_color)
-        capture_pattern_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
-        capture_pattern_btn.clicked.connect(self._capture_template)
-        capture_color_btn = PushButton(FIF.PALETTE, "Capture color")
-        capture_color_btn.clicked.connect(self._capture_color)
+        # Capture buttons follow the matcher selection — only the one that
+        # makes sense for the current side is shown.
+        self._capture_pattern_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
+        self._capture_pattern_btn.clicked.connect(self._capture_template)
+        self._capture_color_btn = PrimaryPushButton(FIF.PALETTE, "Capture color")
+        self._capture_color_btn.clicked.connect(self._capture_color)
 
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
@@ -1033,8 +1035,8 @@ class MainWindow(QMainWindow):
         top_row.addWidget(self._rename_color_btn)
         top_row.addWidget(self._delete_color_btn)
         top_row.addSpacing(6)
-        top_row.addWidget(capture_pattern_btn)
-        top_row.addWidget(capture_color_btn)
+        top_row.addWidget(self._capture_pattern_btn)
+        top_row.addWidget(self._capture_color_btn)
         grid.addLayout(top_row, 1, 0, 1, 2)
 
         # Preview: either a template image (template matcher) or a flat color
@@ -1518,6 +1520,10 @@ class MainWindow(QMainWindow):
         self._color_library_combo.setVisible(is_color)
         self._rename_color_btn.setVisible(is_color)
         self._delete_color_btn.setVisible(is_color)
+        # Capture buttons follow the side too — no point offering "capture color"
+        # while the user is on the Pattern tab and vice versa.
+        self._capture_pattern_btn.setVisible(not is_color)
+        self._capture_color_btn.setVisible(is_color)
         # Threshold only applies to template matching.
         self._threshold_label.setVisible(not is_color)
         self._threshold_spin.setVisible(not is_color)
