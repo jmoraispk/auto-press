@@ -14,13 +14,21 @@ ACTION_CLICK = "click"
 ACTION_CLICK_TYPE_ENTER = "click+type+enter"
 ACTION_TYPES = [ACTION_CLICK, ACTION_CLICK_TYPE_ENTER]
 
+MATCHER_TEMPLATE = "template"
+MATCHER_COLOR = "color"
+MATCHER_TYPES = [MATCHER_TEMPLATE, MATCHER_COLOR]
+
 
 def default_rule(name: str = "New Rule") -> dict:
     return {
         "id": uuid.uuid4().hex[:8],
         "name": name,
         "enabled": True,
+        "matcher": MATCHER_TEMPLATE,
         "template_path": None,
+        # Color-matcher fields. Empty until a color is captured.
+        "color_rgb": None,
+        "color_capture_area": 0,
         "search_region": None,
         "threshold": 0.90,
         "action": ACTION_CLICK,
@@ -68,6 +76,15 @@ def _valid_region(region) -> bool:
     return width > 0 and height > 0 and left >= 0 and top >= 0
 
 
+def _valid_rgb(value) -> bool:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        return False
+    try:
+        return all(0 <= int(c) <= 255 for c in value)
+    except (TypeError, ValueError):
+        return False
+
+
 def _normalize_rule(rule: dict, priority: int) -> dict:
     base = default_rule()
     if isinstance(rule, dict):
@@ -80,6 +97,8 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
         base["name"] = f"Rule {priority}"
     if base.get("action") not in ACTION_TYPES:
         base["action"] = ACTION_CLICK
+    if base.get("matcher") not in MATCHER_TYPES:
+        base["matcher"] = MATCHER_TEMPLATE
     base["enabled"] = bool(base.get("enabled", True))
     base["threshold"] = _clamp_float(base.get("threshold"), 0.90, 0.0, 1.0)
     base["priority"] = priority
@@ -90,6 +109,15 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
     tpl = base.get("template_path")
     if not isinstance(tpl, str) or not tpl.strip():
         base["template_path"] = None
+    if _valid_rgb(base.get("color_rgb")):
+        base["color_rgb"] = [int(c) for c in base["color_rgb"]]
+    else:
+        base["color_rgb"] = None
+    try:
+        area = int(base.get("color_capture_area") or 0)
+    except (TypeError, ValueError):
+        area = 0
+    base["color_capture_area"] = max(0, area)
     return base
 
 

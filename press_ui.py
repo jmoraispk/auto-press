@@ -90,6 +90,8 @@ from press_core import save_gray_image
 from press_engine import (
     build_runtime_rules,
     capture_screen_gray,
+    capture_screen_rgb,
+    dominant_rgb,
     ensure_vision,
     evaluate_rule_on_frame,
     evaluate_rules,
@@ -100,10 +102,11 @@ from press_store import (
     ACTION_CLICK_TYPE_ENTER,
     ACTION_TYPES,
     CONFIG_PATH,
+    MATCHER_COLOR,
+    MATCHER_TEMPLATE,
     default_rule,
     list_template_files,
     load_config,
-    make_rule_summary,
     resolve_template_path,
     save_config,
     serialize_template_path,
@@ -931,7 +934,7 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_template_card(self) -> QWidget:
-        card = CollapsibleCard("Template")
+        card = CollapsibleCard("Match")
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -939,17 +942,33 @@ class MainWindow(QMainWindow):
         grid.setVerticalSpacing(10)
 
         self._template_combo = ComboBox()
-        self._template_combo.setMinimumWidth(200)
+        self._template_combo.setMinimumWidth(180)
         self._template_combo.currentTextChanged.connect(self._on_template_selected)
-        capture_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
-        capture_btn.clicked.connect(self._capture_template)
+        self._rename_template_btn = ToolButton(FIF.EDIT)
+        self._rename_template_btn.setToolTip("Rename selected template")
+        self._rename_template_btn.setFixedSize(32, 28)
+        self._rename_template_btn.clicked.connect(self._rename_selected_template)
+        self._delete_template_btn = ToolButton(FIF.DELETE)
+        self._delete_template_btn.setToolTip("Delete selected template file")
+        self._delete_template_btn.setFixedSize(32, 28)
+        self._delete_template_btn.clicked.connect(self._delete_selected_template)
+        capture_pattern_btn = PrimaryPushButton(FIF.CAMERA, "Capture pattern")
+        capture_pattern_btn.clicked.connect(self._capture_template)
+        capture_color_btn = PushButton(FIF.PALETTE, "Capture color")
+        capture_color_btn.clicked.connect(self._capture_color)
 
         top_row = QHBoxLayout()
-        top_row.setSpacing(8)
+        top_row.setSpacing(6)
         top_row.addWidget(self._template_combo, 1)
-        top_row.addWidget(capture_btn)
+        top_row.addWidget(self._rename_template_btn)
+        top_row.addWidget(self._delete_template_btn)
+        top_row.addSpacing(6)
+        top_row.addWidget(capture_pattern_btn)
+        top_row.addWidget(capture_color_btn)
         grid.addLayout(top_row, 0, 0, 1, 2)
 
+        # Preview: either a template image (template matcher) or a flat color
+        # swatch (color matcher). Same fixed footprint, only one is visible.
         self._preview_label = QLabel("(no template selected)")
         self._preview_label.setAlignment(Qt.AlignCenter)
         self._preview_label.setFixedSize(120, 64)
@@ -958,16 +977,26 @@ class MainWindow(QMainWindow):
             "border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; "
             "color: #a1a1aa; }"
         )
-        grid.addWidget(self._preview_label, 1, 0, 2, 1)
+        self._color_swatch = QLabel("")
+        self._color_swatch.setFixedSize(120, 64)
+        self._color_swatch.setVisible(False)
+
+        preview_stack = QHBoxLayout()
+        preview_stack.setContentsMargins(0, 0, 0, 0)
+        preview_stack.setSpacing(0)
+        preview_stack.addWidget(self._preview_label)
+        preview_stack.addWidget(self._color_swatch)
+        grid.addLayout(preview_stack, 1, 0, 2, 1)
 
         meta_box = QWidget()
         meta_lay = QVBoxLayout(meta_box)
         meta_lay.setContentsMargins(0, 2, 0, 0)
         meta_lay.setSpacing(6)
 
-        thr_row = QHBoxLayout()
-        thr_row.setSpacing(6)
-        thr_row.addWidget(CaptionLabel("Threshold"))
+        self._threshold_row = QHBoxLayout()
+        self._threshold_row.setSpacing(6)
+        self._threshold_label = CaptionLabel("Threshold")
+        self._threshold_row.addWidget(self._threshold_label)
         self._threshold_spin = DoubleSpinBox()
         self._threshold_spin.setRange(0.0, 1.0)
         self._threshold_spin.setDecimals(2)
@@ -975,9 +1004,9 @@ class MainWindow(QMainWindow):
         self._threshold_spin.setValue(0.90)
         self._threshold_spin.setFixedWidth(130)
         self._threshold_spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        thr_row.addWidget(self._threshold_spin)
-        thr_row.addStretch(1)
-        meta_lay.addLayout(thr_row)
+        self._threshold_row.addWidget(self._threshold_spin)
+        self._threshold_row.addStretch(1)
+        meta_lay.addLayout(self._threshold_row)
 
         self._template_meta = BodyLabel("")
         self._template_meta.setStyleSheet("color: #9ca3af;")
@@ -1161,7 +1190,7 @@ class MainWindow(QMainWindow):
             f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
         )
         self._update_action_fields()
-        self._update_template_preview(self._template_combo.currentText())
+        self._update_match_preview()
 
     def _clear_editor(self) -> None:
         self._name_edit.clear()
@@ -1172,6 +1201,7 @@ class MainWindow(QMainWindow):
         self._template_combo.setCurrentText("")
         self._region_label.setText("All monitors")
         self._update_action_fields()
+        self._update_match_preview()
 
     def _update_action_fields(self, *_args) -> None:
         wants_text = self._action_combo.currentText() == ACTION_CLICK_TYPE_ENTER
@@ -1246,10 +1276,34 @@ class MainWindow(QMainWindow):
         self._template_combo.addItems(items)
         self._template_combo.setCurrentText(current if current in items else "")
         self._template_combo.blockSignals(False)
-        self._update_template_preview(self._template_combo.currentText())
+        self._update_match_preview()
 
-    def _update_template_preview(self, name: str) -> None:
-        name = (name or "").strip()
+    def _update_match_preview(self) -> None:
+        """Render the preview area for whichever matcher the active rule uses."""
+        rule = self._current_rule()
+        matcher = (rule or {}).get("matcher", MATCHER_TEMPLATE)
+        if matcher == MATCHER_COLOR and rule and rule.get("color_rgb"):
+            r, g, b = (int(c) for c in rule["color_rgb"])
+            area = int(rule.get("color_capture_area") or 0)
+            # Hide the template preview, show the colour swatch.
+            self._preview_label.setVisible(False)
+            self._color_swatch.setVisible(True)
+            self._color_swatch.setStyleSheet(
+                f"QLabel {{ background: rgb({r},{g},{b}); "
+                f"border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; }}"
+            )
+            self._template_meta.setText(f"#{r:02X}{g:02X}{b:02X}  ·  {area} px² captured")
+            # Threshold doesn't apply to colour matching.
+            self._threshold_label.setVisible(False)
+            self._threshold_spin.setVisible(False)
+            return
+
+        # Template path: show image preview, threshold spin, etc.
+        self._preview_label.setVisible(True)
+        self._color_swatch.setVisible(False)
+        self._threshold_label.setVisible(True)
+        self._threshold_spin.setVisible(True)
+        name = (self._template_combo.currentText() or "").strip()
         if not name:
             self._preview_label.setPixmap(QPixmap())
             self._preview_label.setText("(no template)")
@@ -1277,26 +1331,101 @@ class MainWindow(QMainWindow):
         self._template_meta.setText(f"{nw} × {nh} px  ·  {note}")
 
     def _on_template_selected(self, name: str) -> None:
-        """Dropdown-driven template assignment: update preview + persist if a rule is selected.
+        """Dropdown-driven template assignment.
 
-        No-op if no rule is active so that programmatic reloads (refresh,
-        loading a rule) don't double-save.
+        Selecting a template flips the active rule's matcher back to template
+        mode and persists the new path. No-op if no rule is active so
+        programmatic reloads don't double-save.
         """
-        self._update_template_preview(name)
         idx = self._current_rule_index()
         if idx is None:
+            self._update_match_preview()
             return
-        with self._cfg_lock:
-            current = self._cfg["rules"][idx].get("template_path") or ""
         choice = (name or "").strip()
-        if choice == current:
+        with self._cfg_lock:
+            rule = self._cfg["rules"][idx]
+            current = rule.get("template_path") or ""
+            current_matcher = rule.get("matcher", MATCHER_TEMPLATE)
+        if choice == current and current_matcher == MATCHER_TEMPLATE:
+            self._update_match_preview()
             return
         with self._cfg_lock:
-            self._cfg["rules"][idx]["template_path"] = choice or None
+            rule = self._cfg["rules"][idx]
+            rule["template_path"] = choice or None
+            rule["matcher"] = MATCHER_TEMPLATE
         self._persist()
         self._refresh_rule_list(idx)
+        self._update_match_preview()
         if choice:
             self._log(f"[template] {choice}")
+
+    def _rename_selected_template(self) -> None:
+        choice = (self._template_combo.currentText() or "").strip()
+        if not choice:
+            self._log("[template] no template selected to rename"); return
+        from PySide6.QtWidgets import QInputDialog
+
+        suffix = Path(choice).suffix or ".png"
+        stem_default = Path(choice).stem
+        new_stem, ok = QInputDialog.getText(
+            self, "Rename template", "New filename (without extension):", text=stem_default
+        )
+        if not ok:
+            return
+        new_stem = (new_stem or "").strip()
+        if not new_stem or any(ch in new_stem for ch in r"\/:*?\"<>|"):
+            self._log("[template] rename aborted: empty or contains a path separator"); return
+        new_name = f"{new_stem}{suffix}"
+        if new_name == choice:
+            return
+        old_path = template_asset_path(choice)
+        new_path = template_asset_path(new_name)
+        if new_path.exists():
+            self._log(f"[template] '{new_name}' already exists; pick another name"); return
+        try:
+            old_path.rename(new_path)
+        except OSError as exc:
+            self._log(f"[error] rename failed: {exc}"); return
+        # Re-point every rule that referenced the old filename.
+        with self._cfg_lock:
+            for r in self._cfg.get("rules", []):
+                if r.get("template_path") == choice:
+                    r["template_path"] = new_name
+        self._persist()
+        self._refresh_template_choices(new_name)
+        self._refresh_rule_list(self._current_rule_index())
+        self._log(f"[template] renamed {choice} -> {new_name}")
+
+    def _delete_selected_template(self) -> None:
+        choice = (self._template_combo.currentText() or "").strip()
+        if not choice:
+            self._log("[template] no template selected to delete"); return
+        from PySide6.QtWidgets import QMessageBox
+
+        confirm = QMessageBox.question(
+            self,
+            "Delete template",
+            f"Delete '{choice}' from disk?\nAny rule pointing to it will lose its template.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        path = template_asset_path(choice)
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError as exc:
+            self._log(f"[error] delete failed: {exc}"); return
+        # Detach the deleted file from every rule that referenced it.
+        with self._cfg_lock:
+            for r in self._cfg.get("rules", []):
+                if r.get("template_path") == choice:
+                    r["template_path"] = None
+        self._persist()
+        self._refresh_template_choices()
+        self._refresh_rule_list(self._current_rule_index())
+        self._log(f"[template] deleted {choice}")
 
     def _capture_template(self) -> None:
         idx = self._current_rule_index()
@@ -1316,13 +1445,42 @@ class MainWindow(QMainWindow):
             save_gray_image(str(path), gray)
             stored_path = serialize_template_path(path)
             with self._cfg_lock:
-                self._cfg["rules"][idx]["template_path"] = stored_path
+                rule = self._cfg["rules"][idx]
+                rule["template_path"] = stored_path
+                rule["matcher"] = MATCHER_TEMPLATE
             self._persist(); self._refresh_rule_list(idx); self._refresh_template_choices(stored_path)
             self._log(
                 f"[capture] {path.name}  bbox=({bbox[0]},{bbox[1]}) size={bbox[2]}x{bbox[3]} → {gray.shape[1]}x{gray.shape[0]}"
             )
         except Exception as exc:
             self._log(f"[error] template capture failed: {exc}")
+
+    def _capture_color(self) -> None:
+        idx = self._current_rule_index()
+        if idx is None:
+            self._log("[capture] add or select a rule first"); return
+        try:
+            ensure_vision()
+        except Exception as exc:
+            self._log(f"[error] {exc}"); return
+        bbox = capture_drag_bbox(self)
+        if not bbox:
+            self._log("[capture] color capture cancelled"); return
+        try:
+            rgb = capture_screen_rgb(tuple(bbox))
+            r, g, b = dominant_rgb(rgb)
+            area = int(bbox[2]) * int(bbox[3])
+            with self._cfg_lock:
+                rule = self._cfg["rules"][idx]
+                rule["matcher"] = MATCHER_COLOR
+                rule["color_rgb"] = [r, g, b]
+                rule["color_capture_area"] = area
+            self._persist(); self._refresh_rule_list(idx); self._update_match_preview()
+            self._log(
+                f"[capture] color #{r:02X}{g:02X}{b:02X} from {bbox[2]}x{bbox[3]} ({area} px²)"
+            )
+        except Exception as exc:
+            self._log(f"[error] color capture failed: {exc}")
 
     def _capture_search_region(self) -> None:
         idx = self._current_rule_index()
