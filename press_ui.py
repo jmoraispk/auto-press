@@ -1457,9 +1457,11 @@ class MainWindow(QMainWindow):
         prev = self._color_library_combo.currentData() if remember_current else None
         self._color_library_combo.blockSignals(True)
         self._color_library_combo.clear()
-        self._color_library_combo.addItem("— choose a color —", None)
+        # qfluentwidgets ComboBox.addItem signature is (text, icon=None,
+        # userData=None) — the RGB list is user data, not an icon.
+        self._color_library_combo.addItem("— choose a color —", userData=None)
         for label, rgb in items:
-            self._color_library_combo.addItem(label, rgb)
+            self._color_library_combo.addItem(label, userData=rgb)
         # Restore previous selection if still present.
         if prev is not None:
             for i in range(self._color_library_combo.count()):
