@@ -75,6 +75,7 @@ with _contextlib.redirect_stdout(_io.StringIO()):
         PlainTextEdit as FluentPlainTextEdit,
         PrimaryPushButton,
         PushButton,
+        SegmentedWidget,
         SimpleCardWidget,
         StrongBodyLabel,
         SubtitleLabel,
@@ -599,6 +600,8 @@ class _VLine(QFrame):
 class CollapsibleCard(HeaderCardWidget):
     """HeaderCardWidget with a chevron toggle that hides/shows the body."""
 
+    expanded_changed = Signal(bool)
+
     def __init__(self, title: str = "", parent=None, expanded: bool = True):
         super().__init__(parent)
         self.setTitle(title)
@@ -625,10 +628,14 @@ class CollapsibleCard(HeaderCardWidget):
         self._expanded = not self._expanded
         self.view.setVisible(self._expanded)
         self._toggle_btn.setIcon(FIF.UP if self._expanded else FIF.DOWN)
+        self.expanded_changed.emit(self._expanded)
 
     def setExpanded(self, expanded: bool) -> None:
         if self._expanded != expanded:
             self._toggle()
+
+    def isExpanded(self) -> bool:  # noqa: N802
+        return self._expanded
 
 
 class MainWindow(QMainWindow):
@@ -672,6 +679,9 @@ class MainWindow(QMainWindow):
         self._running = False
         self._quitting = False
         self._remembered_body_h = 600
+        # Last expanded heights for the left splitter cards; restored on
+        # collapse → expand round-trips.
+        self._left_remembered = {"rules": 380, "log": 200}
 
         self._icon_running = _make_dot_icon(QColor(STATUS_RUNNING))
         self._icon_stopped = _make_dot_icon(QColor(STATUS_STOPPED))
@@ -814,8 +824,9 @@ class MainWindow(QMainWindow):
         return bar
 
     def _build_rules_card(self) -> QWidget:
-        card = HeaderCardWidget()
-        card.setTitle("Rules")
+        card = CollapsibleCard("Rules")
+        card.expanded_changed.connect(self._on_left_card_toggled)
+        self._rules_card = card
         card.setMinimumWidth(260)
         body = QVBoxLayout()
         body.setContentsMargins(2, 0, 2, 0)
@@ -941,6 +952,23 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
 
+        # Matcher toggle: shows whether the active rule clicks on a template
+        # (pattern) or on a color. Tapping a side switches the rule's matcher
+        # and surfaces the right preview / inputs.
+        self._matcher_seg = SegmentedWidget()
+        self._matcher_seg.addItem(
+            MATCHER_TEMPLATE, "Pattern", lambda: self._set_matcher(MATCHER_TEMPLATE)
+        )
+        self._matcher_seg.addItem(
+            MATCHER_COLOR, "Color", lambda: self._set_matcher(MATCHER_COLOR)
+        )
+        self._matcher_seg.setCurrentItem(MATCHER_TEMPLATE)
+        seg_row = QHBoxLayout()
+        seg_row.setContentsMargins(0, 0, 0, 0)
+        seg_row.addWidget(self._matcher_seg)
+        seg_row.addStretch(1)
+        grid.addLayout(seg_row, 0, 0, 1, 2)
+
         self._template_combo = ComboBox()
         self._template_combo.setMinimumWidth(180)
         self._template_combo.currentTextChanged.connect(self._on_template_selected)
@@ -965,7 +993,7 @@ class MainWindow(QMainWindow):
         top_row.addSpacing(6)
         top_row.addWidget(capture_pattern_btn)
         top_row.addWidget(capture_color_btn)
-        grid.addLayout(top_row, 0, 0, 1, 2)
+        grid.addLayout(top_row, 1, 0, 1, 2)
 
         # Preview: either a template image (template matcher) or a flat color
         # swatch (color matcher). Same fixed footprint, only one is visible.
@@ -986,7 +1014,7 @@ class MainWindow(QMainWindow):
         preview_stack.setSpacing(0)
         preview_stack.addWidget(self._preview_label)
         preview_stack.addWidget(self._color_swatch)
-        grid.addLayout(preview_stack, 1, 0, 2, 1)
+        grid.addLayout(preview_stack, 2, 0, 2, 1)
 
         meta_box = QWidget()
         meta_lay = QVBoxLayout(meta_box)
@@ -1015,7 +1043,7 @@ class MainWindow(QMainWindow):
         meta_lay.addWidget(self._template_meta)
         meta_lay.addStretch(1)
 
-        grid.addWidget(meta_box, 1, 1, 2, 1)
+        grid.addWidget(meta_box, 2, 1, 2, 1)
         grid.setColumnStretch(1, 1)
 
         card.viewLayout.addLayout(grid)
@@ -1061,8 +1089,9 @@ class MainWindow(QMainWindow):
         return wrap
 
     def _build_log_panel(self) -> QWidget:
-        card = HeaderCardWidget()
-        card.setTitle("Log")
+        card = CollapsibleCard("Log")
+        card.expanded_changed.connect(self._on_left_card_toggled)
+        self._log_card = card
 
         self._log_box = FluentPlainTextEdit()
         self._log_box.setReadOnly(True)
@@ -1090,6 +1119,46 @@ class MainWindow(QMainWindow):
         self._tray.show()
 
     # ---------- body collapse ----------
+
+    def _on_left_card_toggled(self, _expanded: bool) -> None:
+        """Resize the left splitter when Rules or Log is collapsed/expanded.
+
+        Remembers the last expanded heights for each panel so a collapse →
+        expand round-trip restores the previous layout.
+        """
+        sender = self.sender()
+        HEADER_H = 44
+        sizes = self._left_splitter.sizes()
+        # Snapshot whichever side is still expanded *before* we apply the
+        # new min/max constraints, so re-expand later can restore it.
+        if sender is self._rules_card and self._rules_card.isExpanded() is False and sizes[0] > HEADER_H:
+            self._left_remembered["rules"] = sizes[0]
+        elif sender is self._log_card and self._log_card.isExpanded() is False and sizes[1] > HEADER_H:
+            self._left_remembered["log"] = sizes[1]
+
+        for card, key, min_open in (
+            (self._rules_card, "rules", 140),
+            (self._log_card, "log", 110),
+        ):
+            if card.isExpanded():
+                card.setMinimumHeight(min_open)
+                card.setMaximumHeight(16777215)
+            else:
+                card.setMinimumHeight(0)
+                card.setMaximumHeight(HEADER_H)
+
+        total = sum(sizes) or (self._left_splitter.height() or 580)
+        rules_exp = self._rules_card.isExpanded()
+        log_exp = self._log_card.isExpanded()
+        if rules_exp and log_exp:
+            r = self._left_remembered.get("rules", 380)
+            self._left_splitter.setSizes([r, max(HEADER_H, total - r)])
+        elif rules_exp:
+            self._left_splitter.setSizes([total - HEADER_H, HEADER_H])
+        elif log_exp:
+            self._left_splitter.setSizes([HEADER_H, total - HEADER_H])
+        else:
+            self._left_splitter.setSizes([HEADER_H, HEADER_H])
 
     def _toggle_body_collapsed(self) -> None:
         """Collapse the whole body (rules / log / editor) into toolbar-only mode."""
@@ -1278,14 +1347,50 @@ class MainWindow(QMainWindow):
         self._template_combo.blockSignals(False)
         self._update_match_preview()
 
+    def _set_matcher(self, matcher: str) -> None:
+        """User clicked the segmented toggle. Persist on the active rule, refresh UI."""
+        if getattr(self, "_suppress_matcher_signal", False):
+            return
+        idx = self._current_rule_index()
+        if idx is None:
+            self._update_match_preview()
+            return
+        with self._cfg_lock:
+            current = self._cfg["rules"][idx].get("matcher", MATCHER_TEMPLATE)
+        if current == matcher:
+            self._update_match_preview()
+            return
+        with self._cfg_lock:
+            self._cfg["rules"][idx]["matcher"] = matcher
+        self._persist()
+        self._refresh_rule_list(idx)
+        self._update_match_preview()
+
     def _update_match_preview(self) -> None:
         """Render the preview area for whichever matcher the active rule uses."""
         rule = self._current_rule()
         matcher = (rule or {}).get("matcher", MATCHER_TEMPLATE)
-        if matcher == MATCHER_COLOR and rule and rule.get("color_rgb"):
+        # Keep the segmented toggle in sync without re-firing onClick.
+        self._suppress_matcher_signal = True
+        try:
+            self._matcher_seg.setCurrentItem(matcher)
+        finally:
+            self._suppress_matcher_signal = False
+        if matcher == MATCHER_COLOR:
+            if not (rule and rule.get("color_rgb")):
+                # Color matcher active but nothing captured yet.
+                self._preview_label.setVisible(False)
+                self._color_swatch.setVisible(True)
+                self._color_swatch.setStyleSheet(
+                    "QLabel { background: rgba(0,0,0,0.25); "
+                    "border: 1px dashed rgba(255,255,255,0.18); border-radius: 6px; }"
+                )
+                self._template_meta.setText("Click 'Capture color' to pick a color")
+                self._threshold_label.setVisible(False)
+                self._threshold_spin.setVisible(False)
+                return
             r, g, b = (int(c) for c in rule["color_rgb"])
             area = int(rule.get("color_capture_area") or 0)
-            # Hide the template preview, show the colour swatch.
             self._preview_label.setVisible(False)
             self._color_swatch.setVisible(True)
             self._color_swatch.setStyleSheet(
@@ -1293,12 +1398,11 @@ class MainWindow(QMainWindow):
                 f"border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; }}"
             )
             self._template_meta.setText(f"#{r:02X}{g:02X}{b:02X}  ·  {area} px² captured")
-            # Threshold doesn't apply to colour matching.
             self._threshold_label.setVisible(False)
             self._threshold_spin.setVisible(False)
             return
 
-        # Template path: show image preview, threshold spin, etc.
+        # Template matcher path: show image preview + threshold.
         self._preview_label.setVisible(True)
         self._color_swatch.setVisible(False)
         self._threshold_label.setVisible(True)
