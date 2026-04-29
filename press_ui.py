@@ -115,6 +115,7 @@ from press_engine import (
     capture_screen_rgb,
     dominant_rgb,
     ensure_vision,
+    evaluate_bridge_windows,
     evaluate_rule_on_frame,
     evaluate_rules,
     execute_matches,
@@ -416,6 +417,10 @@ class EngineWorker(QObject):
     # Bridge events: emitted whenever a rule action fires. Carries a JSON-
     # ready dict; bridge consumers push it onto an SSE/event ring buffer.
     rule_matched = Signal(dict)
+    # Per-window idle/busy snapshot (one emit per tick, regardless of change).
+    bridge_window_states = Signal(list)
+    # Fires only on busy↔idle transition. Payload: a window state dict.
+    bridge_window_transition = Signal(dict)
 
     def __init__(self, cfg_snapshot):
         super().__init__()
@@ -424,6 +429,8 @@ class EngineWorker(QObject):
         self._stop = False
         self._interval = 10.0
         self._lock = threading.Lock()
+        # Maps window id → last known idle bool, so we only emit transitions.
+        self._last_window_idle: dict[str, bool] = {}
 
     def set_interval(self, seconds: float) -> None:
         with self._lock:
@@ -485,6 +492,7 @@ class EngineWorker(QObject):
                             "timestamp_iso": datetime.now(timezone.utc).isoformat(),
                         }
                         self.rule_matched.emit(event)
+                self._tick_bridge_windows(cfg)
                 self.tick_done.emit(results, actions, self._get_interval())
             except Exception as exc:
                 self.tick_error.emit(f"tick failed: {exc}")
@@ -497,6 +505,38 @@ class EngineWorker(QObject):
     def _get_interval(self) -> float:
         with self._lock:
             return self._interval
+
+    def _tick_bridge_windows(self, cfg: dict) -> None:
+        """Run the per-window idle detector if the bridge has windows + a
+        template configured. Emits a snapshot every tick and a transition
+        only when a window flips between idle and busy."""
+        bridge_cfg = cfg.get("bridge") or {}
+        if not bridge_cfg.get("windows") or not bridge_cfg.get("idle_template_path"):
+            return
+        try:
+            states = evaluate_bridge_windows(bridge_cfg)
+        except Exception:
+            return
+        if not states:
+            return
+        self.bridge_window_states.emit(states)
+        for state in states:
+            if not state.get("configured"):
+                continue
+            wid = state.get("id")
+            if not wid:
+                continue
+            now_idle = bool(state.get("idle"))
+            prev = self._last_window_idle.get(wid)
+            if prev is None:
+                # First observation: record without emitting a transition,
+                # otherwise we'd announce every window the moment the
+                # worker starts.
+                self._last_window_idle[wid] = now_idle
+                continue
+            if prev != now_idle:
+                self._last_window_idle[wid] = now_idle
+                self.bridge_window_transition.emit(state)
 
 
 # ---- drag capture (per-monitor overlays, physical coords) -----------
@@ -789,6 +829,7 @@ class MainWindow(QMainWindow):
         self._worker.running_changed.connect(self._on_running_changed)
         self._worker.needs_rules.connect(self._on_needs_rules)
         self._worker.rule_matched.connect(self._on_rule_matched)
+        self._worker.bridge_window_transition.connect(self._on_bridge_window_transition)
         self._worker_thread.start()
 
         # Optional remote bridge
@@ -2155,6 +2196,13 @@ class MainWindow(QMainWindow):
             self._bridge.publish_event(event)
         except Exception as exc:
             self._log(f"[bridge] publish failed: {exc}")
+
+    def _on_bridge_window_transition(self, state: dict) -> None:
+        name = state.get("name", "Cursor")
+        is_idle = bool(state.get("idle"))
+        score = float(state.get("score", 0.0))
+        verb = "busy → idle" if is_idle else "idle → busy"
+        self._log(f"[bridge] {name}: {verb} (score {score:.3f})")
 
     def _bridge_re_match_rule(self, rule_id: str) -> list[tuple[float, tuple[int, int]]]:
         """Worker-thread callable: re-evaluate one rule and return raw matches."""

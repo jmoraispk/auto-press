@@ -314,3 +314,74 @@ def execute_matches(matches: list[dict], delay_seconds: float = ACTION_SETTLE_DE
         execute_match(match)
         if idx < len(matches) - 1 and delay_seconds > 0:
             time.sleep(delay_seconds)
+
+
+# ---- bridge: per-window idle detection ---------------------------------
+
+
+def evaluate_bridge_windows(bridge_cfg: dict) -> list[dict]:
+    """Scan each configured Cursor window for the bridge's idle template.
+
+    Returns one dict per window: ``{id, name, idle, score, configured}``.
+
+    A window is **idle** when the template appears anywhere inside its
+    region above ``idle_threshold``. ``configured`` is False if the window
+    has no region set yet — useful so the UI can show "set me up" rather
+    than treat the missing region as "not idle".
+    """
+    template_ref = bridge_cfg.get("idle_template_path")
+    threshold = float(bridge_cfg.get("idle_threshold", 0.90))
+    windows = bridge_cfg.get("windows") or []
+    if not template_ref or not windows:
+        return []
+
+    template_path = resolve_template_path(template_ref)
+    if template_path is None or not template_path.exists():
+        return []
+    try:
+        template_gray = load_template_gray(str(template_path))
+    except Exception:
+        return []
+
+    results: list[dict] = []
+    for window in windows:
+        region = window.get("region")
+        if not region or len(region) != 4:
+            results.append(
+                {
+                    "id": window.get("id"),
+                    "name": window.get("name", "Cursor"),
+                    "idle": False,
+                    "score": 0.0,
+                    "configured": False,
+                }
+            )
+            continue
+        region_tuple = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
+        try:
+            search_gray = capture_screen_gray(region_tuple)
+        except Exception:
+            results.append(
+                {
+                    "id": window.get("id"),
+                    "name": window.get("name", "Cursor"),
+                    "idle": False,
+                    "score": 0.0,
+                    "configured": True,
+                }
+            )
+            continue
+        matches = _find_matches_in(
+            search_gray, template_gray, threshold, region_tuple[0], region_tuple[1]
+        )
+        best_score = matches[0][0] if matches else 0.0
+        results.append(
+            {
+                "id": window.get("id"),
+                "name": window.get("name", "Cursor"),
+                "idle": bool(matches),
+                "score": float(best_score),
+                "configured": True,
+            }
+        )
+    return results
