@@ -876,42 +876,23 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(12)
 
-        root.addWidget(self._build_command_bar(initial_seconds))
-
-        # Body: Rules + Bridge in a stacked widget, switched by a small
-        # SegmentedWidget anchored to the left. Pivot was visually heavy
-        # and stole horizontal space; SegmentedWidget keeps the toggle
-        # tight enough to fit beside the tab content.
-        self._body_container = QWidget()
-        body_layout = QVBoxLayout(self._body_container)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(8)
-
+        # Build the tab pages and stack first so the command bar can
+        # host the Rules/Bridge selector — that way the toolbar acts as
+        # the page chrome and the body is just the selected page.
         rules_page = self._build_rules_page()
         bridge_page = self._build_bridge_page()
         self._tab_stack = QStackedWidget()
         self._tab_stack.addWidget(rules_page)
         self._tab_stack.addWidget(bridge_page)
 
-        self._tab_strip = SegmentedWidget(self)
-        self._tab_strip.addItem(
-            routeKey="rules", text="Rules",
-            onClick=lambda: self._tab_stack.setCurrentIndex(0),
-        )
-        self._tab_strip.addItem(
-            routeKey="bridge", text="Bridge",
-            onClick=lambda: self._tab_stack.setCurrentIndex(1),
-        )
-        self._tab_strip.setCurrentItem("rules")
+        root.addWidget(self._build_command_bar(initial_seconds))
 
-        strip_row = QHBoxLayout()
-        strip_row.setContentsMargins(0, 0, 0, 0)
-        strip_row.addWidget(self._tab_strip)
-        strip_row.addStretch(1)
-        body_layout.addLayout(strip_row)
+        self._body_container = QWidget()
+        body_layout = QVBoxLayout(self._body_container)
+        body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.addWidget(self._tab_stack, 1)
-
         root.addWidget(self._body_container, 1)
+
         self.setCentralWidget(central)
 
     def _build_rules_page(self) -> QWidget:
@@ -1002,6 +983,21 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._action_status)
 
         lay.addStretch(1)
+
+        # Rules / Bridge selector: lives in the toolbar so the body has
+        # the full window height for actual content. Switches the
+        # QStackedWidget that _build_central wires up.
+        self._tab_strip = SegmentedWidget(self)
+        self._tab_strip.addItem(
+            routeKey="rules", text="Rules",
+            onClick=lambda: self._tab_stack.setCurrentIndex(0),
+        )
+        self._tab_strip.addItem(
+            routeKey="bridge", text="Bridge",
+            onClick=lambda: self._tab_stack.setCurrentIndex(1),
+        )
+        self._tab_strip.setCurrentItem("rules")
+        lay.addWidget(self._tab_strip)
 
         self._collapse_btn = ToolButton(FIF.UP)
         self._collapse_btn.setToolTip("Collapse to toolbar only")
@@ -1432,8 +1428,8 @@ class MainWindow(QMainWindow):
         self._bridge_windows_table.setBorderRadius(8)
         self._bridge_windows_table.verticalHeader().setDefaultSectionSize(40)
         header = self._bridge_windows_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         win_body.addWidget(self._bridge_windows_table)
 
@@ -1445,7 +1441,6 @@ class MainWindow(QMainWindow):
         win_body.addLayout(add_row)
 
         win_card.viewLayout.addLayout(win_body)
-        outer.addWidget(win_card, 1)
 
         # Bridge log card.
         log_card = HeaderCardWidget()
@@ -1455,7 +1450,7 @@ class MainWindow(QMainWindow):
         log_body.setSpacing(6)
         log_desc = CaptionLabel(
             "Bridge events that the phone UI would also see — busy↔idle transitions, "
-            "captures, errors. Useful for testing without opening the phone."
+            "captures, saves, errors."
         )
         log_desc.setWordWrap(True)
         log_body.addWidget(log_desc)
@@ -1465,8 +1460,29 @@ class MainWindow(QMainWindow):
         self._bridge_log_view.setMinimumHeight(140)
         log_body.addWidget(self._bridge_log_view)
         log_card.viewLayout.addLayout(log_body)
-        outer.addWidget(log_card, 1)
 
+        # Layout: left column [idle + windows] | right column [log].
+        # This lets the cards use vertical space without each card
+        # being a full-width letterbox; the log gets the right half.
+        left_col = QSplitter(Qt.Vertical)
+        left_col.setChildrenCollapsible(False)
+        left_col.setHandleWidth(6)
+        left_col.addWidget(tpl_card)
+        left_col.addWidget(win_card)
+        left_col.setStretchFactor(0, 0)
+        left_col.setStretchFactor(1, 1)
+        left_col.setSizes([260, 360])
+
+        body_split = QSplitter(Qt.Horizontal)
+        body_split.setChildrenCollapsible(False)
+        body_split.setHandleWidth(6)
+        body_split.addWidget(left_col)
+        body_split.addWidget(log_card)
+        body_split.setStretchFactor(0, 1)
+        body_split.setStretchFactor(1, 1)
+        body_split.setSizes([520, 460])
+
+        outer.addWidget(body_split, 1)
         return page
 
     # ---- bridge tab actions ----
@@ -1626,11 +1642,12 @@ class MainWindow(QMainWindow):
         if table is None:
             return
         # Disconnect rename handler during rebuild so itemChanged doesn't
-        # fire for every cell we set.
-        try:
+        # fire for every cell we set. Qt's disconnect raises a Python
+        # RuntimeWarning (not an exception) when there's nothing to
+        # disconnect, so we track the wired state explicitly.
+        if getattr(self, "_bridge_table_signal_wired", False):
             table.itemChanged.disconnect(self._on_bridge_window_renamed)
-        except Exception:
-            pass
+            self._bridge_table_signal_wired = False
         windows = self._cfg.get("bridge", {}).get("windows", [])
         table.setRowCount(0)
         table.setRowCount(len(windows))
@@ -1667,6 +1684,7 @@ class MainWindow(QMainWindow):
             cl.addWidget(del_btn)
             table.setCellWidget(row, 2, cell)
         table.itemChanged.connect(self._on_bridge_window_renamed)
+        self._bridge_table_signal_wired = True
 
     def _on_bridge_window_renamed(self, item: QTableWidgetItem) -> None:
         if item.column() != 0:
