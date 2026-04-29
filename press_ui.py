@@ -83,6 +83,7 @@ with _contextlib.redirect_stdout(_io.StringIO()):
         SimpleCardWidget,
         StrongBodyLabel,
         SubtitleLabel,
+        SwitchButton,
         TableWidget,
         Theme,
         ToolButton,
@@ -510,9 +511,12 @@ class EngineWorker(QObject):
             return self._interval
 
     def _tick_bridge_windows(self, cfg: dict) -> None:
-        """Run the per-window idle detector if the bridge has windows + a
-        template configured. Emits a snapshot every tick and a transition
-        only when a window flips between idle and busy."""
+        """Run the per-window idle detector when the bridge service is
+        active and has windows + a template configured. Emits a snapshot
+        every tick and a transition only when a window flips between
+        idle and busy."""
+        if not cfg.get("bridge_active"):
+            return
         bridge_cfg = cfg.get("bridge") or {}
         if not bridge_cfg.get("windows") or not bridge_cfg.get("idle_template_path"):
             return
@@ -835,9 +839,12 @@ class MainWindow(QMainWindow):
         self._worker.bridge_window_transition.connect(self._on_bridge_window_transition)
         self._worker_thread.start()
 
-        # Optional remote bridge
+        # Optional remote bridge — controlled at runtime by the Bridge
+        # tab's switch. When --bridge is passed we flip the switch on
+        # programmatically so behaviour matches the old "auto-start" mode.
         self._bridge = None
-        self._maybe_start_bridge()
+        if self._bridge_enabled:
+            self._bridge_switch.setChecked(True)
 
         # Countdown
         self._countdown_timer = QTimer(self)
@@ -872,22 +879,21 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._build_command_bar(initial_seconds))
 
-        # Tab strip + stacked pages. The Rules page hosts the original
-        # body splitter (rules / log / editor). The Bridge page hosts the
-        # window-list setup and a bridge-specific log mirror.
+        # Body: Rules + Bridge tabs are always present. The Bridge tab
+        # has its own runtime "Bridge service" switch — the --bridge CLI
+        # flag just flips it ON at launch rather than gating the tab
+        # itself, so users can opt in / opt out from the UI any time.
         self._body_container = QWidget()
         body_layout = QVBoxLayout(self._body_container)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(8)
 
+        rules_page = self._build_rules_page()
         self._tab_strip = Pivot(self)
         self._tab_stack = QStackedWidget()
-
-        rules_page = self._build_rules_page()
         bridge_page = self._build_bridge_page()
         self._tab_stack.addWidget(rules_page)
         self._tab_stack.addWidget(bridge_page)
-
         self._tab_strip.addItem(
             routeKey="rules", text="Rules",
             onClick=lambda: self._tab_stack.setCurrentIndex(0),
@@ -897,7 +903,6 @@ class MainWindow(QMainWindow):
             onClick=lambda: self._tab_stack.setCurrentIndex(1),
         )
         self._tab_strip.setCurrentItem("rules")
-
         body_layout.addWidget(self._tab_strip)
         body_layout.addWidget(self._tab_stack, 1)
 
@@ -1322,6 +1327,25 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
 
+        # Bridge service toggle. The actual service (FastAPI + idle
+        # detection + ntfy) is bound to this switch — flipping it off
+        # tears the listener down so the bridge has zero footprint when
+        # not in use. Reflects the --bridge CLI flag at launch.
+        toggle_card = HeaderCardWidget()
+        toggle_card.setTitle("Bridge service")
+        toggle_body = QHBoxLayout()
+        toggle_body.setContentsMargins(2, 0, 2, 0)
+        toggle_body.setSpacing(8)
+        self._bridge_switch = SwitchButton()
+        self._bridge_switch.setOnText("On")
+        self._bridge_switch.setOffText("Off")
+        self._bridge_switch.checkedChanged.connect(self._on_bridge_switch_toggled)
+        toggle_body.addWidget(self._bridge_switch)
+        self._bridge_switch_status = CaptionLabel("Stopped — toggle on to start the FastAPI service.")
+        toggle_body.addWidget(self._bridge_switch_status, 1)
+        toggle_card.viewLayout.addLayout(toggle_body)
+        outer.addWidget(toggle_card)
+
         # Idle template card.
         tpl_card = HeaderCardWidget()
         tpl_card.setTitle("Idle indicator")
@@ -1706,6 +1730,10 @@ class MainWindow(QMainWindow):
                 "interval_seconds": float(self._cfg.get("interval_seconds", 10.0)),
                 "rules": [dict(rule) for rule in self._cfg.get("rules", [])],
                 "bridge": dict(self._cfg.get("bridge", {})),
+                # Worker reads this to decide whether to run idle detection.
+                # Same boolean drives the FastAPI service, so detection and
+                # service start/stop in lockstep.
+                "bridge_active": self._bridge is not None,
             }
 
     def _persist(self) -> None:
@@ -2507,13 +2535,26 @@ class MainWindow(QMainWindow):
 
     # ---------- bridge ----------
 
-    def _maybe_start_bridge(self) -> None:
-        if not self._bridge_enabled:
+    def _on_bridge_switch_toggled(self, checked: bool) -> None:
+        if checked:
+            self._start_bridge_service()
+        else:
+            self._stop_bridge_service()
+
+    def _start_bridge_service(self) -> None:
+        if self._bridge is not None and self._bridge.is_running():
             return
         try:
             from press_bridge import BridgeCallbacks, BridgeService
         except Exception as exc:
-            self._log(f"[bridge] cannot start — install: uv sync --extra bridge ({exc})")
+            self._bridge_switch_status.setText(
+                "Stopped — install: uv sync --extra bridge"
+            )
+            self._bridge_log(f"cannot start: {exc}")
+            self._log(f"[bridge] cannot start ({exc})")
+            self._bridge_switch.blockSignals(True)
+            self._bridge_switch.setChecked(False)
+            self._bridge_switch.blockSignals(False)
             return
         bridge_cfg = dict(self._cfg.get("bridge") or {})
         if self._bridge_host_override:
@@ -2529,12 +2570,36 @@ class MainWindow(QMainWindow):
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
 
-        urls = _bridge_urls(str(bridge_cfg.get("host", "0.0.0.0")), int(bridge_cfg.get("port", 8765)))
+        urls = _bridge_urls(
+            str(bridge_cfg.get("host", "0.0.0.0")), int(bridge_cfg.get("port", 8765))
+        )
+        primary_url = urls[0] if urls else f"http://localhost:{bridge_cfg.get('port', 8765)}/"
+        self._bridge_switch_status.setText(f"Running — {primary_url}")
         self._log("[bridge] listening — open one of:")
         print("[bridge] listening — open one of:", flush=True)
         for url in urls:
             self._log(f"  {url}")
             print(f"  {url}", flush=True)
+        self._bridge_log(f"service started → {primary_url}")
+
+    def _stop_bridge_service(self) -> None:
+        if self._bridge is None:
+            self._bridge_switch_status.setText(
+                "Stopped — toggle on to start the FastAPI service."
+            )
+            return
+        try:
+            self._bridge.stop()
+        except Exception as exc:
+            self._log(f"[bridge] stop failed: {exc}")
+            self._bridge_log(f"stop failed: {exc}")
+        finally:
+            self._bridge = None
+        self._bridge_switch_status.setText(
+            "Stopped — toggle on to start the FastAPI service."
+        )
+        self._log("[bridge] service stopped")
+        self._bridge_log("service stopped")
 
     def _on_rule_matched(self, event: dict) -> None:
         if self._bridge is None:
