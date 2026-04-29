@@ -114,72 +114,19 @@ def click_point(point: tuple[int, int]) -> None:
 
 def get_clipboard_text() -> str:
     """Best-effort current clipboard text (empty string if unavailable)."""
+    import pyperclip  # ships transitively with pyautogui
     try:
-        import pyperclip  # type: ignore
         return pyperclip.paste() or ""
     except Exception:
-        pass
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-            from ctypes import wintypes  # noqa: F401
-
-            CF_UNICODETEXT = 13
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-            user32.OpenClipboard(0)
-            try:
-                handle = user32.GetClipboardData(CF_UNICODETEXT)
-                if not handle:
-                    return ""
-                ptr = kernel32.GlobalLock(handle)
-                if not ptr:
-                    return ""
-                try:
-                    return ctypes.c_wchar_p(ptr).value or ""
-                finally:
-                    kernel32.GlobalUnlock(handle)
-            finally:
-                user32.CloseClipboard()
-        except Exception:
-            return ""
-    return ""
+        return ""
 
 
 def set_clipboard_text(text: str) -> None:
+    import pyperclip
     try:
-        import pyperclip  # type: ignore
         pyperclip.copy(text)
-        return
     except Exception:
         pass
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-
-            CF_UNICODETEXT = 13
-            GMEM_MOVEABLE = 0x0002
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-            buf = (text + "\x00").encode("utf-16-le")
-            handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(buf))
-            if not handle:
-                return
-            ptr = kernel32.GlobalLock(handle)
-            if not ptr:
-                return
-            try:
-                ctypes.memmove(ptr, buf, len(buf))
-            finally:
-                kernel32.GlobalUnlock(handle)
-            user32.OpenClipboard(0)
-            try:
-                user32.EmptyClipboard()
-                user32.SetClipboardData(CF_UNICODETEXT, handle)
-            finally:
-                user32.CloseClipboard()
-        except Exception:
-            return
 
 
 def paste_text_and_enter(

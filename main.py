@@ -73,6 +73,22 @@ def main() -> None:
         default=10.0,
         help="Default scan interval in seconds. Default: 10",
     )
+    parser.add_argument(
+        "--bridge",
+        action="store_true",
+        help="Start the optional remote bridge (FastAPI + phone PWA). Off by default.",
+    )
+    parser.add_argument(
+        "--bridge-host",
+        default=None,
+        help="Override the bridge bind host (default from config: 0.0.0.0).",
+    )
+    parser.add_argument(
+        "--bridge-port",
+        type=int,
+        default=None,
+        help="Override the bridge port (default from config: 8765).",
+    )
     args = parser.parse_args()
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
@@ -81,7 +97,12 @@ def main() -> None:
     app.setApplicationName("Auto Press")
     app.setQuitOnLastWindowClosed(False)
 
-    window = MainWindow(initial_seconds=float(args.seconds))
+    window = MainWindow(
+        initial_seconds=float(args.seconds),
+        bridge_enabled=args.bridge,
+        bridge_host=args.bridge_host,
+        bridge_port=args.bridge_port,
+    )
     window.show()
     _keepalive = _install_sigint(app, window)
     sys.exit(app.exec())

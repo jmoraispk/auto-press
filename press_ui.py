@@ -368,6 +368,35 @@ class HotkeyButton(PushButton):
 # ---- engine worker --------------------------------------------------
 
 
+def _bridge_urls(host: str, port: int) -> list[str]:
+    """URLs that should reach the bridge: localhost first, then LAN/Tailscale.
+
+    When host is 0.0.0.0 we enumerate IPv4 addresses on the box so the user
+    can copy whichever one matches the network they're testing from.
+    """
+    import socket
+
+    urls = [f"http://localhost:{port}/"]
+    if host in ("0.0.0.0", "::", ""):
+        try:
+            for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+                if ip.startswith("127.") or ip.startswith("169.254."):
+                    continue
+                urls.append(f"http://{ip}:{port}/")
+        except Exception:
+            pass
+    elif host not in ("127.0.0.1", "localhost"):
+        urls.insert(0, f"http://{host}:{port}/")
+    # Stable de-dupe.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
 def _monitor_index_for_point(x: int, y: int) -> int:
     """Best-effort 0-based monitor index containing (x, y); -1 if none."""
     try:
@@ -387,7 +416,6 @@ class EngineWorker(QObject):
     # Bridge events: emitted whenever a rule action fires. Carries a JSON-
     # ready dict; bridge consumers push it onto an SSE/event ring buffer.
     rule_matched = Signal(dict)
-    rule_window_inferred = Signal(dict)
 
     def __init__(self, cfg_snapshot):
         super().__init__()
@@ -695,8 +723,17 @@ class MainWindow(QMainWindow):
 
     CHROME_HEIGHT = 120
 
-    def __init__(self, initial_seconds: float):
+    def __init__(
+        self,
+        initial_seconds: float,
+        bridge_enabled: bool = False,
+        bridge_host: str | None = None,
+        bridge_port: int | None = None,
+    ):
         super().__init__()
+        self._bridge_enabled = bool(bridge_enabled)
+        self._bridge_host_override = bridge_host
+        self._bridge_port_override = bridge_port
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
 
         setTheme(Theme.DARK)
@@ -2083,14 +2120,18 @@ class MainWindow(QMainWindow):
     # ---------- bridge ----------
 
     def _maybe_start_bridge(self) -> None:
-        bridge_cfg = (self._cfg.get("bridge") or {})
-        if not bridge_cfg.get("enabled"):
+        if not self._bridge_enabled:
             return
         try:
             from press_bridge import BridgeCallbacks, BridgeService
         except Exception as exc:
-            self._log(f"[bridge] disabled — install fastapi+uvicorn ({exc})")
+            self._log(f"[bridge] cannot start — install: uv sync --extra bridge ({exc})")
             return
+        bridge_cfg = dict(self._cfg.get("bridge") or {})
+        if self._bridge_host_override:
+            bridge_cfg["host"] = self._bridge_host_override
+        if self._bridge_port_override:
+            bridge_cfg["port"] = int(self._bridge_port_override)
         callbacks = BridgeCallbacks(
             cfg_snapshot=self._snapshot_cfg,
             re_match_rule=self._bridge_re_match_rule,
@@ -2099,7 +2140,13 @@ class MainWindow(QMainWindow):
         )
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
-        self._log(f"[bridge] listening on {bridge_cfg.get('host')}:{bridge_cfg.get('port')}")
+
+        urls = _bridge_urls(str(bridge_cfg.get("host", "0.0.0.0")), int(bridge_cfg.get("port", 8765)))
+        self._log("[bridge] listening — open one of:")
+        print("[bridge] listening — open one of:", flush=True)
+        for url in urls:
+            self._log(f"  {url}")
+            print(f"  {url}", flush=True)
 
     def _on_rule_matched(self, event: dict) -> None:
         if self._bridge is None:

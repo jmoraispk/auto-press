@@ -19,12 +19,20 @@ def test_old_config_without_bridge_block_loads_with_defaults():
     }
     cfg = press_store.normalize_config(old)
     assert "bridge" in cfg
-    assert cfg["bridge"]["enabled"] is False
+    assert "enabled" not in cfg["bridge"]  # gated by --bridge flag, not config
     assert cfg["bridge"]["port"] == 8765
     rule = cfg["rules"][0]
     assert rule["bridge_paste_offset"] == [0, 0]
     assert rule["bridge_read_strategy"] == "none"
     assert rule["bridge_read_region"] is None
+
+
+def test_old_config_with_legacy_enabled_field_is_dropped():
+    """Old configs that used the deprecated bridge.enabled flag get migrated
+    cleanly — the field is silently dropped on load."""
+    cfg = press_store.normalize_config({"bridge": {"enabled": True, "port": 9000}})
+    assert "enabled" not in cfg["bridge"]
+    assert cfg["bridge"]["port"] == 9000
 
 
 def test_bridge_block_round_trip(tmp_path, monkeypatch):
@@ -34,7 +42,6 @@ def test_bridge_block_round_trip(tmp_path, monkeypatch):
     monkeypatch.setattr(press_store, "CONFIG_PATH", config_path)
 
     cfg = press_store.default_config()
-    cfg["bridge"]["enabled"] = True
     cfg["bridge"]["port"] = 9000
     cfg["bridge"]["ntfy_topic"] = "demo"
     rule = press_store.default_rule("X")
@@ -47,7 +54,6 @@ def test_bridge_block_round_trip(tmp_path, monkeypatch):
     press_store.save_config(cfg)
     loaded = press_store.load_config()
 
-    assert loaded["bridge"]["enabled"] is True
     assert loaded["bridge"]["port"] == 9000
     assert loaded["bridge"]["ntfy_topic"] == "demo"
     r = loaded["rules"][0]
@@ -61,14 +67,12 @@ def test_bridge_invalid_values_fall_back_to_defaults():
     cfg = press_store.normalize_config(
         {
             "bridge": {
-                "enabled": "yes",
                 "port": "ninety",
                 "pre_paste_delay_ms": "fast",
                 "ntfy_server": "  ",
             }
         }
     )
-    assert cfg["bridge"]["enabled"] is True  # truthy string
     assert cfg["bridge"]["port"] == 8765
     assert cfg["bridge"]["pre_paste_delay_ms"] == 150
     assert cfg["bridge"]["ntfy_server"] == "https://ntfy.sh"
@@ -106,7 +110,7 @@ def fastapi_client():
     def cfg_snapshot():
         return {
             "interval_seconds": 10.0,
-            "bridge": {"enabled": True, "pre_paste_delay_ms": 5, "clipboard_restore_delay_ms": 5},
+            "bridge": {"pre_paste_delay_ms": 5, "clipboard_restore_delay_ms": 5},
             "rules": [
                 {
                     "id": "rule-a",

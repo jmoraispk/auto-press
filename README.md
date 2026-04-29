@@ -74,14 +74,22 @@ The bridge is **off by default** and adds no overhead until enabled.
 
 ```bash
 uv sync --extra bridge
+uv run main.py --bridge
 ```
 
-Edit `templates/config.json` and add (or set) the `bridge` block:
+The `--bridge` flag is the only switch — without it the bridge never starts, regardless of `config.json`. Optional overrides:
+
+```bash
+uv run main.py --bridge --bridge-host 127.0.0.1 --bridge-port 8765
+```
+
+Once running, open `http://<windows-tailscale-name>:8765` from the phone. Tap the share/install icon to add the PWA to your home screen — it runs in standalone display mode.
+
+ntfy push notifications and timing knobs live in `templates/config.json` under the `bridge` block:
 
 ```json
 {
   "bridge": {
-    "enabled": true,
     "host": "0.0.0.0",
     "port": 8765,
     "ntfy_topic": "your-secret-topic",
@@ -89,8 +97,6 @@ Edit `templates/config.json` and add (or set) the `bridge` block:
   }
 }
 ```
-
-Restart auto-press and open `http://<windows-tailscale-name>:8765` from the phone. Tap the share/install icon to add the PWA to your home screen — it runs in standalone display mode.
 
 ### Notifications
 

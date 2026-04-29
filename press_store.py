@@ -62,8 +62,9 @@ DEFAULT_HOTKEY_MODS = 0
 
 
 def default_bridge_config() -> dict:
+    # The bridge is gated by the --bridge CLI flag, not by config. The keys
+    # here only configure the bind address, ntfy push, and timing knobs.
     return {
-        "enabled": False,
         "host": "0.0.0.0",
         "port": 8765,
         "ntfy_topic": "",
@@ -183,7 +184,6 @@ def _normalize_bridge(bridge: dict | None) -> dict:
     base = default_bridge_config()
     if not isinstance(bridge, dict):
         return base
-    base["enabled"] = bool(bridge.get("enabled", False))
     if isinstance(bridge.get("host"), str) and bridge["host"].strip():
         base["host"] = bridge["host"].strip()
     try:
