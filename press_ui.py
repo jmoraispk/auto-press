@@ -75,7 +75,6 @@ with _contextlib.redirect_stdout(_io.StringIO()):
         FluentIcon as FIF,
         HeaderCardWidget,
         LineEdit,
-        Pivot,
         PlainTextEdit as FluentPlainTextEdit,
         PrimaryPushButton,
         PushButton,
@@ -879,21 +878,22 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._build_command_bar(initial_seconds))
 
-        # Body: Rules + Bridge tabs are always present. The Bridge tab
-        # has its own runtime "Bridge service" switch — the --bridge CLI
-        # flag just flips it ON at launch rather than gating the tab
-        # itself, so users can opt in / opt out from the UI any time.
+        # Body: Rules + Bridge in a stacked widget, switched by a small
+        # SegmentedWidget anchored to the left. Pivot was visually heavy
+        # and stole horizontal space; SegmentedWidget keeps the toggle
+        # tight enough to fit beside the tab content.
         self._body_container = QWidget()
         body_layout = QVBoxLayout(self._body_container)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(8)
 
         rules_page = self._build_rules_page()
-        self._tab_strip = Pivot(self)
-        self._tab_stack = QStackedWidget()
         bridge_page = self._build_bridge_page()
+        self._tab_stack = QStackedWidget()
         self._tab_stack.addWidget(rules_page)
         self._tab_stack.addWidget(bridge_page)
+
+        self._tab_strip = SegmentedWidget(self)
         self._tab_strip.addItem(
             routeKey="rules", text="Rules",
             onClick=lambda: self._tab_stack.setCurrentIndex(0),
@@ -903,7 +903,12 @@ class MainWindow(QMainWindow):
             onClick=lambda: self._tab_stack.setCurrentIndex(1),
         )
         self._tab_strip.setCurrentItem("rules")
-        body_layout.addWidget(self._tab_strip)
+
+        strip_row = QHBoxLayout()
+        strip_row.setContentsMargins(0, 0, 0, 0)
+        strip_row.addWidget(self._tab_strip)
+        strip_row.addStretch(1)
+        body_layout.addLayout(strip_row)
         body_layout.addWidget(self._tab_stack, 1)
 
         root.addWidget(self._body_container, 1)
@@ -1327,24 +1332,23 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
 
-        # Bridge service toggle. The actual service (FastAPI + idle
-        # detection + ntfy) is bound to this switch — flipping it off
-        # tears the listener down so the bridge has zero footprint when
-        # not in use. Reflects the --bridge CLI flag at launch.
-        toggle_card = HeaderCardWidget()
-        toggle_card.setTitle("Bridge service")
-        toggle_body = QHBoxLayout()
-        toggle_body.setContentsMargins(2, 0, 2, 0)
-        toggle_body.setSpacing(8)
+        # Inline service toggle row. The switch turns the FastAPI server
+        # + idle detector on/off; the status label shows the live URL
+        # while running. --bridge flips this on at launch.
+        svc_row = QHBoxLayout()
+        svc_row.setContentsMargins(2, 0, 2, 0)
+        svc_row.setSpacing(8)
+        svc_row.addWidget(StrongBodyLabel("Bridge service"))
         self._bridge_switch = SwitchButton()
         self._bridge_switch.setOnText("On")
         self._bridge_switch.setOffText("Off")
         self._bridge_switch.checkedChanged.connect(self._on_bridge_switch_toggled)
-        toggle_body.addWidget(self._bridge_switch)
-        self._bridge_switch_status = CaptionLabel("Stopped — toggle on to start the FastAPI service.")
-        toggle_body.addWidget(self._bridge_switch_status, 1)
-        toggle_card.viewLayout.addLayout(toggle_body)
-        outer.addWidget(toggle_card)
+        svc_row.addWidget(self._bridge_switch)
+        self._bridge_switch_status = CaptionLabel(
+            "Stopped — toggle on to start the FastAPI service."
+        )
+        svc_row.addWidget(self._bridge_switch_status, 1)
+        outer.addLayout(svc_row)
 
         # Idle template card.
         tpl_card = HeaderCardWidget()
@@ -1354,19 +1358,37 @@ class MainWindow(QMainWindow):
         tpl_body.setSpacing(8)
         desc = CaptionLabel(
             "Capture the visual cue that means a Cursor window is idle (Continue button, "
-            "send icon, etc.). The same template is matched inside every window region."
+            "send icon, etc.). The same template is matched inside every window region. "
+            "Use Test to dry-run detection across all configured windows."
         )
         desc.setWordWrap(True)
         tpl_body.addWidget(desc)
 
         tpl_row = QHBoxLayout()
         tpl_row.setSpacing(8)
-        capture_tpl_btn = PrimaryPushButton(FIF.CAMERA, "Capture idle template")
+        # Thumbnail of the captured template — empty box until a capture
+        # exists, fluent dashed border so it reads as a placeholder.
+        self._bridge_template_thumb = QLabel()
+        self._bridge_template_thumb.setFixedSize(140, 60)
+        self._bridge_template_thumb.setAlignment(Qt.AlignCenter)
+        self._bridge_template_thumb.setStyleSheet(
+            "border: 1px dashed #555; border-radius: 6px; "
+            "background: #1f2129; color: #6f7180; font-size: 11px;"
+        )
+        self._bridge_template_thumb.setText("(no template)")
+        tpl_row.addWidget(self._bridge_template_thumb)
+        capture_tpl_btn = PrimaryPushButton(FIF.CAMERA, "Capture")
         capture_tpl_btn.clicked.connect(self._capture_bridge_idle_template)
         tpl_row.addWidget(capture_tpl_btn)
-        self._bridge_template_label = CaptionLabel("(none captured yet)")
-        tpl_row.addWidget(self._bridge_template_label, 1)
+        test_tpl_btn = PushButton(FIF.PLAY, "Test")
+        test_tpl_btn.setToolTip("Run idle detection across all configured windows now")
+        test_tpl_btn.clicked.connect(self._test_bridge_idle_match)
+        tpl_row.addWidget(test_tpl_btn)
+        tpl_row.addStretch(1)
         tpl_body.addLayout(tpl_row)
+
+        self._bridge_template_label = CaptionLabel("(none captured yet)")
+        tpl_body.addWidget(self._bridge_template_label)
 
         thr_row = QHBoxLayout()
         thr_row.setSpacing(8)
@@ -1400,8 +1422,8 @@ class MainWindow(QMainWindow):
         win_body.addWidget(win_desc)
 
         self._bridge_windows_table = TableWidget()
-        self._bridge_windows_table.setColumnCount(4)
-        self._bridge_windows_table.setHorizontalHeaderLabels(["Name", "Region", "Read region", ""])
+        self._bridge_windows_table.setColumnCount(3)
+        self._bridge_windows_table.setHorizontalHeaderLabels(["Name", "Region", ""])
         self._bridge_windows_table.verticalHeader().setVisible(False)
         self._bridge_windows_table.horizontalHeader().setHighlightSections(False)
         self._bridge_windows_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -1413,7 +1435,6 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         win_body.addWidget(self._bridge_windows_table)
 
         add_row = QHBoxLayout()
@@ -1462,10 +1483,60 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_bridge_template_label"):
             return
         path = (self._cfg.get("bridge") or {}).get("idle_template_path")
-        if path:
-            self._bridge_template_label.setText(f"Captured: {path}")
-        else:
+        thumb = getattr(self, "_bridge_template_thumb", None)
+        if not path:
             self._bridge_template_label.setText("(none captured yet)")
+            if thumb is not None:
+                thumb.clear()
+                thumb.setText("(no template)")
+            return
+        full = resolve_template_path(path)
+        if not full or not full.exists():
+            self._bridge_template_label.setText(f"Captured: {path} (file missing)")
+            if thumb is not None:
+                thumb.clear()
+                thumb.setText("(missing)")
+            return
+        self._bridge_template_label.setText(f"Captured: {path}")
+        if thumb is not None:
+            pix = QPixmap(str(full))
+            if not pix.isNull():
+                scaled = pix.scaled(
+                    thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                thumb.setPixmap(scaled)
+            else:
+                thumb.clear()
+                thumb.setText("(unreadable)")
+
+    def _test_bridge_idle_match(self) -> None:
+        """Dry-run idle detection right now, regardless of whether the
+        worker is running, so the user can verify the template + window
+        regions without flipping the bridge service on."""
+        bridge_cfg = self._cfg.get("bridge", {})
+        if not bridge_cfg.get("idle_template_path"):
+            self._bridge_log("test: capture an idle template first")
+            return
+        if not bridge_cfg.get("windows"):
+            self._bridge_log("test: add at least one Cursor window first")
+            return
+        try:
+            states = evaluate_bridge_windows(bridge_cfg)
+        except Exception as exc:
+            self._bridge_log(f"test failed: {exc}")
+            return
+        if not states:
+            self._bridge_log("test: detector returned no states (template file missing?)")
+            return
+        self._bridge_log("test results:")
+        for state in states:
+            if not state.get("configured"):
+                self._bridge_log(f"  • {state['name']}: not configured (no region)")
+                continue
+            verdict = "idle" if state["idle"] else "busy"
+            self._bridge_log(
+                f"  • {state['name']}: {verdict} (score {state['score']:.3f})"
+            )
 
     def _capture_bridge_idle_template(self) -> None:
         try:
@@ -1539,22 +1610,6 @@ class MainWindow(QMainWindow):
             f"updated '{name}' region → ({bbox[0]},{bbox[1]}) {bbox[2]}×{bbox[3]}"
         )
 
-    def _capture_bridge_window_read_region(self, window_id: str) -> None:
-        idx = self._find_window_index(window_id)
-        if idx is None:
-            return
-        name = self._cfg["bridge"]["windows"][idx].get("name", "Cursor")
-        self._bridge_log(f"set read region for '{name}': drag a box around the message area…")
-        bbox = capture_drag_bbox(self)
-        if not bbox:
-            self._bridge_log("read region cancelled")
-            return
-        with self._cfg_lock:
-            self._cfg["bridge"]["windows"][idx]["read_region"] = [int(b) for b in bbox]
-        self._persist()
-        self._refresh_bridge_windows_table()
-        self._bridge_log(f"set '{name}' read region → {bbox[2]}×{bbox[3]}")
-
     def _delete_bridge_window(self, window_id: str) -> None:
         idx = self._find_window_index(window_id)
         if idx is None:
@@ -1594,12 +1649,6 @@ class MainWindow(QMainWindow):
             region_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             table.setItem(row, 1, region_item)
 
-            rr = w.get("read_region")
-            rr_text = f"{rr[2]}×{rr[3]}" if rr else "—"
-            rr_item = QTableWidgetItem(rr_text)
-            rr_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-            table.setItem(row, 2, rr_item)
-
             cell = QWidget()
             cl = QHBoxLayout(cell)
             cl.setContentsMargins(2, 2, 2, 2)
@@ -1609,20 +1658,14 @@ class MainWindow(QMainWindow):
             region_btn.clicked.connect(
                 lambda _checked=False, _id=wid: self._recapture_bridge_window_region(_id)
             )
-            read_btn = ToolButton(FIF.LAYOUT)
-            read_btn.setToolTip("Set last-message read region (optional)")
-            read_btn.clicked.connect(
-                lambda _checked=False, _id=wid: self._capture_bridge_window_read_region(_id)
-            )
             del_btn = ToolButton(FIF.DELETE)
             del_btn.setToolTip("Remove this window")
             del_btn.clicked.connect(
                 lambda _checked=False, _id=wid: self._delete_bridge_window(_id)
             )
             cl.addWidget(region_btn)
-            cl.addWidget(read_btn)
             cl.addWidget(del_btn)
-            table.setCellWidget(row, 3, cell)
+            table.setCellWidget(row, 2, cell)
         table.itemChanged.connect(self._on_bridge_window_renamed)
 
     def _on_bridge_window_renamed(self, item: QTableWidgetItem) -> None:
