@@ -60,6 +60,56 @@ auto-press sits in the Windows system tray. The dot color tells you what it's do
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
+## 📱 Remote Bridge (optional)
+
+A tiny FastAPI server you can opt into so a phone over Tailscale can:
+
+- 📲 Get a push notification when a rule matches.
+- 📜 See a live feed of recent rule events (Server-Sent Events).
+- ✍️ Send text from the phone — auto-press re-runs matching, clicks the matched center, pastes, and presses Enter.
+
+The bridge is **off by default** and adds no overhead until enabled.
+
+### Enable it
+
+```bash
+uv sync --extra bridge
+```
+
+Edit `templates/config.json` and add (or set) the `bridge` block:
+
+```json
+{
+  "bridge": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8765,
+    "ntfy_topic": "your-secret-topic",
+    "ntfy_server": "https://ntfy.sh"
+  }
+}
+```
+
+Restart auto-press and open `http://<windows-tailscale-name>:8765` from the phone. Tap the share/install icon to add the PWA to your home screen — it runs in standalone display mode.
+
+### Notifications
+
+If `ntfy_topic` is set, every rule match POSTs to `<ntfy_server>/<topic>` with a Title header. Subscribe in the [ntfy app](https://ntfy.sh/) — no account required. Tapping a notification opens the phone UI focused on that rule.
+
+### Security
+
+There is no auth on the bridge **by design** — Tailscale is the access boundary. If you also want to clamp it to your tailnet, set `"tailnet_only": true` and bind the host to your Tailscale IP. Don't expose port 8765 to the public internet.
+
+### Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| **Send → "no matches for rule right now"** | The window moved off-screen, was minimized, or the template's gone stale. |
+| **Send → 409 multiple matches** | More than one place on screen matches the rule. Pick one in the picker, or narrow the rule's search region. |
+| **No notifications** | Wrong `ntfy_topic`, or the ntfy app isn't subscribed; check `<ntfy_server>/<topic>` in a browser. |
+| **PWA won't install** | Some browsers require HTTPS for install; use Chrome/Safari "Add to Home screen" directly. |
+| **Read panel empty / OCR garbled** | Read strategies are stubs in v1; OCR will land later and needs the Tesseract binary on PATH. |
+
 ## ❓ FAQ
 
 <details>
@@ -106,5 +156,7 @@ Click the **Hotkey** button in the toolbar (next to Start), then press the key c
 - [press_engine.py](press_engine.py) — screen capture + template matching + action dispatch.
 - [press_store.py](press_store.py) — config persistence (rules + hotkey + interval) and template-file helpers.
 - [press_core.py](press_core.py) — click / type / vision primitives used by the engine.
+- [press_bridge.py](press_bridge.py) — optional FastAPI server, SSE event hub, send pipeline, ntfy publisher.
+- [bridge_phone/](bridge_phone/) — vanilla HTML/CSS/JS PWA served by the bridge.
 - [templates/](templates/) — captured template images and `config.json`. User-local; gitignored.
 </details>

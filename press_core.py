@@ -95,3 +95,112 @@ def do_action(mode: str, click_target: tuple[int, int], text_before_enter: str |
         pyautogui.press("enter")
 
     pyautogui.moveTo(old.x, old.y, duration=0)
+
+
+# ---- bridge primitives ---------------------------------------------------
+
+def click_point(point: tuple[int, int]) -> None:
+    """Move the cursor and click — without restoring the previous cursor pos.
+
+    do_action snaps back so unattended automation looks invisible. The bridge
+    instead keeps the cursor at the click target so the pasted text lands in
+    the right field, since some apps refuse focus until the next user input.
+    """
+    _pin_thread_v2_dpi()
+    x, y = int(point[0]), int(point[1])
+    pyautogui.moveTo(x, y, duration=0)
+    pyautogui.click()
+
+
+def get_clipboard_text() -> str:
+    """Best-effort current clipboard text (empty string if unavailable)."""
+    try:
+        import pyperclip  # type: ignore
+        return pyperclip.paste() or ""
+    except Exception:
+        pass
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            from ctypes import wintypes  # noqa: F401
+
+            CF_UNICODETEXT = 13
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            user32.OpenClipboard(0)
+            try:
+                handle = user32.GetClipboardData(CF_UNICODETEXT)
+                if not handle:
+                    return ""
+                ptr = kernel32.GlobalLock(handle)
+                if not ptr:
+                    return ""
+                try:
+                    return ctypes.c_wchar_p(ptr).value or ""
+                finally:
+                    kernel32.GlobalUnlock(handle)
+            finally:
+                user32.CloseClipboard()
+        except Exception:
+            return ""
+    return ""
+
+
+def set_clipboard_text(text: str) -> None:
+    try:
+        import pyperclip  # type: ignore
+        pyperclip.copy(text)
+        return
+    except Exception:
+        pass
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+
+            CF_UNICODETEXT = 13
+            GMEM_MOVEABLE = 0x0002
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            buf = (text + "\x00").encode("utf-16-le")
+            handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(buf))
+            if not handle:
+                return
+            ptr = kernel32.GlobalLock(handle)
+            if not ptr:
+                return
+            try:
+                ctypes.memmove(ptr, buf, len(buf))
+            finally:
+                kernel32.GlobalUnlock(handle)
+            user32.OpenClipboard(0)
+            try:
+                user32.EmptyClipboard()
+                user32.SetClipboardData(CF_UNICODETEXT, handle)
+            finally:
+                user32.CloseClipboard()
+        except Exception:
+            return
+
+
+def paste_text_and_enter(
+    text: str,
+    pre_paste_delay_ms: int = 150,
+    clipboard_restore_delay_ms: int = 500,
+) -> None:
+    """Paste `text` via Ctrl+V then press Enter, restoring the prior clipboard.
+
+    Pre-delay lets the focused field settle after the click; the restore
+    delay covers slow-clipboard apps that otherwise read the new value back
+    into themselves before we put the original contents back.
+    """
+    _pin_thread_v2_dpi()
+    saved = get_clipboard_text()
+    set_clipboard_text(text)
+    if pre_paste_delay_ms > 0:
+        time.sleep(pre_paste_delay_ms / 1000.0)
+    pyautogui.hotkey("ctrl", "v")
+    time.sleep(0.05)
+    pyautogui.press("enter")
+    if clipboard_restore_delay_ms > 0:
+        time.sleep(clipboard_restore_delay_ms / 1000.0)
+    set_clipboard_text(saved)

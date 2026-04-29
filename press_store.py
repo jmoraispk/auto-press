@@ -19,6 +19,18 @@ MATCHER_COLOR = "color"
 MATCHER_TYPES = [MATCHER_TEMPLATE, MATCHER_COLOR]
 
 
+READ_STRATEGY_NONE = "none"
+READ_STRATEGY_OCR = "ocr"
+READ_STRATEGY_CLIPBOARD = "clipboard"
+READ_STRATEGY_UIA = "uia"
+READ_STRATEGIES = [
+    READ_STRATEGY_NONE,
+    READ_STRATEGY_OCR,
+    READ_STRATEGY_CLIPBOARD,
+    READ_STRATEGY_UIA,
+]
+
+
 def default_rule(name: str = "New Rule") -> dict:
     return {
         "id": uuid.uuid4().hex[:8],
@@ -35,6 +47,11 @@ def default_rule(name: str = "New Rule") -> dict:
         "action": ACTION_CLICK,
         "text": "continue",
         "priority": 1,
+        # Bridge-only fields (ignored when bridge is disabled).
+        "bridge_paste_offset": [0, 0],
+        "bridge_friendly_name": "",
+        "bridge_read_strategy": READ_STRATEGY_NONE,
+        "bridge_read_region": None,
     }
 
 
@@ -44,12 +61,27 @@ DEFAULT_HOTKEY_VK = 0x22
 DEFAULT_HOTKEY_MODS = 0
 
 
+def default_bridge_config() -> dict:
+    return {
+        "enabled": False,
+        "host": "0.0.0.0",
+        "port": 8765,
+        "ntfy_topic": "",
+        "ntfy_server": "https://ntfy.sh",
+        "pre_paste_delay_ms": 150,
+        "clipboard_restore_delay_ms": 500,
+        "tailnet_only": False,
+        "ocr_tesseract_path": "",
+    }
+
+
 def default_config() -> dict:
     return {
         "interval_seconds": 10.0,
         "hotkey_vk": DEFAULT_HOTKEY_VK,
         "hotkey_mods": DEFAULT_HOTKEY_MODS,
         "rules": [],
+        "bridge": default_bridge_config(),
     }
 
 
@@ -121,6 +153,22 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
     except (TypeError, ValueError):
         area = 0
     base["color_capture_area"] = max(0, area)
+
+    # Bridge fields. Tolerate missing values from older configs.
+    offset = base.get("bridge_paste_offset")
+    if isinstance(offset, (list, tuple)) and len(offset) == 2:
+        try:
+            base["bridge_paste_offset"] = [int(offset[0]), int(offset[1])]
+        except (TypeError, ValueError):
+            base["bridge_paste_offset"] = [0, 0]
+    else:
+        base["bridge_paste_offset"] = [0, 0]
+    if not isinstance(base.get("bridge_friendly_name"), str):
+        base["bridge_friendly_name"] = ""
+    if base.get("bridge_read_strategy") not in READ_STRATEGIES:
+        base["bridge_read_strategy"] = READ_STRATEGY_NONE
+    if not _valid_region(base.get("bridge_read_region")):
+        base["bridge_read_region"] = None
     return base
 
 
@@ -129,6 +177,33 @@ def _valid_vk(value) -> bool:
         return 0 <= int(value) <= 0xFFFF
     except (TypeError, ValueError):
         return False
+
+
+def _normalize_bridge(bridge: dict | None) -> dict:
+    base = default_bridge_config()
+    if not isinstance(bridge, dict):
+        return base
+    base["enabled"] = bool(bridge.get("enabled", False))
+    if isinstance(bridge.get("host"), str) and bridge["host"].strip():
+        base["host"] = bridge["host"].strip()
+    try:
+        port = int(bridge.get("port", base["port"]))
+        if 1 <= port <= 65535:
+            base["port"] = port
+    except (TypeError, ValueError):
+        pass
+    if isinstance(bridge.get("ntfy_topic"), str):
+        base["ntfy_topic"] = bridge["ntfy_topic"].strip()
+    if isinstance(bridge.get("ntfy_server"), str) and bridge["ntfy_server"].strip():
+        base["ntfy_server"] = bridge["ntfy_server"].strip()
+    base["pre_paste_delay_ms"] = int(_clamp_float(bridge.get("pre_paste_delay_ms"), 150, 0, 10000))
+    base["clipboard_restore_delay_ms"] = int(
+        _clamp_float(bridge.get("clipboard_restore_delay_ms"), 500, 0, 10000)
+    )
+    base["tailnet_only"] = bool(bridge.get("tailnet_only", False))
+    if isinstance(bridge.get("ocr_tesseract_path"), str):
+        base["ocr_tesseract_path"] = bridge["ocr_tesseract_path"]
+    return base
 
 
 def normalize_config(config: dict | None) -> dict:
@@ -143,6 +218,7 @@ def normalize_config(config: dict | None) -> dict:
         raw_rules = config.get("rules")
         if isinstance(raw_rules, list):
             base["rules"] = [_normalize_rule(rule, idx + 1) for idx, rule in enumerate(raw_rules)]
+        base["bridge"] = _normalize_bridge(config.get("bridge"))
     return base
 
 

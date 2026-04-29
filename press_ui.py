@@ -11,6 +11,8 @@ import ctypes
 import sys
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -366,11 +368,26 @@ class HotkeyButton(PushButton):
 # ---- engine worker --------------------------------------------------
 
 
+def _monitor_index_for_point(x: int, y: int) -> int:
+    """Best-effort 0-based monitor index containing (x, y); -1 if none."""
+    try:
+        for idx, (mx, my, mw, mh) in enumerate(enumerate_physical_monitors()):
+            if mx <= x < mx + mw and my <= y < my + mh:
+                return idx
+    except Exception:
+        return -1
+    return -1
+
+
 class EngineWorker(QObject):
     tick_done = Signal(list, list, float)
     tick_error = Signal(str)
     running_changed = Signal(bool)
     needs_rules = Signal()
+    # Bridge events: emitted whenever a rule action fires. Carries a JSON-
+    # ready dict; bridge consumers push it onto an SSE/event ring buffer.
+    rule_matched = Signal(dict)
+    rule_window_inferred = Signal(dict)
 
     def __init__(self, cfg_snapshot):
         super().__init__()
@@ -424,6 +441,22 @@ class EngineWorker(QObject):
                 results, actions = evaluate_rules(runtime_rules)
                 if actions:
                     execute_matches(actions)
+                    for action in actions:
+                        center = action.get("center")
+                        if center is None:
+                            continue
+                        cx, cy = int(center[0]), int(center[1])
+                        event = {
+                            "event_id": uuid.uuid4().hex,
+                            "rule_id": action.get("id"),
+                            "rule_name": action.get("name"),
+                            "monitor_index": _monitor_index_for_point(cx, cy),
+                            "match_rect": None,
+                            "match_center": [cx, cy],
+                            "action_type": action.get("action"),
+                            "timestamp_iso": datetime.now(timezone.utc).isoformat(),
+                        }
+                        self.rule_matched.emit(event)
                 self.tick_done.emit(results, actions, self._get_interval())
             except Exception as exc:
                 self.tick_error.emit(f"tick failed: {exc}")
@@ -718,7 +751,12 @@ class MainWindow(QMainWindow):
         self._worker.tick_error.connect(self._on_worker_error)
         self._worker.running_changed.connect(self._on_running_changed)
         self._worker.needs_rules.connect(self._on_needs_rules)
+        self._worker.rule_matched.connect(self._on_rule_matched)
         self._worker_thread.start()
+
+        # Optional remote bridge
+        self._bridge = None
+        self._maybe_start_bridge()
 
         # Countdown
         self._countdown_timer = QTimer(self)
@@ -1242,6 +1280,7 @@ class MainWindow(QMainWindow):
             return {
                 "interval_seconds": float(self._cfg.get("interval_seconds", 10.0)),
                 "rules": [dict(rule) for rule in self._cfg.get("rules", [])],
+                "bridge": dict(self._cfg.get("bridge", {})),
             }
 
     def _persist(self) -> None:
@@ -2031,10 +2070,73 @@ class MainWindow(QMainWindow):
         self._hotkey_stop.set()
         if IS_WINDOWS:
             self._post_wm_quit()
+        if self._bridge is not None:
+            try:
+                self._bridge.stop()
+            except Exception:
+                pass
         with self._cfg_lock:
             self._cfg["interval_seconds"] = float(self._interval_spin.value())
             save_config(self._cfg)
         self._tray.hide()
+
+    # ---------- bridge ----------
+
+    def _maybe_start_bridge(self) -> None:
+        bridge_cfg = (self._cfg.get("bridge") or {})
+        if not bridge_cfg.get("enabled"):
+            return
+        try:
+            from press_bridge import BridgeCallbacks, BridgeService
+        except Exception as exc:
+            self._log(f"[bridge] disabled — install fastapi+uvicorn ({exc})")
+            return
+        callbacks = BridgeCallbacks(
+            cfg_snapshot=self._snapshot_cfg,
+            re_match_rule=self._bridge_re_match_rule,
+            perform_send=self._bridge_perform_send,
+            perform_read=None,
+        )
+        self._bridge = BridgeService(callbacks)
+        self._bridge.start(bridge_cfg)
+        self._log(f"[bridge] listening on {bridge_cfg.get('host')}:{bridge_cfg.get('port')}")
+
+    def _on_rule_matched(self, event: dict) -> None:
+        if self._bridge is None:
+            return
+        try:
+            self._bridge.publish_event(event)
+        except Exception as exc:
+            self._log(f"[bridge] publish failed: {exc}")
+
+    def _bridge_re_match_rule(self, rule_id: str) -> list[tuple[float, tuple[int, int]]]:
+        """Worker-thread callable: re-evaluate one rule and return raw matches."""
+        from press_engine import find_rule_matches as _find
+
+        cfg = self._snapshot_cfg()
+        rule = next((r for r in cfg.get("rules", []) if r.get("id") == rule_id), None)
+        if rule is None:
+            return []
+        runtime_rules = build_runtime_rules({"rules": [rule]})
+        if not runtime_rules:
+            return []
+        return _find(None, runtime_rules[0])
+
+    def _bridge_perform_send(
+        self,
+        paste_point: tuple[int, int],
+        text: str,
+        bridge_cfg: dict,
+    ) -> None:
+        """Worker-thread callable: click target, paste text, press Enter."""
+        from press_core import click_point, paste_text_and_enter
+
+        click_point(paste_point)
+        paste_text_and_enter(
+            text,
+            pre_paste_delay_ms=int(bridge_cfg.get("pre_paste_delay_ms", 150)),
+            clipboard_restore_delay_ms=int(bridge_cfg.get("clipboard_restore_delay_ms", 500)),
+        )
 
     # ---------- global hotkey ----------
 

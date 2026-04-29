@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>auto-press</title>
+</head>
+<body>
+  <header>
+    <h1>auto-press</h1>
+    <span id="conn" class="badge offline" aria-live="polite">offline</span>
+    <button id="refresh" class="ghost" aria-label="Refresh targets">refresh</button>
+  </header>
+
+  <main>
+    <section id="rules-section">
+      <h2>Rules</h2>
+      <div id="rules"></div>
+    </section>
+
+    <section id="events-section">
+      <h2>Recent events</h2>
+      <ul id="events"></ul>
+    </section>
+
+    <section id="send-section" hidden>
+      <h2>Send to <span id="send-rule-name"></span></h2>
+      <textarea id="send-text" placeholder="Paste, dictate, or type — Enter sends." rows="4"></textarea>
+      <div class="row">
+        <button id="send-cancel" class="ghost">Cancel</button>
+        <button id="send-go" class="primary">Send</button>
+      </div>
+      <div id="send-status" class="status"></div>
+
+      <div id="picker" hidden>
+        <h3>Multiple matches — pick one</h3>
+        <ul id="picker-list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
