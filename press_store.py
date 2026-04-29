@@ -112,10 +112,14 @@ def _valid_region(region) -> bool:
     if not isinstance(region, list) or len(region) != 4:
         return False
     try:
-        left, top, width, height = [int(v) for v in region]
+        # Only width/height must be positive. left/top can be negative on
+        # Windows when a monitor is placed to the left of (or above) the
+        # primary — physical coords there are negative. Stripping such
+        # regions wiped persisted bridge windows on multi-monitor setups.
+        _left, _top, width, height = [int(v) for v in region]
     except (TypeError, ValueError):
         return False
-    return width > 0 and height > 0 and left >= 0 and top >= 0
+    return width > 0 and height > 0
 
 
 def _valid_rgb(value) -> bool:

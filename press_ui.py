@@ -1349,16 +1349,22 @@ class MainWindow(QMainWindow):
         # Idle template card.
         tpl_card = HeaderCardWidget()
         tpl_card.setTitle("Idle indicator")
+        # Tuck the long explanation behind an info icon next to the title;
+        # HeaderCardWidget exposes its title via headerLayout, so we add
+        # a small ToolButton there.
+        tpl_info = ToolButton(FIF.INFO)
+        tpl_info.setToolTip(
+            "Capture the visual cue that means a Cursor window is idle "
+            "(Continue button, send icon, etc.). The same template is matched "
+            "inside every window region. Use Test to dry-run detection across "
+            "all configured windows."
+        )
+        tpl_info.setFixedSize(22, 22)
+        tpl_card.headerLayout.addWidget(tpl_info)
+
         tpl_body = QVBoxLayout()
         tpl_body.setContentsMargins(2, 0, 2, 0)
         tpl_body.setSpacing(8)
-        desc = CaptionLabel(
-            "Capture the visual cue that means a Cursor window is idle (Continue button, "
-            "send icon, etc.). The same template is matched inside every window region. "
-            "Use Test to dry-run detection across all configured windows."
-        )
-        desc.setWordWrap(True)
-        tpl_body.addWidget(desc)
 
         tpl_row = QHBoxLayout()
         tpl_row.setSpacing(8)
@@ -1383,9 +1389,6 @@ class MainWindow(QMainWindow):
         tpl_row.addStretch(1)
         tpl_body.addLayout(tpl_row)
 
-        self._bridge_template_label = CaptionLabel("(none captured yet)")
-        tpl_body.addWidget(self._bridge_template_label)
-
         thr_row = QHBoxLayout()
         thr_row.setSpacing(8)
         thr_row.addWidget(BodyLabel("Match threshold:"))
@@ -1406,16 +1409,17 @@ class MainWindow(QMainWindow):
         # Cursor windows card.
         win_card = HeaderCardWidget()
         win_card.setTitle("Cursor windows")
+        win_info = ToolButton(FIF.INFO)
+        win_info.setToolTip(
+            "Drag a box around each Cursor window. The bridge scans inside "
+            "that box for the idle template. Click a name to rename."
+        )
+        win_info.setFixedSize(22, 22)
+        win_card.headerLayout.addWidget(win_info)
+
         win_body = QVBoxLayout()
         win_body.setContentsMargins(2, 0, 2, 0)
         win_body.setSpacing(8)
-
-        win_desc = CaptionLabel(
-            "Drag a box around each Cursor window. The bridge scans inside that box for "
-            "the idle template; double-click a name to rename."
-        )
-        win_desc.setWordWrap(True)
-        win_body.addWidget(win_desc)
 
         self._bridge_windows_table = TableWidget()
         self._bridge_windows_table.setColumnCount(3)
@@ -1496,34 +1500,27 @@ class MainWindow(QMainWindow):
         view.appendPlainText(f"{_dt.now().strftime('%H:%M:%S')}  {msg}")
 
     def _refresh_bridge_template_view(self) -> None:
-        if not hasattr(self, "_bridge_template_label"):
+        thumb = getattr(self, "_bridge_template_thumb", None)
+        if thumb is None:
             return
         path = (self._cfg.get("bridge") or {}).get("idle_template_path")
-        thumb = getattr(self, "_bridge_template_thumb", None)
         if not path:
-            self._bridge_template_label.setText("(none captured yet)")
-            if thumb is not None:
-                thumb.clear()
-                thumb.setText("(no template)")
+            thumb.clear()
+            thumb.setText("(no template)")
             return
         full = resolve_template_path(path)
         if not full or not full.exists():
-            self._bridge_template_label.setText(f"Captured: {path} (file missing)")
-            if thumb is not None:
-                thumb.clear()
-                thumb.setText("(missing)")
+            thumb.clear()
+            thumb.setText("(missing)")
             return
-        self._bridge_template_label.setText(f"Captured: {path}")
-        if thumb is not None:
-            pix = QPixmap(str(full))
-            if not pix.isNull():
-                scaled = pix.scaled(
-                    thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-                )
-                thumb.setPixmap(scaled)
-            else:
-                thumb.clear()
-                thumb.setText("(unreadable)")
+        pix = QPixmap(str(full))
+        if pix.isNull():
+            thumb.clear()
+            thumb.setText("(unreadable)")
+            return
+        thumb.setPixmap(
+            pix.scaled(thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
 
     def _test_bridge_idle_match(self) -> None:
         """Dry-run idle detection right now, regardless of whether the
@@ -1641,22 +1638,24 @@ class MainWindow(QMainWindow):
         table = getattr(self, "_bridge_windows_table", None)
         if table is None:
             return
-        # Disconnect rename handler during rebuild so itemChanged doesn't
-        # fire for every cell we set. Qt's disconnect raises a Python
-        # RuntimeWarning (not an exception) when there's nothing to
-        # disconnect, so we track the wired state explicitly.
-        if getattr(self, "_bridge_table_signal_wired", False):
-            table.itemChanged.disconnect(self._on_bridge_window_renamed)
-            self._bridge_table_signal_wired = False
         windows = self._cfg.get("bridge", {}).get("windows", [])
         table.setRowCount(0)
         table.setRowCount(len(windows))
         for row, w in enumerate(windows):
             wid = w.get("id", "")
 
-            name_item = QTableWidgetItem(w.get("name", "Cursor"))
-            name_item.setData(Qt.UserRole, wid)
-            table.setItem(row, 0, name_item)
+            # Name is a LineEdit cell widget rather than an editable
+            # QTableWidgetItem — explicit input field, no double-click
+            # ambiguity, no edit-mode overlap with adjacent cells.
+            name_edit = LineEdit()
+            name_edit.setText(w.get("name", "Cursor"))
+            name_edit.setClearButtonEnabled(False)
+            name_edit.editingFinished.connect(
+                lambda _id=wid, _edit=name_edit: self._rename_bridge_window(
+                    _id, _edit.text()
+                )
+            )
+            table.setCellWidget(row, 0, name_edit)
 
             region = w.get("region")
             region_text = (
@@ -1683,23 +1682,18 @@ class MainWindow(QMainWindow):
             cl.addWidget(region_btn)
             cl.addWidget(del_btn)
             table.setCellWidget(row, 2, cell)
-        table.itemChanged.connect(self._on_bridge_window_renamed)
-        self._bridge_table_signal_wired = True
 
-    def _on_bridge_window_renamed(self, item: QTableWidgetItem) -> None:
-        if item.column() != 0:
-            return
-        wid = item.data(Qt.UserRole)
-        if not wid:
-            return
-        new_name = item.text().strip() or "Cursor"
+    def _rename_bridge_window(self, window_id: str, new_text: str) -> None:
+        new_name = new_text.strip() or "Cursor"
         with self._cfg_lock:
             for w in self._cfg.get("bridge", {}).get("windows", []):
-                if w.get("id") == wid:
+                if w.get("id") == window_id:
                     if w.get("name") == new_name:
                         return
                     w["name"] = new_name
                     break
+            else:
+                return
         self._persist()
         self._bridge_log(f"renamed window → '{new_name}'")
 

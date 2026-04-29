@@ -78,6 +78,17 @@ def test_window_round_trip(tmp_path, monkeypatch):
     assert w["read_region"] == [110, 210, 780, 400]
 
 
+def test_window_with_negative_origin_survives_round_trip():
+    """Multi-monitor Windows: monitors placed left of/above the primary
+    live at negative virtual-screen coordinates. Captures from those
+    monitors must persist; an earlier validator rejected them outright
+    and silently wiped the region on save."""
+    cfg = press_store.normalize_config(
+        {"bridge": {"windows": [{"name": "Left mon", "region": [-1920, 0, 800, 600]}]}}
+    )
+    assert cfg["bridge"]["windows"][0]["region"] == [-1920, 0, 800, 600]
+
+
 def test_invalid_window_fields_normalize_to_none():
     cfg = press_store.normalize_config(
         {
