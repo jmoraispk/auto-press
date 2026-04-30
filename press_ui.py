@@ -2666,6 +2666,7 @@ class MainWindow(QMainWindow):
             cfg_snapshot=self._snapshot_cfg,
             re_match_rule=self._bridge_re_match_rule,
             perform_send=self._bridge_perform_send,
+            perform_window_send=self._bridge_perform_window_send,
             perform_read=None,
         )
         self._bridge = BridgeService(callbacks)
@@ -2753,6 +2754,41 @@ class MainWindow(QMainWindow):
             text,
             pre_paste_delay_ms=int(bridge_cfg.get("pre_paste_delay_ms", 150)),
             clipboard_restore_delay_ms=int(bridge_cfg.get("clipboard_restore_delay_ms", 500)),
+        )
+
+    def _bridge_perform_window_send(
+        self, window: dict, text: str, bridge_cfg: dict
+    ) -> None:
+        """Click into a Cursor window's chat input, paste text, press Enter.
+
+        Click target is window['chat_target'] when set; otherwise we fall
+        back to the centre of the bottom 15% of the region — a reasonable
+        default for Cursor's chat input position.
+        """
+        from press_core import click_point, paste_text_and_enter
+
+        target = window.get("chat_target")
+        if not target:
+            region = window.get("region")
+            if not region or len(region) != 4:
+                self._log(
+                    f"[bridge] cannot send to '{window.get('name','?')}' — no region"
+                )
+                return
+            x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
+            target = (x + w // 2, y + int(h * 0.85))
+        click_point((int(target[0]), int(target[1])))
+        paste_text_and_enter(
+            text,
+            pre_paste_delay_ms=int(bridge_cfg.get("pre_paste_delay_ms", 150)),
+            clipboard_restore_delay_ms=int(bridge_cfg.get("clipboard_restore_delay_ms", 500)),
+        )
+        # Mirror to the bridge log so the user can confirm a send fired.
+        QTimer.singleShot(
+            0,
+            lambda: self._bridge_log(
+                f"sent to '{window.get('name','?')}': {text[:40]}{'…' if len(text) > 40 else ''}"
+            ),
         )
 
     # ---------- global hotkey ----------

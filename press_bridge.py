@@ -48,6 +48,11 @@ class BridgeCallbacks:
     cfg_snapshot: Callable[[], dict]
     re_match_rule: Callable[[str], list[tuple[float, tuple[int, int]]]]
     perform_send: Callable[[tuple[int, int], str, dict], None]
+    # Window-aware send: called with the full window dict from config (so the
+    # callback can pick chat_target / region / name) plus the text and the
+    # bridge config (timing knobs). Used by /api/windows/{id}/send and by
+    # the queue-drain path on busy → idle transitions.
+    perform_window_send: Optional[Callable[[dict, str, dict], None]] = None
     perform_read: Optional[Callable[[str, dict], Optional[str]]] = None
 
 
@@ -61,9 +66,13 @@ class WindowStore:
 
     def __init__(self, snapshots_per_window: int = SNAPSHOTS_PER_WINDOW) -> None:
         self._max = max(1, int(snapshots_per_window))
+        self._max_queue = 10  # cap so a stuck window can't grow unbounded
         self._lock = threading.Lock()
         # window_id -> {"state": dict, "snapshots": deque[(iso_ts, png_bytes)]}
         self._windows: dict[str, dict] = {}
+        # window_id -> list[str] of messages queued while the window is busy.
+        # Drained one-per-transition when the window flips back to idle.
+        self._queues: dict[str, list[str]] = {}
 
     def update(self, states: list[dict], images: dict[str, bytes]) -> list[dict]:
         """Apply a fresh detector tick. Returns the list of windows whose
@@ -104,11 +113,15 @@ class WindowStore:
 
     def summaries(self) -> list[dict]:
         with self._lock:
-            return [
-                dict(entry["state"], snapshot_count=len(entry["snapshots"]))
-                for entry in self._windows.values()
-                if entry["state"]
-            ]
+            out: list[dict] = []
+            for wid, entry in self._windows.items():
+                if not entry["state"]:
+                    continue
+                summary = dict(entry["state"])
+                summary["snapshot_count"] = len(entry["snapshots"])
+                summary["pending"] = list(self._queues.get(wid, []))
+                out.append(summary)
+            return out
 
     def snapshot(self, window_id: str, idx: int) -> Optional[tuple[str, bytes]]:
         """Snapshot at ``idx`` (0 = newest). Returns (iso_ts, png_bytes)."""
@@ -125,6 +138,47 @@ class WindowStore:
     def clear_window(self, window_id: str) -> None:
         with self._lock:
             self._windows.pop(window_id, None)
+            self._queues.pop(window_id, None)
+
+    def state_of(self, window_id: str) -> Optional[dict]:
+        with self._lock:
+            entry = self._windows.get(window_id)
+            return dict(entry["state"]) if entry and entry["state"] else None
+
+    # ---- pending-message queue ----
+
+    def enqueue(self, window_id: str, text: str) -> tuple[bool, int]:
+        """Append a queued message; returns (accepted, new_position).
+        Caps at ``self._max_queue`` to prevent unbounded growth."""
+        text = (text or "").strip()
+        if not text:
+            return False, 0
+        with self._lock:
+            q = self._queues.setdefault(window_id, [])
+            if len(q) >= self._max_queue:
+                return False, len(q)
+            q.append(text)
+            return True, len(q)
+
+    def dequeue(self, window_id: str) -> Optional[str]:
+        with self._lock:
+            q = self._queues.get(window_id)
+            if not q:
+                return None
+            text = q.pop(0)
+            if not q:
+                self._queues.pop(window_id, None)
+            return text
+
+    def pending(self, window_id: str) -> list[str]:
+        with self._lock:
+            return list(self._queues.get(window_id, []))
+
+    def clear_queue(self, window_id: str) -> int:
+        with self._lock:
+            removed = len(self._queues.get(window_id, []))
+            self._queues.pop(window_id, None)
+            return removed
 
 
 # ---- in-process event hub -----------------------------------------------
@@ -240,6 +294,15 @@ def send_ntfy(bridge_cfg: dict, event: dict) -> None:
 # ---- bridge service (started/stopped by MainWindow) ---------------------
 
 
+def _safe_perform_window_send(send_fn, win_cfg, text, bridge_cfg) -> None:
+    """Run a window-send callback, swallowing exceptions to a log line so
+    a flaky click can't blow up the daemon thread the bridge fired."""
+    try:
+        send_fn(win_cfg, text, bridge_cfg)
+    except Exception as exc:
+        LOG.warning("window send failed: %s", exc)
+
+
 class BridgeService:
     def __init__(self, callbacks: BridgeCallbacks) -> None:
         self.callbacks = callbacks
@@ -286,15 +349,15 @@ class BridgeService:
 
     def update_window_states(self, states: list[dict], images: dict[str, bytes]) -> None:
         """Called from the engine worker every detection tick. Updates the
-        ring buffer, fans state out over SSE, and fires ntfy on a window
-        flipping busy → idle."""
+        ring buffer, fans state out over SSE, fires ntfy on busy → idle,
+        and drains one queued message per window that just flipped idle."""
         transitions = self.windows.update(states, images)
         # Always fan a "window_state" event so phone clients can stay in
         # sync without polling /api/state.
         for state in self.windows.summaries():
             self.hub.publish_typed("window_state", state)
-        # Notify only on busy → idle (more interesting than the reverse).
         bridge_cfg = self._current_bridge_cfg()
+        # Notify only on busy → idle (more interesting than the reverse).
         if bridge_cfg.get("ntfy_topic"):
             for tr in transitions:
                 if tr.get("idle"):
@@ -308,6 +371,38 @@ class BridgeService:
                         }),
                         daemon=True,
                     ).start()
+
+        # Drain one queued message per just-idle window. We only send one
+        # per idle transition because firing it will likely flip the
+        # window back to busy; remaining queued messages wait for the
+        # next tick.
+        if self.callbacks.perform_window_send is None:
+            return
+        cfg = {}
+        try:
+            cfg = self.callbacks.cfg_snapshot() or {}
+        except Exception:
+            return
+        cfg_windows = {
+            w.get("id"): w for w in (cfg.get("bridge") or {}).get("windows", [])
+        }
+        for tr in transitions:
+            if not tr.get("idle"):
+                continue
+            wid = tr.get("id")
+            win_cfg = cfg_windows.get(wid)
+            if not win_cfg:
+                continue
+            text = self.windows.dequeue(wid)
+            if text is None:
+                continue
+            # Run send off the engine tick so a 2-second click+paste
+            # doesn't block the next detection.
+            threading.Thread(
+                target=_safe_perform_window_send,
+                args=(self.callbacks.perform_window_send, win_cfg, text, bridge_cfg),
+                daemon=True,
+            ).start()
 
     def _current_bridge_cfg(self) -> dict:
         try:
@@ -384,6 +479,74 @@ def build_app(service: BridgeService):
     @app.get("/api/windows")
     async def windows_list() -> JSONResponse:
         return JSONResponse(service.windows.summaries())
+
+    @app.post("/api/windows/{window_id}/send")
+    async def window_send(window_id: str, payload: dict) -> JSONResponse:
+        text = (payload.get("text") if isinstance(payload, dict) else "") or ""
+        text = text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="text required")
+        cfg = service.callbacks.cfg_snapshot()
+        win_cfg = next(
+            (w for w in (cfg.get("bridge") or {}).get("windows", [])
+             if w.get("id") == window_id),
+            None,
+        )
+        if win_cfg is None:
+            raise HTTPException(status_code=404, detail="window not found")
+        if not win_cfg.get("region"):
+            raise HTTPException(
+                status_code=400,
+                detail="window has no region configured; set one in the desktop UI",
+            )
+        if service.callbacks.perform_window_send is None:
+            raise HTTPException(status_code=501, detail="window send not wired")
+
+        # If the latest tick said the window is idle, send right now.
+        # Otherwise queue the message and let the next idle transition
+        # drain it. Either way the phone gets a clear answer.
+        live = service.windows.state_of(window_id)
+        is_idle = bool(live and live.get("idle"))
+        bridge_cfg = cfg.get("bridge") or {}
+
+        if is_idle:
+            loop = asyncio.get_running_loop()
+            try:
+                await loop.run_in_executor(
+                    None,
+                    service.callbacks.perform_window_send,
+                    win_cfg,
+                    text,
+                    bridge_cfg,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"send failed: {exc}") from exc
+            # Refresh SSE so phones see pending count drop / state change.
+            for s in service.windows.summaries():
+                service.hub.publish_typed("window_state", s)
+            return JSONResponse({"sent": True, "queued": False})
+
+        accepted, position = service.windows.enqueue(window_id, text)
+        if not accepted:
+            raise HTTPException(status_code=429, detail="queue is full")
+        # Push state so pending count updates on every connected phone.
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse(
+            {"sent": False, "queued": True, "position": position},
+            status_code=202,
+        )
+
+    @app.get("/api/windows/{window_id}/queue")
+    async def window_queue(window_id: str) -> JSONResponse:
+        return JSONResponse({"pending": service.windows.pending(window_id)})
+
+    @app.delete("/api/windows/{window_id}/queue")
+    async def window_queue_clear(window_id: str) -> JSONResponse:
+        removed = service.windows.clear_queue(window_id)
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse({"cleared": removed})
 
     @app.get("/api/windows/{window_id}/snapshot/{idx}")
     async def window_snapshot(window_id: str, idx: int) -> Response:

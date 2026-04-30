@@ -27,10 +27,7 @@ function connectSSE() {
       state.windows.set(data.id, data);
       renderWindows();
       if (state.view === "snapshots" && state.current === data.id) {
-        // Stay on the snapshots view but refresh thumbnails so the user
-        // sees the new tick land. Cheap because we only fetch when the
-        // snapshot count actually grew.
-        renderSnapshots();
+        renderWindowDetail();
       }
     } catch {}
   });
@@ -85,9 +82,9 @@ function openWindow(id) {
   state.current = id;
   $("windows-section").hidden = true;
   $("snapshots-section").hidden = false;
-  const w = state.windows.get(id);
-  $("snap-window-name").textContent = w ? (w.name || id) : id;
-  renderSnapshots();
+  $("send-text").value = "";
+  setSendStatus("");
+  renderWindowDetail();
 }
 
 function closeSnapshots() {
@@ -95,6 +92,34 @@ function closeSnapshots() {
   state.current = null;
   $("snapshots-section").hidden = true;
   $("windows-section").hidden = false;
+}
+
+function renderWindowDetail() {
+  const id = state.current;
+  if (!id) return;
+  const w = state.windows.get(id);
+  $("snap-window-name").textContent = w ? (w.name || id) : id;
+  $("snap-status").textContent = w
+    ? `${w.idle ? "idle" : "busy"} · ${formatScore(w.score)}`
+    : "—";
+  renderQueue();
+  renderSnapshots();
+}
+
+function renderQueue() {
+  const id = state.current;
+  const w = id ? state.windows.get(id) : null;
+  const pending = (w && w.pending) || [];
+  const section = $("queue-section");
+  section.hidden = pending.length === 0;
+  $("queue-count").textContent = pending.length ? `(${pending.length})` : "";
+  const list = $("queue-list");
+  list.innerHTML = "";
+  for (const text of pending) {
+    const li = document.createElement("li");
+    li.textContent = text;
+    list.appendChild(li);
+  }
 }
 
 function renderSnapshots() {
@@ -121,6 +146,63 @@ function renderSnapshots() {
   }
 }
 
+function setSendStatus(msg, kind) {
+  const el = $("send-status");
+  el.textContent = msg || "";
+  el.className = "status" + (kind ? " " + kind : "");
+}
+
+async function sendOrQueue() {
+  const id = state.current;
+  if (!id) return;
+  const text = $("send-text").value.trim();
+  if (!text) {
+    setSendStatus("Type something first.", "error");
+    return;
+  }
+  setSendStatus("Sending…");
+  try {
+    const res = await fetch(
+      `/api/windows/${encodeURIComponent(id)}/send`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      }
+    );
+    if (res.ok) {
+      // 200 → sent immediately. 202 → queued.
+      const data = await res.json();
+      if (data.queued) {
+        setSendStatus(`Queued (#${data.position}). Will send on next idle.`, "success");
+      } else {
+        setSendStatus("Sent.", "success");
+      }
+      $("send-text").value = "";
+    } else if (res.status === 202) {
+      const data = await res.json();
+      setSendStatus(`Queued (#${data.position}). Will send on next idle.`, "success");
+      $("send-text").value = "";
+    } else {
+      const detail = await res.text();
+      setSendStatus(`Error ${res.status}: ${detail}`, "error");
+    }
+  } catch (e) {
+    setSendStatus(`Network error: ${e.message}`, "error");
+  }
+}
+
+async function clearQueue() {
+  const id = state.current;
+  if (!id) return;
+  try {
+    await fetch(`/api/windows/${encodeURIComponent(id)}/queue`, { method: "DELETE" });
+    setSendStatus("Queue cleared.", "success");
+  } catch (e) {
+    setSendStatus(`Could not clear queue: ${e.message}`, "error");
+  }
+}
+
 // ---- helpers ------------------------------------------------------------
 
 function escapeHtml(s) {
@@ -135,6 +217,15 @@ function formatScore(s) {
 }
 
 $("snap-back").addEventListener("click", closeSnapshots);
+$("send-go").addEventListener("click", sendOrQueue);
+$("queue-clear").addEventListener("click", clearQueue);
+$("send-text").addEventListener("keydown", (e) => {
+  // Cmd/Ctrl + Enter sends, plain Enter inserts a newline (matches Cursor).
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    sendOrQueue();
+  }
+});
 
 loadState();
 connectSSE();

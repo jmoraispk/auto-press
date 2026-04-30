@@ -124,6 +124,63 @@ button:active { transform: scale(0.97); }
   font-size: 13px;
 }
 
+.section-h {
+  font-size: 13px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 1px;
+  margin: 18px 0 8px;
+}
+
+#composer textarea {
+  width: 100%;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+  font: inherit;
+}
+#composer .row { display: flex; gap: 10px; margin-top: 8px; }
+#composer .row > button { flex: 1; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.status { margin-top: 6px; font-size: 13px; min-height: 1.2em; color: var(--muted); }
+.status.error { color: var(--red); }
+.status.success { color: var(--green); }
+
+#queue-section h3 {
+  font-size: 14px;
+  margin: 16px 0 6px;
+}
+#queue-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#queue-list li {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--fg);
+  word-break: break-word;
+}
+#queue-list li::before {
+  content: "↪ ";
+  color: var(--muted);
+}
+#queue-clear { font-size: 13px; padding: 6px 10px; }
+
 #snapshots {
   display: flex;
   flex-direction: column;

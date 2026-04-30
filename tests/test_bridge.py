@@ -249,6 +249,183 @@ def test_window_store_drops_removed_windows():
     assert only["id"] == "w1"
 
 
+def test_window_store_queue_enqueue_dequeue():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    accepted, pos = store.enqueue("w1", "hello")
+    assert accepted is True
+    assert pos == 1
+    accepted, pos = store.enqueue("w1", "world")
+    assert pos == 2
+    accepted, _ = store.enqueue("w1", "")  # empty rejected
+    assert accepted is False
+    assert store.pending("w1") == ["hello", "world"]
+    assert store.dequeue("w1") == "hello"
+    assert store.pending("w1") == ["world"]
+    assert store.dequeue("w1") == "world"
+    assert store.dequeue("w1") is None  # empty
+    assert store.pending("w1") == []
+
+
+def test_window_store_summary_includes_pending():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    store.update([{"id": "w1", "name": "X", "idle": False, "score": 0.0, "configured": True}], {})
+    store.enqueue("w1", "ship it")
+    [summary] = store.summaries()
+    assert summary["pending"] == ["ship it"]
+
+
+@pytest.fixture
+def fastapi_client():
+    """Boots a real BridgeService + FastAPI app behind TestClient. Tests
+    that need a custom config mutate ``calls['cfg']`` directly; the
+    cfg_snapshot callback returns a shallow copy so mutations don't bleed
+    between requests but can still be set up with a single dict."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+    from press_bridge import BridgeCallbacks, BridgeService, build_app
+
+    calls: dict = {
+        "send": [],
+        "match": [],
+        "window_send": [],
+        "cfg": {
+            "interval_seconds": 10.0,
+            "bridge": {"pre_paste_delay_ms": 5, "clipboard_restore_delay_ms": 5},
+            "rules": [],
+        },
+    }
+
+    def cfg_snapshot():
+        snap = dict(calls["cfg"])
+        snap["rules"] = [dict(r) for r in calls["cfg"].get("rules", [])]
+        snap["bridge"] = dict(calls["cfg"].get("bridge", {}))
+        return snap
+
+    def re_match_rule(rule_id):
+        calls["match"].append(rule_id)
+        return calls.get("match_result", [(0.99, (100, 200))])
+
+    def perform_send(point, text, bridge_cfg):
+        calls["send"].append((point, text, dict(bridge_cfg)))
+
+    def perform_window_send(window, text, bridge_cfg):
+        calls["window_send"].append((dict(window), text))
+
+    callbacks = BridgeCallbacks(
+        cfg_snapshot=cfg_snapshot,
+        re_match_rule=re_match_rule,
+        perform_send=perform_send,
+        perform_window_send=perform_window_send,
+    )
+    service = BridgeService(callbacks)
+    app = build_app(service)
+    client = TestClient(app)
+    yield client, service, calls
+
+
+def test_window_send_endpoint_sends_immediately_when_idle(fastapi_client):
+    """When the live state for a window is idle, /api/windows/{id}/send
+    fires the callback synchronously and reports sent=True."""
+    client, service, calls = fastapi_client
+    # Configure a window in cfg + mark it idle in the store.
+    calls["cfg"]["bridge"] = {
+        "windows": [
+            {
+                "id": "w1",
+                "name": "Cursor",
+                "region": [0, 0, 800, 600],
+                "chat_target": [400, 510],
+            }
+        ]
+    }
+    service.windows.update(
+        [{"id": "w1", "name": "Cursor", "idle": True, "score": 0.95, "configured": True}],
+        {},
+    )
+
+    res = client.post("/api/windows/w1/send", json={"text": "ship it"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["sent"] is True
+    assert body["queued"] is False
+    assert calls["window_send"] == [
+        (
+            {
+                "id": "w1",
+                "name": "Cursor",
+                "region": [0, 0, 800, 600],
+                "chat_target": [400, 510],
+            },
+            "ship it",
+        )
+    ]
+
+
+def test_window_send_endpoint_queues_when_busy(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.update(
+        [{"id": "w1", "name": "X", "idle": False, "score": 0.1, "configured": True}],
+        {},
+    )
+    res = client.post("/api/windows/w1/send", json={"text": "hold"})
+    assert res.status_code == 202
+    assert res.json()["queued"] is True
+    assert service.windows.pending("w1") == ["hold"]
+    assert calls["window_send"] == []  # not fired yet
+
+
+def test_window_send_endpoint_404_for_unknown_window(fastapi_client):
+    client, *_ = fastapi_client
+    res = client.post("/api/windows/nope/send", json={"text": "x"})
+    assert res.status_code == 404
+
+
+def test_window_queue_drains_one_per_idle_transition(fastapi_client):
+    """Going busy → idle pops one queued message and dispatches it. A
+    second message stays queued until the next idle transition."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    # Start busy.
+    service.update_window_states(
+        [{"id": "w1", "name": "X", "idle": False, "score": 0.1, "configured": True}], {}
+    )
+    # Queue two messages while busy.
+    service.windows.enqueue("w1", "first")
+    service.windows.enqueue("w1", "second")
+    # Flip idle: should drain one.
+    service.update_window_states(
+        [{"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}], {}
+    )
+    # Drain happens in a daemon thread; give it a moment.
+    import time
+    for _ in range(50):
+        if calls["window_send"]:
+            break
+        time.sleep(0.02)
+    assert len(calls["window_send"]) == 1
+    assert calls["window_send"][0][1] == "first"
+    assert service.windows.pending("w1") == ["second"]
+
+
+def test_window_clear_queue(fastapi_client):
+    client, service, _ = fastapi_client
+    service.windows.enqueue("w1", "a")
+    service.windows.enqueue("w1", "b")
+    res = client.delete("/api/windows/w1/queue")
+    assert res.status_code == 200
+    assert res.json()["cleared"] == 2
+    assert service.windows.pending("w1") == []
+
+
 def test_evaluate_bridge_windows_returns_empty_if_template_file_missing():
     bridge_cfg = {
         "idle_template_path": "does_not_exist.png",

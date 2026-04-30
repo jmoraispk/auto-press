@@ -29,6 +29,23 @@
     <section id="snapshots-section" hidden>
       <button id="snap-back" class="ghost" aria-label="Back to windows">← Back</button>
       <h2 id="snap-window-name"></h2>
+      <p id="snap-status" class="muted"></p>
+
+      <div id="composer">
+        <textarea id="send-text" rows="3" placeholder="Paste or type — sends now if idle, queues if busy."></textarea>
+        <div class="row">
+          <button id="send-go" class="primary">Send</button>
+        </div>
+        <p id="send-status" class="status"></p>
+      </div>
+
+      <div id="queue-section" hidden>
+        <h3>Queued <span id="queue-count" class="muted"></span></h3>
+        <ul id="queue-list"></ul>
+        <button id="queue-clear" class="ghost">Clear queue</button>
+      </div>
+
+      <h3 class="section-h">Snapshots</h3>
       <p id="snap-empty" class="muted" hidden>No snapshots yet — wait for the next tick.</p>
       <div id="snapshots"></div>
     </section>
