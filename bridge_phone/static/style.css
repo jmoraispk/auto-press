@@ -229,8 +229,11 @@ button.primary {
   border-top: 1px solid var(--card-border);
 }
 
-/* Lightbox: tap a thumbnail to see the full image. */
-#lightbox {
+/* Lightbox: tap a thumbnail to see the full image. The :not([hidden])
+   guard matters — `display: flex` would otherwise override the implicit
+   display:none the `hidden` attribute provides, leaving the page covered
+   in a black overlay whenever the lightbox is closed. */
+#lightbox:not([hidden]) {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.92);
