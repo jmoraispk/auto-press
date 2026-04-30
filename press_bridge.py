@@ -532,6 +532,17 @@ def build_app(service: BridgeService):
     app = FastAPI(title="auto-press bridge", docs_url=None, redoc_url=None)
     started_at = time.time()
 
+    @app.middleware("http")
+    async def _no_cache_static(request, call_next):
+        """Force a fresh fetch for the phone shell (HTML/CSS/JS). Without
+        this, shipping a CSS fix often does nothing because the browser
+        keeps the prior copy until a hard refresh."""
+        response = await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static") or path == "/manifest.webmanifest":
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
     @app.get("/api/health")
     async def health() -> JSONResponse:
         return JSONResponse({"ok": True, "uptime_s": int(time.time() - started_at)})

@@ -2614,11 +2614,26 @@ class MainWindow(QMainWindow):
         self._log(f"[error] {message}")
 
     def _update_countdown(self) -> None:
+        # Engine countdown lives in the toolbar and only counts when
+        # rules are running.
         if self._running and self._next_tick_at is not None:
             remaining = max(0.0, float(self._next_tick_at) - time.monotonic())
             self._countdown_label.setText(f"{remaining:.1f}s")
         else:
             self._countdown_label.setText("")
+        # Bridge countdown lives next to the bridge switch status. It
+        # updates whenever the bridge is on, regardless of whether the
+        # engine is running — bridge ticks fire either way.
+        if (
+            getattr(self, "_bridge", None) is not None
+            and hasattr(self, "_bridge_switch_status")
+        ):
+            primary = getattr(self, "_bridge_primary_url", "") or ""
+            head = f"Running — {primary}" if primary else "Running"
+            if self._next_tick_at is not None:
+                remaining = max(0.0, float(self._next_tick_at) - time.monotonic())
+                head += f"  ·  next tick in {remaining:.0f}s"
+            self._bridge_switch_status.setText(head)
 
     # ---------- tray / window ----------
 
@@ -2676,6 +2691,9 @@ class MainWindow(QMainWindow):
     def _start_bridge_service(self) -> None:
         if self._bridge is not None and self._bridge.is_running():
             return
+        # Cache the primary URL so the countdown can append "next tick
+        # in Xs" without losing the URL part of the status text.
+        self._bridge_primary_url = ""
         try:
             from press_bridge import BridgeCallbacks, BridgeService
         except Exception as exc:
@@ -2707,6 +2725,7 @@ class MainWindow(QMainWindow):
             str(bridge_cfg.get("host", "0.0.0.0")), int(bridge_cfg.get("port", 8765))
         )
         primary_url = urls[0] if urls else f"http://localhost:{bridge_cfg.get('port', 8765)}/"
+        self._bridge_primary_url = primary_url
         self._bridge_switch_status.setText(f"Running — {primary_url}")
         self._log("[bridge] listening — open one of:")
         print("[bridge] listening — open one of:", flush=True)
@@ -2728,6 +2747,7 @@ class MainWindow(QMainWindow):
             self._bridge_log(f"stop failed: {exc}")
         finally:
             self._bridge = None
+            self._bridge_primary_url = ""
         self._bridge_switch_status.setText(
             "Stopped — toggle on to start the FastAPI service."
         )
