@@ -41,47 +41,66 @@ header h1 {
   letter-spacing: 0.5px;
 }
 
-.badge {
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  text-transform: uppercase;
-}
-
-.badge.online { background: rgba(34, 197, 94, 0.12); color: var(--green); border-color: rgba(34, 197, 94, 0.4); }
-.badge.offline { background: rgba(239, 68, 68, 0.12); color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
-
 main { display: flex; flex-direction: column; gap: 18px; }
 
-section h2 {
-  font-size: 13px;
-  text-transform: uppercase;
+.muted {
   color: var(--muted);
-  letter-spacing: 1px;
-  margin: 0 0 8px;
-}
-section h3 {
   font-size: 14px;
-  margin: 12px 0 6px;
-  color: var(--muted);
+  line-height: 1.5;
 }
 
-#rules { display: flex; flex-direction: column; gap: 8px; }
-
-.rule {
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 12px 14px;
+#windows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
 }
-.rule.disabled { opacity: 0.55; }
-.rule .name { flex: 1; font-weight: 600; }
-.rule .meta { font-size: 12px; color: var(--muted); }
-.rule.focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+.window {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease, border-color 0.15s ease;
+}
+.window:active { transform: scale(0.985); }
+.window.idle { border-color: rgba(34, 197, 94, 0.6); }
+.window.busy { border-color: var(--card-border); }
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.window.idle .dot { background: var(--green); box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18); }
+.window.busy .dot { background: var(--red); }
+
+.window .meta { flex: 1; min-width: 0; }
+.window .name {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.window .sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.window .chev {
+  color: var(--muted);
+  font-size: 18px;
+}
 
 button {
   font-size: 14px;
@@ -92,65 +111,39 @@ button {
   color: var(--fg);
   -webkit-tap-highlight-color: transparent;
 }
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
 button.ghost { background: transparent; }
 button:active { transform: scale(0.97); }
 
-#events {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+#snapshots-section h2 {
+  font-size: 18px;
+  margin: 8px 0 12px;
 }
-#events li {
-  background: var(--card);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  display: flex;
-  gap: 8px;
+#snap-back {
+  margin-bottom: 8px;
+  padding: 6px 10px;
   font-size: 13px;
 }
-#events li.dismissed { opacity: 0.4; }
-#events .ts { color: var(--muted); font-variant-numeric: tabular-nums; }
-#events .name { flex: 1; }
 
-textarea {
-  width: 100%;
-  background: var(--card);
-  color: var(--fg);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  resize: vertical;
-  font: inherit;
-}
-
-.row { display: flex; gap: 10px; margin-top: 8px; }
-.row > button { flex: 1; }
-
-.status { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1.45em; }
-.status.error { color: var(--red); }
-.status.success { color: var(--green); }
-
-#picker-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+#snapshots {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
-#picker-list li button {
+.snapshot {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.snapshot img {
+  display: block;
   width: 100%;
-  text-align: left;
-  display: flex;
-  justify-content: space-between;
+  height: auto;
+}
+.snapshot .ts {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--card-border);
 }

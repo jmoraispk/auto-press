@@ -319,10 +319,13 @@ def execute_matches(matches: list[dict], delay_seconds: float = ACTION_SETTLE_DE
 # ---- bridge: per-window idle detection ---------------------------------
 
 
-def evaluate_bridge_windows(bridge_cfg: dict) -> list[dict]:
+def evaluate_bridge_windows(bridge_cfg: dict, capture_rgb: bool = False) -> list[dict]:
     """Scan each configured Cursor window for the bridge's idle template.
 
     Returns one dict per window: ``{id, name, idle, score, configured}``.
+    When ``capture_rgb`` is True an extra ``rgb`` key carries the captured
+    HxWx3 numpy array for that window's region — the worker uses this to
+    feed the bridge's snapshot ring buffer without a second screen grab.
 
     A window is **idle** when the template appears anywhere inside its
     region above ``idle_threshold``. ``configured`` is False if the window
@@ -343,6 +346,7 @@ def evaluate_bridge_windows(bridge_cfg: dict) -> list[dict]:
     except Exception:
         return []
 
+    cv2, _np = ensure_vision()
     results: list[dict] = []
     for window in windows:
         region = window.get("region")
@@ -359,7 +363,10 @@ def evaluate_bridge_windows(bridge_cfg: dict) -> list[dict]:
             continue
         region_tuple = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
         try:
-            search_gray = capture_screen_gray(region_tuple)
+            # One capture, two derived images: gray for matchTemplate,
+            # rgb (optional) for the snapshot ring buffer.
+            rgb = capture_screen_rgb(region_tuple)
+            search_gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
         except Exception:
             results.append(
                 {
@@ -375,13 +382,14 @@ def evaluate_bridge_windows(bridge_cfg: dict) -> list[dict]:
             search_gray, template_gray, threshold, region_tuple[0], region_tuple[1]
         )
         best_score = matches[0][0] if matches else 0.0
-        results.append(
-            {
-                "id": window.get("id"),
-                "name": window.get("name", "Cursor"),
-                "idle": bool(matches),
-                "score": float(best_score),
-                "configured": True,
-            }
-        )
+        entry = {
+            "id": window.get("id"),
+            "name": window.get("name", "Cursor"),
+            "idle": bool(matches),
+            "score": float(best_score),
+            "configured": True,
+        }
+        if capture_rgb:
+            entry["rgb"] = rgb
+        results.append(entry)
     return results

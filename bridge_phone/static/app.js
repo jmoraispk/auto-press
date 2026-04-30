@@ -1,76 +1,127 @@
 // auto-press phone bridge — vanilla JS, no build step.
 //
-// Wire model:
-//   /api/state    — initial paint
-//   /api/events   — server-sent events with backoff reconnect
-//   /api/send     — paste-and-Enter with optional match_index
-//   /api/dismiss  — server-side dismiss flag
-//   /api/refresh_targets — manual rule refresh
+// Single-purpose UI: list configured Cursor windows with idle/busy
+// status from SSE, drill in to see the last N PNG snapshots.
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  rules: [],
-  events: [],
-  focusRuleId: null,
-  pendingRuleId: null,
-  pendingText: "",
-  matches: null,
+  windows: new Map(),       // id -> summary dict
+  snapshotsPerWindow: 5,
+  view: "list",             // "list" | "snapshots"
+  current: null,            // window id when in "snapshots" view
 };
 
-const conn = $("conn");
-function setConn(ok) {
-  conn.classList.toggle("online", ok);
-  conn.classList.toggle("offline", !ok);
-  conn.textContent = ok ? "live" : "offline";
+// ---- SSE ----------------------------------------------------------------
+
+let sse;
+let backoff = 1000;
+function connectSSE() {
+  if (sse) try { sse.close(); } catch {}
+  sse = new EventSource("/api/events");
+  sse.onopen = () => { backoff = 1000; };
+  sse.addEventListener("window_state", (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (!data || !data.id) return;
+      state.windows.set(data.id, data);
+      renderWindows();
+      if (state.view === "snapshots" && state.current === data.id) {
+        // Stay on the snapshots view but refresh thumbnails so the user
+        // sees the new tick land. Cheap because we only fetch when the
+        // snapshot count actually grew.
+        renderSnapshots();
+      }
+    } catch {}
+  });
+  sse.onerror = () => {
+    try { sse.close(); } catch {}
+    setTimeout(connectSSE, backoff);
+    backoff = Math.min(backoff * 2, 30000);
+  };
 }
 
-function fmtTime(iso) {
-  if (!iso) return "—";
-  try { return new Date(iso).toLocaleTimeString(); } catch { return iso; }
+// ---- initial paint ------------------------------------------------------
+
+async function loadState() {
+  try {
+    const res = await fetch("/api/state");
+    if (!res.ok) return;
+    const data = await res.json();
+    state.snapshotsPerWindow = data.snapshots_per_window || 5;
+    state.windows.clear();
+    for (const w of data.windows || []) state.windows.set(w.id, w);
+    renderWindows();
+  } catch {}
 }
 
-function renderRules() {
-  const container = $("rules");
+// ---- views --------------------------------------------------------------
+
+function renderWindows() {
+  const container = $("windows");
+  const empty = $("empty-hint");
   container.innerHTML = "";
-  if (!state.rules.length) {
-    container.innerHTML = `<div class="rule disabled"><span class="name">No rules yet — add one in the desktop app.</span></div>`;
-    return;
-  }
-  for (const r of state.rules) {
-    const el = document.createElement("div");
-    el.className = "rule" + (r.enabled ? "" : " disabled") + (r.id === state.focusRuleId ? " focus" : "");
-    el.dataset.ruleId = r.id;
-    el.innerHTML = `
-      <div class="name">${escapeHtml(r.friendly_name || r.name || r.id)}</div>
-      <div class="meta">${escapeHtml(r.matcher || "")} · ${escapeHtml(r.action || "")}</div>
-      <button class="primary" data-act="send">Send</button>
+  const all = [...state.windows.values()];
+  empty.hidden = all.length > 0;
+  for (const w of all) {
+    const li = document.createElement("li");
+    li.className = "window " + (w.idle ? "idle" : "busy");
+    li.dataset.id = w.id;
+    li.innerHTML = `
+      <span class="dot" aria-hidden="true"></span>
+      <div class="meta">
+        <div class="name">${escapeHtml(w.name || w.id)}</div>
+        <div class="sub">${w.idle ? "idle" : "busy"} · ${formatScore(w.score)} · ${w.snapshot_count || 0} snap${w.snapshot_count === 1 ? "" : "s"}</div>
+      </div>
+      <span class="chev" aria-hidden="true">›</span>
     `;
-    el.querySelector('[data-act="send"]').addEventListener("click", () => openSend(r.id));
-    container.appendChild(el);
+    li.addEventListener("click", () => openWindow(w.id));
+    container.appendChild(li);
   }
 }
 
-function renderEvents() {
-  const ul = $("events");
-  ul.innerHTML = "";
-  const recent = state.events.slice(-30).reverse();
-  if (!recent.length) {
-    ul.innerHTML = `<li><span class="name" style="color:var(--muted)">No events yet.</span></li>`;
-    return;
-  }
-  for (const e of recent) {
-    const li = document.createElement("li");
-    if (e.dismissed) li.classList.add("dismissed");
-    li.innerHTML = `
-      <span class="ts">${fmtTime(e.timestamp_iso)}</span>
-      <span class="name">${escapeHtml(e.rule_name || e.rule_id || "rule")}</span>
-      <button class="ghost" data-act="dismiss">×</button>
+function openWindow(id) {
+  state.view = "snapshots";
+  state.current = id;
+  $("windows-section").hidden = true;
+  $("snapshots-section").hidden = false;
+  const w = state.windows.get(id);
+  $("snap-window-name").textContent = w ? (w.name || id) : id;
+  renderSnapshots();
+}
+
+function closeSnapshots() {
+  state.view = "list";
+  state.current = null;
+  $("snapshots-section").hidden = true;
+  $("windows-section").hidden = false;
+}
+
+function renderSnapshots() {
+  const id = state.current;
+  if (!id) return;
+  const w = state.windows.get(id);
+  const count = w ? Math.min(w.snapshot_count || 0, state.snapshotsPerWindow) : 0;
+  const empty = $("snap-empty");
+  const wrap = $("snapshots");
+  empty.hidden = count > 0;
+  // Cache-bust each request so the same idx returns the latest snapshot
+  // after a tick. We rely on Cache-Control: no-store from the server too.
+  const bust = Date.now();
+  wrap.innerHTML = "";
+  for (let i = 0; i < count; i++) {
+    const card = document.createElement("div");
+    card.className = "snapshot";
+    const url = `/api/windows/${encodeURIComponent(id)}/snapshot/${i}?t=${bust}-${i}`;
+    card.innerHTML = `
+      <img src="${url}" alt="snapshot ${i + 1}" loading="lazy">
+      <div class="ts">${i === 0 ? "newest" : `${i} tick${i === 1 ? "" : "s"} ago`}</div>
     `;
-    li.querySelector('[data-act="dismiss"]').addEventListener("click", () => dismissEvent(e.event_id, li));
-    ul.appendChild(li);
+    wrap.appendChild(card);
   }
 }
+
+// ---- helpers ------------------------------------------------------------
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -78,147 +129,12 @@ function escapeHtml(s) {
   }[c]));
 }
 
-async function loadState() {
-  try {
-    const res = await fetch("/api/state");
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
-    state.rules = data.rules || [];
-    state.events = data.events || [];
-    renderRules();
-    renderEvents();
-  } catch (e) {
-    setConn(false);
-  }
+function formatScore(s) {
+  if (typeof s !== "number" || isNaN(s)) return "—";
+  return `score ${s.toFixed(2)}`;
 }
 
-function openSend(ruleId) {
-  state.pendingRuleId = ruleId;
-  state.matches = null;
-  $("send-section").hidden = false;
-  $("picker").hidden = true;
-  const rule = state.rules.find((r) => r.id === ruleId);
-  $("send-rule-name").textContent = rule ? (rule.friendly_name || rule.name || rule.id) : ruleId;
-  $("send-status").textContent = "";
-  $("send-status").className = "status";
-  $("send-text").focus();
-}
+$("snap-back").addEventListener("click", closeSnapshots);
 
-function closeSend() {
-  $("send-section").hidden = true;
-  state.pendingRuleId = null;
-  state.matches = null;
-  $("send-text").value = "";
-  $("picker").hidden = true;
-}
-
-async function performSend(matchIndex) {
-  const ruleId = state.pendingRuleId;
-  const text = $("send-text").value.trim();
-  if (!ruleId) return;
-  if (!text) {
-    setStatus("Type something first.", "error");
-    return;
-  }
-  setStatus("Sending…");
-  const body = { rule_id: ruleId, text };
-  if (matchIndex !== undefined) body.match_index = matchIndex;
-  try {
-    const res = await fetch("/api/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.status === 409) {
-      const data = await res.json();
-      state.matches = data.matches || [];
-      renderPicker();
-      setStatus(`Multiple matches (${data.count}). Pick one.`);
-      return;
-    }
-    if (!res.ok) {
-      const detail = await res.text();
-      setStatus(`Error ${res.status}: ${detail}`, "error");
-      return;
-    }
-    const data = await res.json();
-    setStatus(`Sent in ${data.duration_ms} ms.`, "success");
-    setTimeout(closeSend, 700);
-  } catch (e) {
-    setStatus(`Network error: ${e.message}`, "error");
-  }
-}
-
-function setStatus(msg, kind) {
-  const el = $("send-status");
-  el.textContent = msg || "";
-  el.className = "status" + (kind ? " " + kind : "");
-}
-
-function renderPicker() {
-  const wrap = $("picker");
-  const ul = $("picker-list");
-  ul.innerHTML = "";
-  for (const m of state.matches || []) {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.innerHTML = `<span>#${m.index} · ${m.center[0]}, ${m.center[1]}</span><span style="color:var(--muted)">score ${m.score.toFixed(2)}</span>`;
-    btn.addEventListener("click", () => performSend(m.index));
-    li.appendChild(btn);
-    ul.appendChild(li);
-  }
-  wrap.hidden = !state.matches || !state.matches.length;
-}
-
-async function dismissEvent(eventId, li) {
-  try {
-    await fetch(`/api/dismiss/${encodeURIComponent(eventId)}`, { method: "POST" });
-    if (li) li.classList.add("dismissed");
-  } catch { /* ignore */ }
-}
-
-// SSE with exponential backoff (1s → 30s).
-let sse;
-let backoff = 1000;
-function connectSSE() {
-  if (sse) try { sse.close(); } catch {}
-  sse = new EventSource("/api/events");
-  sse.onopen = () => { setConn(true); backoff = 1000; };
-  sse.addEventListener("rule_matched", (ev) => {
-    try {
-      const data = JSON.parse(ev.data);
-      const idx = state.events.findIndex((e) => e.event_id === data.event_id);
-      if (idx >= 0) state.events[idx] = data;
-      else state.events.push(data);
-      renderEvents();
-    } catch {}
-  });
-  sse.onerror = () => {
-    setConn(false);
-    try { sse.close(); } catch {}
-    setTimeout(connectSSE, backoff);
-    backoff = Math.min(backoff * 2, 30000);
-  };
-}
-
-$("refresh").addEventListener("click", async () => {
-  await fetch("/api/refresh_targets", { method: "POST" }).catch(() => {});
-  loadState();
-});
-$("send-cancel").addEventListener("click", closeSend);
-$("send-go").addEventListener("click", () => performSend());
-$("send-text").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    performSend();
-  }
-});
-
-// Notification deep-link via ntfy "Click" header → /?focus=<rule_id>.
-const params = new URLSearchParams(location.search);
-state.focusRuleId = params.get("focus");
-
-loadState().then(() => {
-  if (state.focusRuleId) openSend(state.focusRuleId);
-});
+loadState();
 connectSSE();

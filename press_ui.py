@@ -401,6 +401,27 @@ def _bridge_urls(host: str, port: int) -> list[str]:
     return unique
 
 
+def _encode_rgb_to_png(rgb) -> bytes | None:
+    """HxWx3 RGB ndarray → PNG bytes for the bridge snapshot ring buffer.
+
+    Returns None on encode failure rather than raising — the worker tick
+    must keep going even if a single frame can't be encoded.
+    """
+    try:
+        from io import BytesIO
+
+        from PIL import Image  # already a project dependency
+    except Exception:
+        return None
+    try:
+        img = Image.fromarray(rgb, mode="RGB")
+        buf = BytesIO()
+        img.save(buf, format="PNG", optimize=False)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
 def _monitor_index_for_point(x: int, y: int) -> int:
     """Best-effort 0-based monitor index containing (x, y); -1 if none."""
     try:
@@ -420,8 +441,10 @@ class EngineWorker(QObject):
     # Bridge events: emitted whenever a rule action fires. Carries a JSON-
     # ready dict; bridge consumers push it onto an SSE/event ring buffer.
     rule_matched = Signal(dict)
-    # Per-window idle/busy snapshot (one emit per tick, regardless of change).
-    bridge_window_states = Signal(list)
+    # Per-window idle/busy snapshot. First arg is the list of state dicts
+    # (without the 'rgb' key); second is {window_id: png_bytes} so the
+    # bridge can push them into its ring buffer without a second capture.
+    bridge_window_states = Signal(list, dict)
     # Fires only on busy↔idle transition. Payload: a window state dict.
     bridge_window_transition = Signal(dict)
 
@@ -520,13 +543,29 @@ class EngineWorker(QObject):
         if not bridge_cfg.get("windows") or not bridge_cfg.get("idle_template_path"):
             return
         try:
-            states = evaluate_bridge_windows(bridge_cfg)
+            states = evaluate_bridge_windows(bridge_cfg, capture_rgb=True)
         except Exception:
             return
         if not states:
             return
-        self.bridge_window_states.emit(states)
+
+        # Encode RGB → PNG bytes here (in the worker thread) so the main
+        # thread doesn't pay for compression and Qt signals stay JSON-/
+        # bytes-friendly. Strip the rgb numpy array out of the state dicts
+        # before emitting.
+        images: dict[str, bytes] = {}
+        slim_states: list[dict] = []
         for state in states:
+            rgb = state.pop("rgb", None)
+            slim_states.append(state)
+            if rgb is None or not state.get("id"):
+                continue
+            png = _encode_rgb_to_png(rgb)
+            if png is not None:
+                images[state["id"]] = png
+
+        self.bridge_window_states.emit(slim_states, images)
+        for state in slim_states:
             if not state.get("configured"):
                 continue
             wid = state.get("id")
@@ -836,6 +875,7 @@ class MainWindow(QMainWindow):
         self._worker.needs_rules.connect(self._on_needs_rules)
         self._worker.rule_matched.connect(self._on_rule_matched)
         self._worker.bridge_window_transition.connect(self._on_bridge_window_transition)
+        self._worker.bridge_window_states.connect(self._on_bridge_window_states)
         self._worker_thread.start()
 
         # Optional remote bridge — controlled at runtime by the Bridge
@@ -997,6 +1037,12 @@ class MainWindow(QMainWindow):
             onClick=lambda: self._tab_stack.setCurrentIndex(1),
         )
         self._tab_strip.setCurrentItem("rules")
+        # SegmentedWidget defaults to a generous height that gets
+        # awkwardly stretched inside the fixed-height toolbar (gap below
+        # the buttons). Pin it to fit between the toolbar's vertical
+        # margins.
+        self._tab_strip.setFixedHeight(36)
+        self._tab_strip.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         lay.addWidget(self._tab_strip)
 
         self._collapse_btn = ToolButton(FIF.UP)
@@ -2671,6 +2717,14 @@ class MainWindow(QMainWindow):
         verb = "busy → idle" if is_idle else "idle → busy"
         self._log(f"[bridge] {name}: {verb} (score {score:.3f})")
         self._bridge_log(f"{name}: {verb} (score {score:.3f})")
+
+    def _on_bridge_window_states(self, states: list, images: dict) -> None:
+        if self._bridge is None:
+            return
+        try:
+            self._bridge.update_window_states(states, images)
+        except Exception as exc:
+            self._log(f"[bridge] state push failed: {exc}")
 
     def _bridge_re_match_rule(self, rule_id: str) -> list[tuple[float, tuple[int, int]]]:
         """Worker-thread callable: re-evaluate one rule and return raw matches."""

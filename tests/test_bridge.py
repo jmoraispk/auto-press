@@ -144,23 +144,21 @@ def test_evaluate_bridge_windows_skips_windows_without_region(idle_template, mon
     ]
 
 
-def _frame_with_cross_at(width: int, height: int, x: int, y: int):
-    frame = np.full((height, width), 80, dtype=np.uint8)  # mid-grey background
-    frame[y + 11:y + 13, x:x + 24] = 255
-    frame[y:y + 24, x + 11:x + 13] = 255
+def _rgb_frame_with_cross_at(width: int, height: int, x: int, y: int):
+    """Mid-grey RGB background with a white cross at (x, y). Detector
+    converts RGB → gray internally, so the cross still matches the
+    grayscale template."""
+    frame = np.full((height, width, 3), 80, dtype=np.uint8)
+    frame[y + 11:y + 13, x:x + 24, :] = 255
+    frame[y:y + 24, x + 11:x + 13, :] = 255
     return frame
 
 
 def test_evaluate_bridge_windows_detects_idle(idle_template, monkeypatch):
     """A frame containing the idle template anywhere in the region → idle."""
-    frame = _frame_with_cross_at(200, 200, 50, 60)
+    frame = _rgb_frame_with_cross_at(200, 200, 50, 60)
 
-    def fake_capture_screen_gray(region):
-        # Region passes through unmodified — we ignore it because our fake
-        # frame is the whole "screen".
-        return frame
-
-    monkeypatch.setattr(press_engine, "capture_screen_gray", fake_capture_screen_gray)
+    monkeypatch.setattr(press_engine, "capture_screen_rgb", lambda region: frame)
 
     bridge_cfg = {
         "idle_template_path": idle_template,
@@ -173,13 +171,28 @@ def test_evaluate_bridge_windows_detects_idle(idle_template, monkeypatch):
     assert state["configured"] is True
 
 
+def test_evaluate_bridge_windows_returns_rgb_when_requested(idle_template, monkeypatch):
+    """capture_rgb=True attaches the captured ndarray for the snapshot path."""
+    frame = _rgb_frame_with_cross_at(200, 200, 50, 60)
+    monkeypatch.setattr(press_engine, "capture_screen_rgb", lambda region: frame)
+    [state] = press_engine.evaluate_bridge_windows(
+        {
+            "idle_template_path": idle_template,
+            "idle_threshold": 0.9,
+            "windows": [{"id": "w1", "name": "Cursor #1", "region": [0, 0, 200, 200]}],
+        },
+        capture_rgb=True,
+    )
+    assert state["rgb"].shape == (200, 200, 3)
+
+
 def test_evaluate_bridge_windows_busy_when_template_absent(idle_template, monkeypatch):
     # Diagonal stripe — non-uniform, but contains no cross.
-    frame = np.zeros((200, 200), dtype=np.uint8)
+    frame = np.zeros((200, 200, 3), dtype=np.uint8)
     for i in range(200):
-        frame[i, i] = 255
+        frame[i, i, :] = 255
 
-    monkeypatch.setattr(press_engine, "capture_screen_gray", lambda region: frame)
+    monkeypatch.setattr(press_engine, "capture_screen_rgb", lambda region: frame)
 
     bridge_cfg = {
         "idle_template_path": idle_template,
@@ -189,6 +202,51 @@ def test_evaluate_bridge_windows_busy_when_template_absent(idle_template, monkey
     [state] = press_engine.evaluate_bridge_windows(bridge_cfg)
     assert state["idle"] is False
     assert state["configured"] is True
+
+
+# ---- window store -------------------------------------------------------
+
+
+def test_window_store_ring_buffer_caps_at_max():
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=3)
+    states = [{"id": "w1", "name": "X", "idle": False, "score": 0.0, "configured": True}]
+    for i in range(5):
+        store.update(states, {"w1": f"png-{i}".encode()})
+    [summary] = store.summaries()
+    assert summary["snapshot_count"] == 3
+    # Newest first.
+    assert store.snapshot("w1", 0)[1] == b"png-4"
+    assert store.snapshot("w1", 2)[1] == b"png-2"
+    assert store.snapshot("w1", 3) is None  # past the buffer
+
+
+def test_window_store_reports_only_idle_transitions():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    base = {"id": "w1", "name": "X", "configured": True}
+    # First observation: no transition (we don't know the prior state).
+    assert store.update([dict(base, idle=False, score=0.1)], {}) == []
+    # Same state: still no transition.
+    assert store.update([dict(base, idle=False, score=0.1)], {}) == []
+    # Flip → reports.
+    [tr] = store.update([dict(base, idle=True, score=0.95)], {})
+    assert tr["idle"] is True
+
+
+def test_window_store_drops_removed_windows():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    s1 = {"id": "w1", "name": "X", "idle": False, "score": 0.0, "configured": True}
+    s2 = {"id": "w2", "name": "Y", "idle": False, "score": 0.0, "configured": True}
+    store.update([s1, s2], {})
+    assert len(store.summaries()) == 2
+    store.update([s1], {})  # w2 removed from cfg
+    [only] = store.summaries()
+    assert only["id"] == "w1"
 
 
 def test_evaluate_bridge_windows_returns_empty_if_template_file_missing():

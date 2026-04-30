@@ -15,34 +15,22 @@
 <body>
   <header>
     <h1>auto-press</h1>
-    <span id="conn" class="badge offline" aria-live="polite">offline</span>
-    <button id="refresh" class="ghost" aria-label="Refresh targets">refresh</button>
   </header>
 
   <main>
-    <section id="rules-section">
-      <h2>Rules</h2>
-      <div id="rules"></div>
+    <section id="windows-section">
+      <ul id="windows" aria-label="Cursor windows"></ul>
+      <p id="empty-hint" class="muted" hidden>
+        No windows configured. Open the desktop app, switch to the Bridge tab, capture
+        an idle template, and add a window — they'll show up here as the bridge runs.
+      </p>
     </section>
 
-    <section id="events-section">
-      <h2>Recent events</h2>
-      <ul id="events"></ul>
-    </section>
-
-    <section id="send-section" hidden>
-      <h2>Send to <span id="send-rule-name"></span></h2>
-      <textarea id="send-text" placeholder="Paste, dictate, or type — Enter sends." rows="4"></textarea>
-      <div class="row">
-        <button id="send-cancel" class="ghost">Cancel</button>
-        <button id="send-go" class="primary">Send</button>
-      </div>
-      <div id="send-status" class="status"></div>
-
-      <div id="picker" hidden>
-        <h3>Multiple matches — pick one</h3>
-        <ul id="picker-list"></ul>
-      </div>
+    <section id="snapshots-section" hidden>
+      <button id="snap-back" class="ghost" aria-label="Back to windows">← Back</button>
+      <h2 id="snap-window-name"></h2>
+      <p id="snap-empty" class="muted" hidden>No snapshots yet — wait for the next tick.</p>
+      <div id="snapshots"></div>
     </section>
   </main>
 

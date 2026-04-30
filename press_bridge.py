@@ -1,12 +1,13 @@
 """Optional remote bridge for auto-press.
 
 Exposes a tiny FastAPI app over Tailscale that lets a phone:
-  1. receive notifications when rules fire (via ntfy)
-  2. stream recent rule events over SSE
-  3. paste text from the phone into the matched Cursor chat input
+  1. see which Cursor windows are idle vs busy
+  2. browse the last N PNG snapshots of each window
+  3. receive ntfy notifications when a window flips to idle
+  4. (planned) send a reply into a specific window
 
-Designed to add zero overhead when ``bridge.enabled`` is False — the server
-thread is only started by ``MainWindow`` when the user opts in.
+Designed to add zero overhead when the bridge service is off — the
+server thread is only started when the user flips the toggle on.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import time
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -27,6 +29,7 @@ LOG = logging.getLogger("press_bridge")
 
 EVENT_BUFFER_MAX = 100
 SSE_KEEPALIVE_SECS = 15.0
+SNAPSHOTS_PER_WINDOW = 5
 
 PHONE_DIR = Path(__file__).resolve().parent / "bridge_phone"
 
@@ -46,6 +49,82 @@ class BridgeCallbacks:
     re_match_rule: Callable[[str], list[tuple[float, tuple[int, int]]]]
     perform_send: Callable[[tuple[int, int], str, dict], None]
     perform_read: Optional[Callable[[str, dict], Optional[str]]] = None
+
+
+# ---- per-window state + snapshot ring buffer ----------------------------
+
+
+class WindowStore:
+    """Thread-safe store of latest window states + a small ring of PNG
+    snapshots per window. Bounded to ``snapshots_per_window`` so memory
+    stays predictable; older snapshots fall off when new ones land."""
+
+    def __init__(self, snapshots_per_window: int = SNAPSHOTS_PER_WINDOW) -> None:
+        self._max = max(1, int(snapshots_per_window))
+        self._lock = threading.Lock()
+        # window_id -> {"state": dict, "snapshots": deque[(iso_ts, png_bytes)]}
+        self._windows: dict[str, dict] = {}
+
+    def update(self, states: list[dict], images: dict[str, bytes]) -> list[dict]:
+        """Apply a fresh detector tick. Returns the list of windows whose
+        idle/busy state changed since the previous tick — callers can use
+        this to decide which transitions to surface (SSE, ntfy)."""
+        now = datetime.now(timezone.utc).isoformat()
+        transitions: list[dict] = []
+        with self._lock:
+            seen_ids: set[str] = set()
+            for state in states:
+                wid = state.get("id")
+                if not wid:
+                    continue
+                seen_ids.add(wid)
+                entry = self._windows.setdefault(
+                    wid, {"state": {}, "snapshots": deque(maxlen=self._max)}
+                )
+                prev_idle = entry["state"].get("idle") if entry["state"] else None
+                stored = {
+                    "id": wid,
+                    "name": state.get("name", "Cursor"),
+                    "idle": bool(state.get("idle")),
+                    "score": float(state.get("score", 0.0)),
+                    "configured": bool(state.get("configured", False)),
+                    "last_update": now,
+                }
+                entry["state"] = stored
+                png = images.get(wid)
+                if png is not None:
+                    entry["snapshots"].append((now, png))
+                if prev_idle is not None and prev_idle != stored["idle"]:
+                    transitions.append(stored)
+            # Drop windows that disappeared from config (e.g. user removed).
+            for wid in list(self._windows):
+                if wid not in seen_ids:
+                    self._windows.pop(wid, None)
+        return transitions
+
+    def summaries(self) -> list[dict]:
+        with self._lock:
+            return [
+                dict(entry["state"], snapshot_count=len(entry["snapshots"]))
+                for entry in self._windows.values()
+                if entry["state"]
+            ]
+
+    def snapshot(self, window_id: str, idx: int) -> Optional[tuple[str, bytes]]:
+        """Snapshot at ``idx`` (0 = newest). Returns (iso_ts, png_bytes)."""
+        with self._lock:
+            entry = self._windows.get(window_id)
+            if entry is None:
+                return None
+            snaps = list(entry["snapshots"])
+        if not (0 <= idx < len(snaps)):
+            return None
+        # idx 0 is newest, deque appends new on the right.
+        return snaps[len(snaps) - 1 - idx]
+
+    def clear_window(self, window_id: str) -> None:
+        with self._lock:
+            self._windows.pop(window_id, None)
 
 
 # ---- in-process event hub -----------------------------------------------
@@ -71,15 +150,27 @@ class EventHub:
         self._loop = loop
 
     def publish(self, event: dict) -> None:
+        """Publish a rule_matched event (back-compat name for the existing
+        SSE channel). Equivalent to publish_typed("rule_matched", event)."""
+        self.publish_typed("rule_matched", event)
+
+    def publish_typed(self, event_type: str, event: dict) -> None:
+        """Publish an event tagged with an SSE event-name. Subscribers
+        receive a tuple (event_type, payload) and the SSE handler routes
+        it to the matching named channel (event: <event_type>)."""
+        payload = (event_type, event)
         with self._lock:
-            self._buffer.append(event)
+            # Keep only rule_matched in the persistent buffer; window_state
+            # events are ephemeral (the WindowStore is the source of truth).
+            if event_type == "rule_matched":
+                self._buffer.append(event)
             subs = list(self._subscribers)
         loop = self._loop
         if loop is None:
             return
         for queue in subs:
             with suppress(Exception):
-                loop.call_soon_threadsafe(queue.put_nowait, event)
+                loop.call_soon_threadsafe(queue.put_nowait, payload)
 
     def recent(self) -> list[dict]:
         with self._lock:
@@ -153,6 +244,7 @@ class BridgeService:
     def __init__(self, callbacks: BridgeCallbacks) -> None:
         self.callbacks = callbacks
         self.hub = EventHub()
+        self.windows = WindowStore()
         self._thread: Optional[threading.Thread] = None
         self._server: Any = None  # uvicorn.Server
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -191,6 +283,31 @@ class BridgeService:
             threading.Thread(
                 target=send_ntfy, args=(bridge_cfg, event), daemon=True
             ).start()
+
+    def update_window_states(self, states: list[dict], images: dict[str, bytes]) -> None:
+        """Called from the engine worker every detection tick. Updates the
+        ring buffer, fans state out over SSE, and fires ntfy on a window
+        flipping busy → idle."""
+        transitions = self.windows.update(states, images)
+        # Always fan a "window_state" event so phone clients can stay in
+        # sync without polling /api/state.
+        for state in self.windows.summaries():
+            self.hub.publish_typed("window_state", state)
+        # Notify only on busy → idle (more interesting than the reverse).
+        bridge_cfg = self._current_bridge_cfg()
+        if bridge_cfg.get("ntfy_topic"):
+            for tr in transitions:
+                if tr.get("idle"):
+                    threading.Thread(
+                        target=send_ntfy,
+                        args=(bridge_cfg, {
+                            "rule_name": tr.get("name"),
+                            "rule_id": tr.get("id"),
+                            "monitor_index": -1,
+                            "timestamp_iso": tr.get("last_update", ""),
+                        }),
+                        daemon=True,
+                    ).start()
 
     def _current_bridge_cfg(self) -> dict:
         try:
@@ -255,26 +372,34 @@ def build_app(service: BridgeService):
     @app.get("/api/state")
     async def state() -> JSONResponse:
         cfg = service.callbacks.cfg_snapshot()
-        rules = []
-        for rule in cfg.get("rules", []):
-            rules.append(
-                {
-                    "id": rule.get("id"),
-                    "name": rule.get("name"),
-                    "friendly_name": rule.get("bridge_friendly_name") or rule.get("name"),
-                    "enabled": bool(rule.get("enabled", True)),
-                    "matcher": rule.get("matcher"),
-                    "action": rule.get("action"),
-                    "read_strategy": rule.get("bridge_read_strategy", "none"),
-                    "has_read_region": bool(rule.get("bridge_read_region")),
-                }
-            )
         return JSONResponse(
             {
-                "rules": rules,
+                "windows": service.windows.summaries(),
                 "events": service.hub.recent(),
                 "interval_seconds": cfg.get("interval_seconds", 10.0),
+                "snapshots_per_window": SNAPSHOTS_PER_WINDOW,
             }
+        )
+
+    @app.get("/api/windows")
+    async def windows_list() -> JSONResponse:
+        return JSONResponse(service.windows.summaries())
+
+    @app.get("/api/windows/{window_id}/snapshot/{idx}")
+    async def window_snapshot(window_id: str, idx: int) -> Response:
+        snap = service.windows.snapshot(window_id, idx)
+        if snap is None:
+            raise HTTPException(status_code=404, detail="snapshot not available")
+        ts, png = snap
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={
+                "X-Snapshot-Timestamp": ts,
+                # Each snapshot at a given (window, idx) shifts every tick,
+                # so the phone shouldn't cache them — bypass.
+                "Cache-Control": "no-store",
+            },
         )
 
     @app.get("/api/events")
@@ -282,20 +407,29 @@ def build_app(service: BridgeService):
         queue = service.hub.subscribe()
 
         async def stream():
-            # Replay buffered events first so a fresh phone doesn't have to
-            # call /api/state separately to backfill.
+            # Replay buffered rule events first so a freshly-connected
+            # phone doesn't have to /api/state to backfill rule history.
             for event in service.hub.recent():
                 yield f"event: rule_matched\ndata: {json.dumps(event)}\n\n"
+            # And current window summaries, as window_state events.
+            for w in service.windows.summaries():
+                yield f"event: window_state\ndata: {json.dumps(w)}\n\n"
             try:
                 while True:
                     if await request.is_disconnected():
                         break
                     try:
-                        event = await asyncio.wait_for(queue.get(), timeout=SSE_KEEPALIVE_SECS)
+                        payload = await asyncio.wait_for(
+                            queue.get(), timeout=SSE_KEEPALIVE_SECS
+                        )
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"
                         continue
-                    yield f"event: rule_matched\ndata: {json.dumps(event)}\n\n"
+                    if isinstance(payload, tuple):
+                        ev_type, ev_data = payload
+                    else:  # legacy: untagged events default to rule_matched
+                        ev_type, ev_data = "rule_matched", payload
+                    yield f"event: {ev_type}\ndata: {json.dumps(ev_data)}\n\n"
             finally:
                 service.hub.unsubscribe(queue)
 
