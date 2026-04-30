@@ -484,48 +484,75 @@ class EngineWorker(QObject):
             except Exception:
                 pass
         while not self._stop:
-            if not self.is_running():
+            cfg = self._cfg_snapshot()
+            bridge_cfg = cfg.get("bridge") or {}
+            # Bridge ticks whenever the service is on AND has windows +
+            # an idle template configured — independent of the Start
+            # button, so flipping the bridge switch is enough to start
+            # populating the phone's view.
+            bridge_should_tick = bool(
+                cfg.get("bridge_active")
+                and bridge_cfg.get("windows")
+                and bridge_cfg.get("idle_template_path")
+            )
+            rules_should_tick = self.is_running()
+            if not rules_should_tick and not bridge_should_tick:
                 time.sleep(0.1)
                 continue
-            cfg = self._cfg_snapshot()
-            try:
-                runtime_rules = build_runtime_rules(cfg)
-            except Exception as exc:
-                self.tick_error.emit(f"runtime rules unavailable: {exc}")
-                self.set_running(False)
-                continue
-            if not runtime_rules:
-                self.needs_rules.emit()
-                self.set_running(False)
-                continue
-            try:
-                results, actions = evaluate_rules(runtime_rules)
-                if actions:
-                    execute_matches(actions)
-                    for action in actions:
-                        center = action.get("center")
-                        if center is None:
-                            continue
-                        cx, cy = int(center[0]), int(center[1])
-                        event = {
-                            "event_id": uuid.uuid4().hex,
-                            "rule_id": action.get("id"),
-                            "rule_name": action.get("name"),
-                            "monitor_index": _monitor_index_for_point(cx, cy),
-                            "match_rect": None,
-                            "match_center": [cx, cy],
-                            "action_type": action.get("action"),
-                            "timestamp_iso": datetime.now(timezone.utc).isoformat(),
-                        }
-                        self.rule_matched.emit(event)
-                self._tick_bridge_windows(cfg)
-                self.tick_done.emit(results, actions, self._get_interval())
-            except Exception as exc:
-                self.tick_error.emit(f"tick failed: {exc}")
+
+            # ---- rules ----
+            results: list = []
+            actions: list = []
+            if rules_should_tick:
+                try:
+                    runtime_rules = build_runtime_rules(cfg)
+                except Exception as exc:
+                    self.tick_error.emit(f"runtime rules unavailable: {exc}")
+                    self.set_running(False)
+                    continue
+                if not runtime_rules:
+                    # User pressed Start but has no rules. Only nag with
+                    # the "add a rule" dialog if the bridge isn't already
+                    # keeping the worker useful.
+                    if not bridge_should_tick:
+                        self.needs_rules.emit()
+                    self.set_running(False)
+                    rules_should_tick = False
+                else:
+                    try:
+                        results, actions = evaluate_rules(runtime_rules)
+                        if actions:
+                            execute_matches(actions)
+                            for action in actions:
+                                center = action.get("center")
+                                if center is None:
+                                    continue
+                                cx, cy = int(center[0]), int(center[1])
+                                event = {
+                                    "event_id": uuid.uuid4().hex,
+                                    "rule_id": action.get("id"),
+                                    "rule_name": action.get("name"),
+                                    "monitor_index": _monitor_index_for_point(cx, cy),
+                                    "match_rect": None,
+                                    "match_center": [cx, cy],
+                                    "action_type": action.get("action"),
+                                    "timestamp_iso": datetime.now(timezone.utc).isoformat(),
+                                }
+                                self.rule_matched.emit(event)
+                    except Exception as exc:
+                        self.tick_error.emit(f"tick failed: {exc}")
+
+            # ---- bridge ----
+            if bridge_should_tick:
+                try:
+                    self._tick_bridge_windows(cfg)
+                except Exception as exc:
+                    self.tick_error.emit(f"bridge tick failed: {exc}")
+
+            self.tick_done.emit(results, actions, self._get_interval())
+
             end = time.monotonic() + self._get_interval()
             while time.monotonic() < end and not self._stop:
-                if not self.is_running():
-                    break
                 time.sleep(0.05)
 
     def _get_interval(self) -> float:
