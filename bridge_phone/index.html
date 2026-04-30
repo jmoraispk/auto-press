@@ -15,14 +15,15 @@
 <body>
   <header>
     <h1>auto-press</h1>
+    <span id="freshness" class="freshness" aria-live="polite" title="Time since last bridge update">—</span>
   </header>
 
   <main>
     <section id="windows-section">
       <ul id="windows" aria-label="Cursor windows"></ul>
       <p id="empty-hint" class="muted" hidden>
-        No windows configured. Open the desktop app, switch to the Bridge tab, capture
-        an idle template, and add a window — they'll show up here as the bridge runs.
+        No windows yet. Open the desktop app, switch to the Bridge tab, capture
+        an idle template, add a window, and turn the Bridge service on.
       </p>
     </section>
 
@@ -50,6 +51,11 @@
       <div id="snapshots"></div>
     </section>
   </main>
+
+  <div id="lightbox" hidden role="dialog" aria-modal="true">
+    <button id="lightbox-close" class="ghost" aria-label="Close">×</button>
+    <img id="lightbox-img" alt="">
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

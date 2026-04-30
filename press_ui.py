@@ -571,7 +571,11 @@ class EngineWorker(QObject):
             return
         try:
             states = evaluate_bridge_windows(bridge_cfg, capture_rgb=True)
-        except Exception:
+        except Exception as exc:
+            # Surface detector failures instead of swallowing them — silent
+            # bail-outs were exactly why the user couldn't tell why the
+            # phone wasn't updating.
+            self.tick_error.emit(f"bridge detect failed: {exc}")
             return
         if not states:
             return
@@ -2753,6 +2757,18 @@ class MainWindow(QMainWindow):
             self._bridge.update_window_states(states, images)
         except Exception as exc:
             self._log(f"[bridge] state push failed: {exc}")
+        # Log a one-liner per tick so the user can see the bridge is alive
+        # and watch idle/busy land on the desktop side too. Also confirms
+        # the phone *should* be receiving an update right now.
+        self._bridge_tick_count = getattr(self, "_bridge_tick_count", 0) + 1
+        configured = [s for s in states if s.get("configured")]
+        idle = sum(1 for s in configured if s.get("idle"))
+        busy = len(configured) - idle
+        self._bridge_log(
+            f"tick #{self._bridge_tick_count} · "
+            f"{len(states)} window{'' if len(states) == 1 else 's'} · "
+            f"{idle} idle · {busy} busy · {len(images)} snap{'' if len(images) == 1 else 's'}"
+        )
 
     def _bridge_re_match_rule(self, rule_id: str) -> list[tuple[float, tuple[int, int]]]:
         """Worker-thread callable: re-evaluate one rule and return raw matches."""

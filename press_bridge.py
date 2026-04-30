@@ -303,6 +303,75 @@ def _safe_perform_window_send(send_fn, win_cfg, text, bridge_cfg) -> None:
         LOG.warning("window send failed: %s", exc)
 
 
+def _png_from_rgb(rgb) -> Optional[bytes]:
+    """RGB ndarray → PNG bytes; None on failure. Local copy because press_ui
+    is the other call site and we don't want to import Qt here."""
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+    except Exception:
+        return None
+    try:
+        buf = BytesIO()
+        Image.fromarray(rgb, mode="RGB").save(buf, format="PNG", optimize=False)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _post_send_recheck(service: "BridgeService", window_id: str, delay_s: float = 2.0) -> None:
+    """Re-evaluate one window after a paste so the phone sees the state
+    flip without waiting for the next engine tick. Cursor needs a moment
+    to register the keystroke, so a short delay before the recapture
+    catches the busy state much more reliably."""
+    import sys as _sys
+    if _sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+        except Exception:
+            pass
+    time.sleep(max(0.1, float(delay_s)))
+    try:
+        cfg = service.callbacks.cfg_snapshot() or {}
+    except Exception:
+        return
+    bridge_cfg = cfg.get("bridge") or {}
+    if not bridge_cfg.get("idle_template_path"):
+        return
+    win_cfg = next(
+        (w for w in bridge_cfg.get("windows", []) if w.get("id") == window_id),
+        None,
+    )
+    if not win_cfg:
+        return
+    try:
+        from press_engine import evaluate_bridge_windows
+    except Exception:
+        return
+    single_cfg = dict(bridge_cfg)
+    single_cfg["windows"] = [win_cfg]
+    try:
+        states = evaluate_bridge_windows(single_cfg, capture_rgb=True)
+    except Exception as exc:
+        LOG.warning("post-send recheck failed: %s", exc)
+        return
+    if not states:
+        return
+    images: dict[str, bytes] = {}
+    slim: list[dict] = []
+    for s in states:
+        rgb = s.pop("rgb", None)
+        slim.append(s)
+        if rgb is None or not s.get("id"):
+            continue
+        png = _png_from_rgb(rgb)
+        if png is not None:
+            images[s["id"]] = png
+    service.update_window_states(slim, images)
+
+
 class BridgeService:
     def __init__(self, callbacks: BridgeCallbacks) -> None:
         self.callbacks = callbacks
@@ -397,12 +466,15 @@ class BridgeService:
             if text is None:
                 continue
             # Run send off the engine tick so a 2-second click+paste
-            # doesn't block the next detection.
-            threading.Thread(
-                target=_safe_perform_window_send,
-                args=(self.callbacks.perform_window_send, win_cfg, text, bridge_cfg),
-                daemon=True,
-            ).start()
+            # doesn't block the next detection. Chain a delayed recheck
+            # so the phone sees the busy flip without waiting for the
+            # next engine tick.
+            def _drain(send_fn=self.callbacks.perform_window_send,
+                       wc=win_cfg, t=text, bc=bridge_cfg, wid=wid):
+                _safe_perform_window_send(send_fn, wc, t, bc)
+                _post_send_recheck(self, wid)
+
+            threading.Thread(target=_drain, daemon=True).start()
 
     def _current_bridge_cfg(self) -> dict:
         try:
@@ -524,6 +596,13 @@ def build_app(service: BridgeService):
             # Refresh SSE so phones see pending count drop / state change.
             for s in service.windows.summaries():
                 service.hub.publish_typed("window_state", s)
+            # Kick off a delayed re-detect so the phone sees the busy
+            # flip well before the next engine tick (could be ~10 s away).
+            threading.Thread(
+                target=_post_send_recheck,
+                args=(service, window_id),
+                daemon=True,
+            ).start()
             return JSONResponse({"sent": True, "queued": False})
 
         accepted, position = service.windows.enqueue(window_id, text)
