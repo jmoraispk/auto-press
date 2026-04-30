@@ -532,16 +532,13 @@ def build_app(service: BridgeService):
     app = FastAPI(title="auto-press bridge", docs_url=None, redoc_url=None)
     started_at = time.time()
 
-    @app.middleware("http")
-    async def _no_cache_static(request, call_next):
-        """Force a fresh fetch for the phone shell (HTML/CSS/JS). Without
-        this, shipping a CSS fix often does nothing because the browser
-        keeps the prior copy until a hard refresh."""
-        response = await call_next(request)
-        path = request.url.path
-        if path == "/" or path.startswith("/static") or path == "/manifest.webmanifest":
-            response.headers["Cache-Control"] = "no-cache, must-revalidate"
-        return response
+    # Cache-Control headers are added per-route below (and via a
+    # StaticFiles subclass for /static/*). Doing this with
+    # @app.middleware("http") looks tempting but Starlette's
+    # BaseHTTPMiddleware buffers the full response body before passing
+    # it on, which silently breaks SSE — the /api/events stream never
+    # flushes to the client.
+    NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
 
     @app.get("/api/health")
     async def health() -> JSONResponse:
@@ -814,17 +811,29 @@ def build_app(service: BridgeService):
         index = PHONE_DIR / "index.html"
         if not index.exists():
             return PlainTextResponse("bridge_phone/ missing", status_code=500)
-        return FileResponse(index)
+        return FileResponse(index, headers=NO_CACHE)
 
     static_dir = PHONE_DIR / "static"
     if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        class _NoCacheStatic(StaticFiles):
+            """StaticFiles with Cache-Control on every served file. Doing
+            this here (instead of in @app.middleware) means we don't go
+            through BaseHTTPMiddleware and SSE keeps streaming."""
+
+            async def get_response(self, path, scope):
+                response = await super().get_response(path, scope)
+                response.headers["Cache-Control"] = "no-cache, must-revalidate"
+                return response
+
+        app.mount("/static", _NoCacheStatic(directory=str(static_dir)), name="static")
 
     @app.get("/manifest.webmanifest")
     async def manifest() -> Response:
         path = static_dir / "manifest.webmanifest"
         if not path.exists():
             return PlainTextResponse("manifest missing", status_code=404)
-        return FileResponse(path, media_type="application/manifest+json")
+        return FileResponse(
+            path, media_type="application/manifest+json", headers=NO_CACHE,
+        )
 
     return app
