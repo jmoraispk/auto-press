@@ -511,11 +511,11 @@ class EngineWorker(QObject):
                     self.set_running(False)
                     continue
                 if not runtime_rules:
-                    # User pressed Start but has no rules. Only nag with
-                    # the "add a rule" dialog if the bridge isn't already
-                    # keeping the worker useful.
-                    if not bridge_should_tick:
-                        self.needs_rules.emit()
+                    # No runnable rules — the user pressed Start but every
+                    # rule is either disabled or has a missing template.
+                    # Always log so the cause of the silent re-Stop is
+                    # visible (the handler is log-only, not a popup).
+                    self.needs_rules.emit()
                     self.set_running(False)
                     rules_should_tick = False
                 else:
@@ -2610,9 +2610,19 @@ class MainWindow(QMainWindow):
             summary = ", ".join(f"{name} ×{c}" for name, c in summaries.items())
             self._action_status.setText(summary)
             self._log(f"[tick] {summary}")
-        else:
+        elif results:
+            # Rules ran but didn't match. Show actual correlations so it's
+            # obvious *why* — wrong threshold, dimmed Cursor, occluded
+            # button, etc. all look identical without scores.
+            scores = ", ".join(
+                f"{r.get('name', '?')}={float(r.get('score', 0.0)):.3f}"
+                for r in results
+            )
             self._action_status.setText("no match")
-            self._log("[tick] no match")
+            self._log(f"[tick] no match (scores: {scores})")
+        # If results is empty too, rules either weren't attempted (bridge-
+        # only tick) or runtime_rules was filtered to zero — needs_rules
+        # already logged the explanation in the latter case, so stay quiet.
         self._next_tick_at = time.monotonic() + interval
 
     def _on_worker_error(self, message: str) -> None:
