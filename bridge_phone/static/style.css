@@ -252,7 +252,8 @@ button.primary {
   color: #fff;
   font-weight: 600;
 }
-#queue-list .queue-delete {
+#queue-list .queue-delete,
+#queue-list .queue-edit {
   flex-shrink: 0;
   padding: 3px 7px;
   font-size: 13px;
@@ -261,6 +262,38 @@ button.primary {
   background: transparent;
 }
 #queue-list .queue-delete:hover { color: var(--red); }
+#queue-list .queue-edit:hover { color: var(--accent); }
+
+/* Inline edit mode replaces the row's content with a textarea + Save/
+   Cancel. Switch to flex-start so the buttons sit at the top of a
+   multi-line textarea instead of dragging vertical-centre weirdly. */
+#queue-list li.editing {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+#queue-list .queue-edit-text {
+  flex: 1 1 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+#queue-list .queue-save,
+#queue-list .queue-cancel {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+#queue-list .queue-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
 #queue-clear { font-size: 12px; padding: 4px 9px; }
 
 #scroll-controls {

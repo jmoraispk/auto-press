@@ -158,24 +158,92 @@ function renderQueue() {
   list.innerHTML = "";
   for (let i = 0; i < pending.length; i++) {
     const li = document.createElement("li");
-    const span = document.createElement("span");
-    span.className = "queue-text";
-    span.textContent = pending[i];
-    const sendBtn = document.createElement("button");
-    sendBtn.className = "queue-send-now";
-    sendBtn.textContent = "Send now";
-    const delBtn = document.createElement("button");
-    delBtn.className = "queue-delete";
-    delBtn.textContent = "✕";
-    delBtn.title = "Remove from queue";
-    delBtn.setAttribute("aria-label", "Remove from queue");
-    const idx = i;
-    sendBtn.addEventListener("click", () => sendQueuedNow(idx, sendBtn));
-    delBtn.addEventListener("click", () => deleteQueuedItem(idx, delBtn));
-    li.appendChild(span);
-    li.appendChild(sendBtn);
-    li.appendChild(delBtn);
     list.appendChild(li);
+    renderQueueRow(li, i, pending[i], false);
+  }
+}
+
+function renderQueueRow(li, idx, text, editing) {
+  li.innerHTML = "";
+  li.classList.toggle("editing", editing);
+  if (editing) {
+    const ta = document.createElement("textarea");
+    ta.className = "queue-edit-text";
+    ta.rows = 2;
+    ta.value = text;
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "queue-save";
+    saveBtn.textContent = "Save";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "queue-cancel ghost";
+    cancelBtn.textContent = "Cancel";
+    saveBtn.addEventListener("click", () => saveQueuedEdit(idx, ta.value, li, text));
+    cancelBtn.addEventListener("click", () => renderQueueRow(li, idx, text, false));
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        saveQueuedEdit(idx, ta.value, li, text);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        renderQueueRow(li, idx, text, false);
+      }
+    });
+    li.appendChild(ta);
+    li.appendChild(saveBtn);
+    li.appendChild(cancelBtn);
+    setTimeout(() => ta.focus(), 0);
+    return;
+  }
+  const span = document.createElement("span");
+  span.className = "queue-text";
+  span.textContent = text;
+  const editBtn = document.createElement("button");
+  editBtn.className = "queue-edit";
+  editBtn.textContent = "✎";
+  editBtn.title = "Edit";
+  editBtn.setAttribute("aria-label", "Edit message");
+  const sendBtn = document.createElement("button");
+  sendBtn.className = "queue-send-now";
+  sendBtn.textContent = "Send now";
+  const delBtn = document.createElement("button");
+  delBtn.className = "queue-delete";
+  delBtn.textContent = "✕";
+  delBtn.title = "Remove from queue";
+  delBtn.setAttribute("aria-label", "Remove from queue");
+  editBtn.addEventListener("click", () => renderQueueRow(li, idx, text, true));
+  sendBtn.addEventListener("click", () => sendQueuedNow(idx, sendBtn));
+  delBtn.addEventListener("click", () => deleteQueuedItem(idx, delBtn));
+  li.appendChild(span);
+  li.appendChild(editBtn);
+  li.appendChild(sendBtn);
+  li.appendChild(delBtn);
+}
+
+async function saveQueuedEdit(idx, newText, li, prevText) {
+  const id = state.current;
+  if (!id) return;
+  // Optimistic update: replace local pending entry, exit edit mode.
+  patchPendingOptimistic((p) => p.map((t, i) => (i === idx ? newText : t)));
+  try {
+    const res = await fetch(
+      `/api/windows/${encodeURIComponent(id)}/queue/${idx}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: newText }),
+      }
+    );
+    if (!res.ok) {
+      const detail = await res.text();
+      setSendStatus(`Edit failed: ${res.status} ${detail}`, "error");
+      // Roll back optimistic update on failure.
+      patchPendingOptimistic((p) => p.map((t, i) => (i === idx ? prevText : t)));
+    } else {
+      setSendStatus("Edited.", "success");
+    }
+  } catch (e) {
+    setSendStatus(`Network error: ${e.message}`, "error");
+    patchPendingOptimistic((p) => p.map((t, i) => (i === idx ? prevText : t)));
   }
 }
 

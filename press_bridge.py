@@ -220,6 +220,19 @@ class WindowStore:
                 self._queues.pop(window_id, None)
             return text
 
+    def update_at(self, window_id: str, idx: int, text: str) -> bool:
+        """Replace the queued message at ``idx`` with ``text``. Returns
+        False if the index is out of range. Empty / whitespace text is
+        accepted (same semantics as enqueue)."""
+        if text is None:
+            return False
+        with self._lock:
+            q = self._queues.get(window_id)
+            if not q or not (0 <= idx < len(q)):
+                return False
+            q[idx] = text
+            return True
+
     def pending(self, window_id: str) -> list[str]:
         with self._lock:
             return list(self._queues.get(window_id, []))
@@ -832,6 +845,19 @@ def build_app(service: BridgeService):
             daemon=True,
         ).start()
         return JSONResponse({"scrolled": amount})
+
+    @app.put("/api/windows/{window_id}/queue/{idx}")
+    async def queue_update_one(window_id: str, idx: int, payload: dict) -> JSONResponse:
+        """Edit a queued message in place — same accept-anything-string
+        rule as POST /send (empty / whitespace are valid)."""
+        if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
+            raise HTTPException(status_code=400, detail="text (string) required")
+        text = payload["text"]
+        if not service.windows.update_at(window_id, idx, text):
+            raise HTTPException(status_code=404, detail="queue index out of range")
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse({"updated": True, "text": text})
 
     @app.delete("/api/windows/{window_id}/queue/{idx}")
     async def queue_delete_one(window_id: str, idx: int) -> JSONResponse:

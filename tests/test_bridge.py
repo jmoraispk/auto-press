@@ -551,6 +551,58 @@ def test_window_queue_send_now_pops_specific_index_and_fires(fastapi_client):
     assert service.windows.pending("w1") == ["first", "third"]
 
 
+def test_window_store_update_at_replaces_text():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    store.enqueue("w1", "first")
+    store.enqueue("w1", "second")
+    store.enqueue("w1", "third")
+    assert store.update_at("w1", 1, "second-edited") is True
+    assert store.pending("w1") == ["first", "second-edited", "third"]
+    # Empty / whitespace allowed.
+    assert store.update_at("w1", 0, "") is True
+    assert store.pending("w1") == ["", "second-edited", "third"]
+    # None rejected.
+    assert store.update_at("w1", 0, None) is False
+    # Out-of-range rejected.
+    assert store.update_at("w1", 9, "nope") is False
+
+
+def test_window_queue_update_one_endpoint(fastapi_client):
+    """PUT swaps the text at the given index, returns the new value, and
+    fires an SSE so other phones see the change."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.enqueue("w1", "first")
+    service.windows.enqueue("w1", "second")
+    res = client.put("/api/windows/w1/queue/0", json={"text": "first-edited"})
+    assert res.status_code == 200
+    assert res.json() == {"updated": True, "text": "first-edited"}
+    assert service.windows.pending("w1") == ["first-edited", "second"]
+
+
+def test_window_queue_update_one_400_when_text_missing(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.enqueue("w1", "first")
+    res = client.put("/api/windows/w1/queue/0", json={})
+    assert res.status_code == 400
+
+
+def test_window_queue_update_one_404_for_bad_index(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    res = client.put("/api/windows/w1/queue/0", json={"text": "x"})
+    assert res.status_code == 404
+
+
 def test_window_queue_delete_one_pops_specific_index(fastapi_client):
     """The trash button on a queued row should drop *that* message
     without firing it. Adjacent items keep their order."""
