@@ -747,6 +747,41 @@ for (const btn of document.querySelectorAll(".scroll-btn")) {
   btn.addEventListener("click", () => scrollWindow(amount, btn));
 }
 
+// Desktop browsers don't have native pull-to-refresh, so we approximate
+// it: when the page is already at the top and the user keeps scrolling
+// up (two-finger trackpad gesture or mouse wheel), accumulate the
+// upward delta. Once it crosses a threshold, fire the same scroll-and-
+// screenshot the button does. Only active when a window is selected
+// and the scroll button isn't already locked out, so a quick burst
+// translates to one scroll, not many. Phones already behave well
+// because of native overscroll → not jeopardised by this.
+let _overscrollAccum = 0;
+const _OVERSCROLL_TRIGGER_PX = 220;
+window.addEventListener(
+  "wheel",
+  (e) => {
+    if (state.view !== "snapshots" || !state.current) {
+      _overscrollAccum = 0;
+      return;
+    }
+    if (window.scrollY > 4) {
+      _overscrollAccum = 0;
+      return;
+    }
+    if (e.deltaY >= -1) {
+      _overscrollAccum = 0;
+      return;
+    }
+    _overscrollAccum += -e.deltaY;
+    if (_overscrollAccum >= _OVERSCROLL_TRIGGER_PX) {
+      _overscrollAccum = 0;
+      const btn = document.querySelector(".scroll-btn");
+      if (btn && !btn.disabled) scrollWindow(15, btn);
+    }
+  },
+  { passive: true }
+);
+
 $("send-go").addEventListener("click", sendOrQueue);
 $("queue-clear").addEventListener("click", clearQueue);
 $("send-text").addEventListener("keydown", (e) => {

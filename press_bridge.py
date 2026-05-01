@@ -29,7 +29,7 @@ LOG = logging.getLogger("press_bridge")
 
 EVENT_BUFFER_MAX = 100
 SSE_KEEPALIVE_SECS = 15.0
-SNAPSHOTS_PER_WINDOW = 3
+SNAPSHOTS_PER_WINDOW = 10
 
 PHONE_DIR = Path(__file__).resolve().parent / "bridge_phone"
 

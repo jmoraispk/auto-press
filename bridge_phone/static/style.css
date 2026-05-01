@@ -343,12 +343,14 @@ button.primary {
   cursor: progress;
 }
 
-/* One snapshot per window, captured on busy → idle. Full image is
-   visible up to ~60vh so the user can read the agent's last message
-   without tapping. Click still expands to a fullscreen lightbox. */
+/* Snapshots are tiled like the windows grid above — auto-fit columns
+   so a phone in portrait gets ~3 across and a wider browser packs
+   more. Each tile crops to a fixed height with the top of the image
+   showing (where the recent message is); tap to open the lightbox
+   for the full untruncated view. */
 #snapshots {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 6px;
 }
 .snapshot {
@@ -363,17 +365,20 @@ button.primary {
 .snapshot img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: 60vh;
-  object-fit: contain;
+  height: 180px;
+  object-fit: cover;
+  object-position: top center;
   background: #000;
 }
 .snapshot .ts {
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   border-top: 1px solid var(--card-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Lightbox: tap a thumbnail to see the full image. The :not([hidden])
