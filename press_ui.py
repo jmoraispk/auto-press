@@ -1588,8 +1588,14 @@ class MainWindow(QMainWindow):
 
         # Bridge log card. Sized like the left-column cards: when
         # collapsed the card clamps to header height (44 px); when
-        # expanded the splitter assigns it the full row height.
+        # expanded it stretches to fill the row. The Expanding vertical
+        # policy is what keeps it tracking the body_split's height as
+        # the user resizes the window — without it HeaderCardWidget
+        # sticks to a smaller sizeHint and the log card stops following
+        # the row height on resize. (No minHeight clamp — the toggle
+        # handler manages collapse via maxHeight.)
         log_card = CollapsibleCard("Bridge log")
+        log_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         log_body = QVBoxLayout()
         log_body.setContentsMargins(2, 0, 2, 0)
         log_body.setSpacing(6)

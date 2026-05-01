@@ -29,7 +29,7 @@ LOG = logging.getLogger("press_bridge")
 
 EVENT_BUFFER_MAX = 100
 SSE_KEEPALIVE_SECS = 15.0
-SNAPSHOTS_PER_WINDOW = 10
+SNAPSHOTS_PER_WINDOW = 3
 
 PHONE_DIR = Path(__file__).resolve().parent / "bridge_phone"
 
@@ -135,7 +135,11 @@ class WindowStore:
                     entry["snapshots"].clear()
                 png = images.get(wid)
                 if png is not None:
-                    entry["snapshots"].append((now, png))
+                    # Store as a 3-tuple (timestamp, png, hash). Worker-
+                    # side captures don't compute a hash; dedup only
+                    # matters for scroll captures where the user can
+                    # accidentally fire the same view twice.
+                    entry["snapshots"].append((now, png, None))
                 if prev_idle is not None and prev_idle != stored["idle"]:
                     transitions.append(stored)
             # Drop windows that disappeared from config (e.g. user removed).
@@ -156,6 +160,8 @@ class WindowStore:
                 # The phone uses this to render "captured Xs ago" instead of
                 # the meaningless "newest / N ticks ago" label that made
                 # sense only with a multi-frame ring buffer.
+                # Snapshots are 3-tuples (ts, png, hash); first element
+                # is always the timestamp regardless of length.
                 summary["snapshot_at"] = (
                     entry["snapshots"][-1][0] if entry["snapshots"] else None
                 )
@@ -164,7 +170,11 @@ class WindowStore:
             return out
 
     def snapshot(self, window_id: str, idx: int) -> Optional[tuple[str, bytes]]:
-        """Snapshot at ``idx`` (0 = newest). Returns (iso_ts, png_bytes)."""
+        """Snapshot at ``idx`` (0 = newest). Returns (iso_ts, png_bytes).
+
+        Internal storage is a 3-tuple (ts, png, hash); we strip the hash
+        from the public return value so callers don't need to know.
+        """
         with self._lock:
             entry = self._windows.get(window_id)
             if entry is None:
@@ -173,7 +183,8 @@ class WindowStore:
         if not (0 <= idx < len(snaps)):
             return None
         # idx 0 is newest, deque appends new on the right.
-        return snaps[len(snaps) - 1 - idx]
+        snap = snaps[len(snaps) - 1 - idx]
+        return (snap[0], snap[1])
 
     def clear_window(self, window_id: str) -> None:
         with self._lock:
@@ -198,10 +209,17 @@ class WindowStore:
             entry["state"]["name"] = name
             return True
 
-    def set_snapshot(self, window_id: str, png_bytes: bytes) -> bool:
+    def set_snapshot(
+        self,
+        window_id: str,
+        png_bytes: bytes,
+        rgb_hash: Optional[str] = None,
+    ) -> bool:
         """Insert a snapshot for the window, bypassing the busy↔idle
         transition gate that update() applies. Used by paths like the
         scroll endpoint where we want a fresh frame regardless of state.
+        ``rgb_hash`` (optional) lets callers stash a hash of the source
+        bitmap for downstream dedup via last_snapshot_hash().
         Returns False if the window has no state yet (haven't seen a
         tick for it)."""
         if not png_bytes:
@@ -211,8 +229,19 @@ class WindowStore:
             entry = self._windows.get(window_id)
             if entry is None or not entry["state"]:
                 return False
-            entry["snapshots"].append((now, png_bytes))
+            entry["snapshots"].append((now, png_bytes, rgb_hash))
             return True
+
+    def last_snapshot_hash(self, window_id: str) -> Optional[str]:
+        """Hash stashed alongside the most recent snapshot, if any. Used
+        by the scroll path to skip identical captures (e.g. user scrolls
+        when already at the top — same frame, no point storing it again)."""
+        with self._lock:
+            entry = self._windows.get(window_id)
+            if not entry or not entry["snapshots"]:
+                return None
+            snap = entry["snapshots"][-1]
+            return snap[2] if len(snap) >= 3 else None
 
     # ---- pending-message queue ----
 
@@ -458,10 +487,20 @@ def _post_scroll_recheck(service: "BridgeService", window_id: str, delay_s: floa
     except Exception as exc:
         LOG.warning("post-scroll capture failed: %s", exc)
         return
+    # Dedup: if the user fires the scroll button when the chat is
+    # already at the top, the new capture is byte-identical to the
+    # previous one. Hash the raw RGB bytes (cheap, deterministic) and
+    # skip storing a duplicate. Worker-tick captures don't compute a
+    # hash so this only catches scroll-vs-scroll dupes, which is fine —
+    # the busy→idle transition always replaces anyway.
+    import hashlib
+    rgb_hash = hashlib.md5(rgb.tobytes()).hexdigest()
+    if service.windows.last_snapshot_hash(window_id) == rgb_hash:
+        return
     png = _png_from_rgb(rgb)
     if not png:
         return
-    if service.windows.set_snapshot(window_id, png):
+    if service.windows.set_snapshot(window_id, png, rgb_hash):
         # Push state so connected phones refetch the snapshot URL.
         for s in service.windows.summaries():
             service.hub.publish_typed("window_state", s)

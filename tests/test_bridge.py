@@ -222,6 +222,28 @@ def test_window_store_ring_buffer_caps_at_max():
     assert store.snapshot("w1", 3) is None  # past the buffer
 
 
+def test_window_store_last_snapshot_hash_round_trip():
+    """set_snapshot stashes the hash; last_snapshot_hash returns it.
+    Worker-tick captures pass no hash and last_snapshot_hash is None,
+    so scroll-vs-scroll dedup doesn't accidentally suppress fresh
+    busy→idle captures."""
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=3)
+    base = {"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}
+    # No snapshots yet → None.
+    assert store.last_snapshot_hash("w1") is None
+    # Worker-tick capture (no hash).
+    store.update([base], {"w1": b"png-1"})
+    assert store.last_snapshot_hash("w1") is None
+    # Scroll capture with hash.
+    store.set_snapshot("w1", b"png-2", "abc123")
+    assert store.last_snapshot_hash("w1") == "abc123"
+    # Another scroll with a different hash overwrites.
+    store.set_snapshot("w1", b"png-3", "def456")
+    assert store.last_snapshot_hash("w1") == "def456"
+
+
 def test_window_store_clears_snapshots_on_busy_to_idle():
     """Snapshot lifecycle: scroll captures accumulate during idle, stay
     through the next busy spell, then a busy→idle transition wipes the

@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=14">
+  <link rel="stylesheet" href="/static/style.css?v=15">
   <title>auto-press</title>
 </head>
 <body>
@@ -72,7 +72,10 @@
       </div>
 
       <div id="scroll-controls">
-        <button class="primary scroll-btn" data-amount="15">↑ Scroll up &amp; screenshot</button>
+        <button class="primary scroll-btn" data-amount="15">
+          <span class="arrow" aria-hidden="true">↑</span>
+          <span>Scroll up &amp; screenshot</span>
+        </button>
       </div>
 
       <h3 class="section-h">Last snapshot</h3>
@@ -88,6 +91,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=15"></script>
 </body>
 </html>

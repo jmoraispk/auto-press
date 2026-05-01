@@ -321,12 +321,21 @@ button.primary {
 
 #scroll-controls {
   display: flex;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 .scroll-btn {
   flex: 1;
-  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.scroll-btn .arrow {
   font-size: 13px;
+  line-height: 1;
 }
 .scroll-btn:disabled,
 .scroll-btn.loading {
