@@ -347,6 +347,9 @@ def fastapi_client():
         "send": [],
         "match": [],
         "window_send": [],
+        "window_scroll": [],
+        "rules_running": False,
+        "rules_set": [],
         "cfg": {
             "interval_seconds": 10.0,
             "bridge": {"pre_paste_delay_ms": 5, "clipboard_restore_delay_ms": 5},
@@ -370,11 +373,24 @@ def fastapi_client():
     def perform_window_send(window, text, bridge_cfg):
         calls["window_send"].append((dict(window), text))
 
+    def perform_window_scroll(window, amount, bridge_cfg):
+        calls["window_scroll"].append((dict(window), int(amount)))
+
+    def is_rules_running():
+        return bool(calls["rules_running"])
+
+    def set_rules_running(running):
+        calls["rules_running"] = bool(running)
+        calls["rules_set"].append(bool(running))
+
     callbacks = BridgeCallbacks(
         cfg_snapshot=cfg_snapshot,
         re_match_rule=re_match_rule,
         perform_send=perform_send,
         perform_window_send=perform_window_send,
+        perform_window_scroll=perform_window_scroll,
+        is_rules_running=is_rules_running,
+        set_rules_running=set_rules_running,
     )
     service = BridgeService(callbacks)
     app = build_app(service)
@@ -542,6 +558,99 @@ def test_window_queue_send_now_404_for_bad_index(fastapi_client):
     }
     res = client.post("/api/windows/w1/queue/0/send_now")
     assert res.status_code == 404
+
+
+def test_window_scroll_endpoint_calls_callback_with_centered_point(fastapi_client):
+    """The bridge endpoint forwards the configured window dict + amount
+    to perform_window_scroll. The callback is responsible for clicking
+    the centre and sending wheel events."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [100, 200, 800, 600]}]
+    }
+    res = client.post("/api/windows/w1/scroll", json={"amount": 3})
+    assert res.status_code == 200
+    assert res.json() == {"scrolled": 3}
+    assert len(calls["window_scroll"]) == 1
+    win, amount = calls["window_scroll"][0]
+    assert win["region"] == [100, 200, 800, 600]
+    assert amount == 3
+
+
+def test_window_scroll_endpoint_400_for_zero_amount(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    res = client.post("/api/windows/w1/scroll", json={"amount": 0})
+    assert res.status_code == 400
+
+
+def test_window_scroll_endpoint_400_when_window_has_no_region(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {"windows": [{"id": "w1", "name": "X", "region": None}]}
+    res = client.post("/api/windows/w1/scroll", json={"amount": 1})
+    assert res.status_code == 400
+
+
+def test_window_scroll_endpoint_404_for_unknown_window(fastapi_client):
+    client, service, calls = fastapi_client
+    res = client.post("/api/windows/missing/scroll", json={"amount": 1})
+    assert res.status_code == 404
+
+
+def test_admin_rules_get_reflects_callback(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["rules_running"] = True
+    res = client.get("/api/admin/rules")
+    assert res.status_code == 200
+    assert res.json() == {"running": True}
+
+
+def test_admin_rules_post_calls_setter(fastapi_client):
+    client, service, calls = fastapi_client
+    res = client.post("/api/admin/rules", json={"running": True})
+    assert res.status_code == 200
+    assert calls["rules_set"] == [True]
+    assert calls["rules_running"] is True
+    res = client.post("/api/admin/rules", json={"running": False})
+    assert res.status_code == 200
+    assert calls["rules_set"] == [True, False]
+
+
+def test_admin_rules_post_400_when_payload_malformed(fastapi_client):
+    client, service, calls = fastapi_client
+    res = client.post("/api/admin/rules", json={"running": "yes"})
+    assert res.status_code == 400
+
+
+def test_state_endpoint_reports_rules_running(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["rules_running"] = True
+    res = client.get("/api/state")
+    assert res.status_code == 200
+    assert res.json()["rules_running"] is True
+
+
+def test_window_store_set_snapshot_force_inserts_when_state_exists(fastapi_client):
+    """set_snapshot bypasses the busy↔idle gate that update() applies —
+    used by the scroll path so the user sees the new visible region
+    immediately, regardless of whether the window flipped state."""
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=2)
+    # No state yet → set_snapshot should refuse.
+    assert store.set_snapshot("w1", b"png-x") is False
+    # Seed state via update (no image), then force-insert.
+    store.update(
+        [{"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}], {}
+    )
+    assert store.set_snapshot("w1", b"png-1") is True
+    assert store.snapshot("w1", 0)[1] == b"png-1"
+    # A second forced snapshot pushes the first along the ring.
+    store.set_snapshot("w1", b"png-2")
+    assert store.snapshot("w1", 0)[1] == b"png-2"
+    assert store.snapshot("w1", 1)[1] == b"png-1"
 
 
 def test_window_clear_queue(fastapi_client):

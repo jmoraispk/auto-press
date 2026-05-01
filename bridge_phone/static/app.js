@@ -14,6 +14,7 @@ const state = {
   notifEnabled: localStorage.getItem("ap.notif") === "1",
   autoReloadEnabled: localStorage.getItem("ap.autoreload") === "1",
   intervalSeconds: 10,      // populated from /api/state
+  rulesRunning: false,      // populated from /api/state; toggle in settings
 };
 
 const AUTO_RELOAD_DEFAULT_S = 10;
@@ -78,10 +79,12 @@ async function loadState() {
     const data = await res.json();
     state.snapshotsPerWindow = data.snapshots_per_window || 5;
     state.intervalSeconds = data.interval_seconds || AUTO_RELOAD_DEFAULT_S;
+    state.rulesRunning = Boolean(data.rules_running);
     state.windows.clear();
     for (const w of data.windows || []) state.windows.set(w.id, w);
     if ((data.windows || []).length) markEvent();
     renderWindows();
+    renderRulesToggle();
     applyAutoReload();
   } catch {}
 }
@@ -448,8 +451,81 @@ function toggleAutoReload() {
   applyAutoReload();
 }
 
+// ---- rules automation toggle -------------------------------------------
+
+function renderRulesToggle() {
+  const btn = $("rules-toggle");
+  const on = !!state.rulesRunning;
+  btn.textContent = on ? "on" : "off";
+  btn.classList.toggle("on", on);
+}
+
+async function toggleRules() {
+  const next = !state.rulesRunning;
+  // Optimistic flip so the toggle reacts on tap; the server response
+  // confirms (and the next /api/state load is the authoritative read).
+  state.rulesRunning = next;
+  renderRulesToggle();
+  try {
+    const res = await fetch("/api/admin/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ running: next }),
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      alert(`Rules toggle failed: ${res.status} ${detail}`);
+      state.rulesRunning = !next;
+      renderRulesToggle();
+    }
+  } catch (e) {
+    alert(`Rules toggle network error: ${e.message}`);
+    state.rulesRunning = !next;
+    renderRulesToggle();
+  }
+}
+
+// ---- scroll the open window --------------------------------------------
+
+async function scrollWindow(amount, btn) {
+  const id = state.current;
+  if (!id) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("loading");
+  }
+  try {
+    const res = await fetch(
+      `/api/windows/${encodeURIComponent(id)}/scroll`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount }),
+      }
+    );
+    if (!res.ok) {
+      const detail = await res.text();
+      setSendStatus(`Scroll failed: ${res.status} ${detail}`, "error");
+    } else {
+      setSendStatus(`Scrolled up ×${amount}.`, "success");
+    }
+  } catch (e) {
+    setSendStatus(`Scroll network error: ${e.message}`, "error");
+  } finally {
+    if (btn) {
+      // Brief lockout so a fast double-tap doesn't fire two scrolls
+      // before the snapshot recheck has a chance to land.
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.classList.remove("loading");
+      }, 800);
+    }
+  }
+}
+
 renderNotifToggle();
 renderAutoReloadToggle();
+renderRulesToggle();
 
 $("settings-btn").addEventListener("click", () => {
   const panel = $("settings-panel");
@@ -459,6 +535,11 @@ $("settings-btn").addEventListener("click", () => {
 $("notif-toggle").addEventListener("click", toggleNotifications);
 $("autoreload-toggle").addEventListener("click", toggleAutoReload);
 $("reload-btn").addEventListener("click", reloadBridge);
+$("rules-toggle").addEventListener("click", toggleRules);
+for (const btn of document.querySelectorAll(".scroll-btn")) {
+  const amount = Number(btn.dataset.amount || "1");
+  btn.addEventListener("click", () => scrollWindow(amount, btn));
+}
 
 $("snap-back").addEventListener("click", closeSnapshots);
 $("send-go").addEventListener("click", sendOrQueue);

@@ -848,6 +848,9 @@ class MainWindow(QMainWindow):
     # through Qt so the actual reload runs on the main thread (the bridge
     # request handler is on its own asyncio thread).
     bridge_reload_requested = Signal()
+    # Fires when /api/admin/rules is POSTed from the phone. Marshals to
+    # the main thread so we touch the engine flag in the right context.
+    bridge_set_rules_requested = Signal(bool)
 
     CHROME_HEIGHT = 120
 
@@ -866,6 +869,7 @@ class MainWindow(QMainWindow):
         self._auto_activate = bool(auto_activate)
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
         self.bridge_reload_requested.connect(self._reload_bridge_service, Qt.QueuedConnection)
+        self.bridge_set_rules_requested.connect(self._set_rules_running_remote, Qt.QueuedConnection)
 
         setTheme(Theme.DARK)
         setThemeColor(WINDOWS_ACCENT)
@@ -2839,8 +2843,11 @@ class MainWindow(QMainWindow):
             re_match_rule=self._bridge_re_match_rule,
             perform_send=self._bridge_perform_send,
             perform_window_send=self._bridge_perform_window_send,
+            perform_window_scroll=self._bridge_perform_window_scroll,
             perform_read=None,
             request_reload=self._bridge_request_reload,
+            is_rules_running=self._bridge_is_rules_running,
+            set_rules_running=self._bridge_set_rules_running,
         )
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
@@ -2975,6 +2982,40 @@ class MainWindow(QMainWindow):
             pre_paste_delay_ms=int(bridge_cfg.get("pre_paste_delay_ms", 150)),
             clipboard_restore_delay_ms=int(bridge_cfg.get("clipboard_restore_delay_ms", 500)),
         )
+
+    def _bridge_perform_window_scroll(
+        self, window: dict, amount: int, bridge_cfg: dict
+    ) -> None:
+        """Move the cursor to the centre of the window region, click so
+        the chat panel takes scroll focus, and scroll by ``amount`` wheel
+        notches (positive = up). The bridge endpoint then schedules a
+        snapshot recapture so the phone shows the new scrolled view."""
+        from press_core import scroll_at
+
+        region = window.get("region")
+        if not region or len(region) != 4:
+            return
+        x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
+        center = (x + w // 2, y + h // 2)
+        scroll_at(center, int(amount))
+
+    def _bridge_is_rules_running(self) -> bool:
+        """Read the engine running flag — called from the bridge's request
+        handler thread. self._running is updated on the main thread via
+        running_changed; reading a Python bool from another thread is
+        atomic, no lock needed."""
+        return bool(getattr(self, "_running", False))
+
+    def _bridge_set_rules_running(self, running: bool) -> None:
+        """Marshal the toggle request from the bridge thread to the main
+        thread. The actual flip happens in _set_rules_running_remote
+        because Qt UI mutations need to be on the GUI thread."""
+        self.bridge_set_rules_requested.emit(bool(running))
+
+    def _set_rules_running_remote(self, running: bool) -> None:
+        if running == bool(getattr(self, "_running", False)):
+            return  # already in the requested state — no-op
+        self._toggle_running()
 
     def _bridge_perform_window_send(
         self, window: dict, text: str, bridge_cfg: dict

@@ -53,11 +53,21 @@ class BridgeCallbacks:
     # bridge config (timing knobs). Used by /api/windows/{id}/send and by
     # the queue-drain path on busy → idle transitions.
     perform_window_send: Optional[Callable[[dict, str, dict], None]] = None
+    # Move cursor to the centre of the window region, click to take focus,
+    # and scroll by ``amount`` wheel notches (positive = up). Used by
+    # /api/windows/{id}/scroll so the phone can scroll older messages into
+    # view without leaving the bridge UI.
+    perform_window_scroll: Optional[Callable[[dict, int, dict], None]] = None
     perform_read: Optional[Callable[[str, dict], Optional[str]]] = None
     # Hot-reload hook for /api/admin/reload. The callback is expected to
     # importlib.reload(press_bridge) and restart the FastAPI service so
     # the user can ship code changes from a phone over Tailscale.
     request_reload: Optional[Callable[[], None]] = None
+    # Reflect / mutate the engine's "rules running" flag from the phone,
+    # so the user can pause auto-clicking while reading the agent's
+    # output and resume when done.
+    is_rules_running: Optional[Callable[[], bool]] = None
+    set_rules_running: Optional[Callable[[bool], None]] = None
 
 
 # ---- per-window state + snapshot ring buffer ----------------------------
@@ -155,6 +165,22 @@ class WindowStore:
         with self._lock:
             entry = self._windows.get(window_id)
             return dict(entry["state"]) if entry and entry["state"] else None
+
+    def set_snapshot(self, window_id: str, png_bytes: bytes) -> bool:
+        """Insert a snapshot for the window, bypassing the busy↔idle
+        transition gate that update() applies. Used by paths like the
+        scroll endpoint where we want a fresh frame regardless of state.
+        Returns False if the window has no state yet (haven't seen a
+        tick for it)."""
+        if not png_bytes:
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            entry = self._windows.get(window_id)
+            if entry is None or not entry["state"]:
+                return False
+            entry["snapshots"].append((now, png_bytes))
+            return True
 
     # ---- pending-message queue ----
 
@@ -342,6 +368,58 @@ def _png_from_rgb(rgb) -> Optional[bytes]:
         return buf.getvalue()
     except Exception:
         return None
+
+
+def _post_scroll_recheck(service: "BridgeService", window_id: str, delay_s: float = 0.6) -> None:
+    """After scrolling, capture a fresh snapshot of the window region and
+    push it into the store via set_snapshot, bypassing the busy↔idle
+    transition gate. Cursor's scroll animation needs ~0.5 s to settle on
+    most machines; we wait a hair more before capturing.
+
+    Doesn't run idle detection — scrolling doesn't change idle/busy
+    state, so the existing detector tick is the right place to track
+    that. We only care about the new snapshot here.
+    """
+    import sys as _sys
+    if _sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+        except Exception:
+            pass
+    time.sleep(max(0.1, float(delay_s)))
+    try:
+        cfg = service.callbacks.cfg_snapshot() or {}
+    except Exception:
+        return
+    bridge_cfg = cfg.get("bridge") or {}
+    win_cfg = next(
+        (w for w in bridge_cfg.get("windows", []) if w.get("id") == window_id),
+        None,
+    )
+    if not win_cfg:
+        return
+    region = win_cfg.get("region")
+    if not region or len(region) != 4:
+        return
+    try:
+        from press_engine import capture_screen_rgb
+    except Exception:
+        return
+    try:
+        rgb = capture_screen_rgb(
+            (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
+        )
+    except Exception as exc:
+        LOG.warning("post-scroll capture failed: %s", exc)
+        return
+    png = _png_from_rgb(rgb)
+    if not png:
+        return
+    if service.windows.set_snapshot(window_id, png):
+        # Push state so connected phones refetch the snapshot URL.
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
 
 
 def _post_send_recheck(service: "BridgeService", window_id: str, delay_s: float = 2.0) -> None:
@@ -568,6 +646,29 @@ def build_app(service: BridgeService):
     async def health() -> JSONResponse:
         return JSONResponse({"ok": True, "uptime_s": int(time.time() - started_at)})
 
+    @app.get("/api/admin/rules")
+    async def admin_rules_get() -> JSONResponse:
+        running = False
+        if service.callbacks.is_rules_running is not None:
+            try:
+                running = bool(service.callbacks.is_rules_running())
+            except Exception:
+                running = False
+        return JSONResponse({"running": running})
+
+    @app.post("/api/admin/rules")
+    async def admin_rules_set(payload: dict) -> JSONResponse:
+        if service.callbacks.set_rules_running is None:
+            raise HTTPException(status_code=501, detail="rules toggle not wired")
+        if not isinstance(payload, dict) or not isinstance(payload.get("running"), bool):
+            raise HTTPException(status_code=400, detail="running (bool) required")
+        running = payload["running"]
+        try:
+            service.callbacks.set_rules_running(running)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return JSONResponse({"running": running})
+
     @app.post("/api/admin/reload")
     async def admin_reload() -> JSONResponse:
         """Hot-reload the press_bridge module + restart the FastAPI
@@ -586,12 +687,19 @@ def build_app(service: BridgeService):
     @app.get("/api/state")
     async def state() -> JSONResponse:
         cfg = service.callbacks.cfg_snapshot()
+        rules_running = False
+        if service.callbacks.is_rules_running is not None:
+            try:
+                rules_running = bool(service.callbacks.is_rules_running())
+            except Exception:
+                rules_running = False
         return JSONResponse(
             {
                 "windows": service.windows.summaries(),
                 "events": service.hub.recent(),
                 "interval_seconds": cfg.get("interval_seconds", 10.0),
                 "snapshots_per_window": SNAPSHOTS_PER_WINDOW,
+                "rules_running": rules_running,
             }
         )
 
@@ -677,6 +785,53 @@ def build_app(service: BridgeService):
         for s in service.windows.summaries():
             service.hub.publish_typed("window_state", s)
         return JSONResponse({"cleared": removed})
+
+    @app.post("/api/windows/{window_id}/scroll")
+    async def window_scroll(window_id: str, payload: dict) -> JSONResponse:
+        """Scroll the window's chat panel by ``amount`` wheel notches
+        (positive = up). Captures a fresh snapshot a moment later so the
+        phone shows the new visible region without waiting for the next
+        engine tick."""
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="amount (int) required")
+        try:
+            amount = int(payload.get("amount", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="amount must be an int")
+        if amount == 0:
+            raise HTTPException(status_code=400, detail="amount must be non-zero")
+        cfg = service.callbacks.cfg_snapshot()
+        win_cfg = next(
+            (w for w in (cfg.get("bridge") or {}).get("windows", [])
+             if w.get("id") == window_id),
+            None,
+        )
+        if win_cfg is None:
+            raise HTTPException(status_code=404, detail="window not found")
+        if not win_cfg.get("region"):
+            raise HTTPException(status_code=400, detail="window has no region")
+        if service.callbacks.perform_window_scroll is None:
+            raise HTTPException(status_code=501, detail="window scroll not wired")
+        bridge_cfg = cfg.get("bridge") or {}
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(
+                None,
+                service.callbacks.perform_window_scroll,
+                win_cfg,
+                amount,
+                bridge_cfg,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"scroll failed: {exc}") from exc
+        # Background recheck: wait briefly so Cursor finishes the scroll
+        # animation, then capture a fresh snapshot for this window.
+        threading.Thread(
+            target=_post_scroll_recheck,
+            args=(service, window_id),
+            daemon=True,
+        ).start()
+        return JSONResponse({"scrolled": amount})
 
     @app.post("/api/windows/{window_id}/queue/{idx}/send_now")
     async def queue_send_now(window_id: str, idx: int) -> JSONResponse:

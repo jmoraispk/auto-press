@@ -112,6 +112,23 @@ def click_point(point: tuple[int, int]) -> None:
     pyautogui.click()
 
 
+def scroll_at(point: tuple[int, int], amount: int) -> None:
+    """Move cursor to ``point``, click once (so the panel under the cursor
+    takes scroll focus), then scroll by ``amount`` wheel notches.
+
+    Positive amount scrolls up (toward older content); negative scrolls
+    down. We click before scrolling because pyautogui.scroll routes the
+    wheel event to the focused window — without focus the scroll can be
+    consumed by whichever app last had it.
+    """
+    _pin_thread_v2_dpi()
+    x, y = int(point[0]), int(point[1])
+    pyautogui.moveTo(x, y, duration=0)
+    pyautogui.click()
+    time.sleep(0.05)
+    pyautogui.scroll(int(amount))
+
+
 def get_clipboard_text() -> str:
     """Best-effort current clipboard text (empty string if unavailable)."""
     import pyperclip  # ships transitively with pyautogui

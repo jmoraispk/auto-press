@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=9">
   <title>auto-press</title>
 </head>
 <body>
@@ -20,6 +20,10 @@
   </header>
 
   <section id="settings-panel" hidden>
+    <div class="setting">
+      <span class="setting-name">Rules automation</span>
+      <button id="rules-toggle" class="ghost">off</button>
+    </div>
     <div class="setting">
       <span class="setting-name">Notifications</span>
       <button id="notif-toggle" class="ghost">off</button>
@@ -33,9 +37,10 @@
       <button id="reload-btn" class="ghost">Reload</button>
     </div>
     <p class="muted setting-hint">
-      Auto-refresh hard-reloads the page on the same cadence as the bridge tick;
-      Reload re-imports <code>press_bridge.py</code> and restarts the listener.
-      If the new code fails to import, the existing service keeps running.
+      Rules automation toggles the desktop Start button — pause auto-clicking
+      while reading the agent's output, resume when done. Auto-refresh hard-reloads
+      the page on the bridge tick cadence; Reload re-imports
+      <code>press_bridge.py</code> and restarts the listener.
     </p>
   </section>
 
@@ -67,6 +72,13 @@
         <button id="queue-clear" class="ghost">Clear queue</button>
       </div>
 
+      <div id="scroll-controls">
+        <span class="setting-name">Scroll up:</span>
+        <button class="ghost scroll-btn" data-amount="1">×1</button>
+        <button class="ghost scroll-btn" data-amount="3">×3</button>
+        <button class="ghost scroll-btn" data-amount="5">×5</button>
+      </div>
+
       <h3 class="section-h">Last snapshot</h3>
       <p id="snap-empty" class="muted" hidden>
         No snapshot yet — captured each time the window flips busy → idle.
@@ -80,6 +92,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=8"></script>
+  <script src="/static/app.js?v=9"></script>
 </body>
 </html>

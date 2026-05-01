@@ -254,6 +254,23 @@ button.primary {
 }
 #queue-clear { font-size: 12px; padding: 4px 9px; }
 
+#scroll-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+#scroll-controls .setting-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--muted);
+}
+.scroll-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* One snapshot per window, captured on busy → idle. Full image is
    visible up to ~60vh so the user can read the agent's last message
    without tapping. Click still expands to a fullscreen lightbox. */
