@@ -9,14 +9,30 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=4">
   <title>auto-press</title>
 </head>
 <body>
   <header>
     <h1>auto-press</h1>
     <span id="freshness" class="freshness" aria-live="polite" title="Time since last bridge update">—</span>
+    <button id="settings-btn" class="ghost icon" aria-label="Settings" aria-expanded="false">⚙</button>
   </header>
+
+  <section id="settings-panel" hidden>
+    <div class="setting">
+      <span class="setting-name">Notifications</span>
+      <button id="notif-toggle" class="ghost">off</button>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Reload bridge service</span>
+      <button id="reload-btn" class="ghost">Reload</button>
+    </div>
+    <p class="muted setting-hint">
+      Reload re-imports <code>press_bridge.py</code> and restarts the listener.
+      If the new code fails to import, the existing service keeps running.
+    </p>
+  </section>
 
   <main>
     <section id="windows-section">
@@ -57,6 +73,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>

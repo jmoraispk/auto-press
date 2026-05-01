@@ -11,6 +11,7 @@ const state = {
   view: "list",             // "list" | "snapshots"
   current: null,            // window id when in "snapshots" view
   lastEventAt: 0,           // ms epoch of last SSE event for the freshness pill
+  notifEnabled: localStorage.getItem("ap.notif") === "1",
 };
 
 // ---- SSE ----------------------------------------------------------------
@@ -27,11 +28,10 @@ function connectSSE() {
       const data = JSON.parse(ev.data);
       if (!data || !data.id) return;
       const prev = state.windows.get(data.id);
+      maybeNotify(prev, data);
       state.windows.set(data.id, data);
       renderWindows();
       if (state.view === "snapshots" && state.current === data.id) {
-        // Re-render to refresh score + snapshot count + queue. Only re-fetch
-        // images when the snapshot count actually grew.
         const snapshotsGrew =
           !prev || (data.snapshot_count || 0) > (prev.snapshot_count || 0);
         renderWindowDetail(snapshotsGrew);
@@ -256,6 +256,91 @@ function formatScore(s) {
   if (typeof s !== "number" || isNaN(s)) return "—";
   return `score ${s.toFixed(2)}`;
 }
+
+// ---- settings / notifications / admin reload ---------------------------
+
+function renderNotifToggle() {
+  const btn = $("notif-toggle");
+  btn.textContent = state.notifEnabled ? "on" : "off";
+  btn.classList.toggle("on", state.notifEnabled);
+}
+
+function maybeNotify(prev, next) {
+  // Only fire on a real busy → idle transition while the toggle is on.
+  if (!state.notifEnabled) return;
+  if (!prev || prev.idle === next.idle) return;
+  if (!next.idle) return;
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(next.name || "Cursor", {
+      body: "is idle — ready for input",
+      icon: "/static/favicon.svg",
+      tag: `idle-${next.id}`,    // dedupe rapid duplicates
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch {}
+}
+
+async function toggleNotifications() {
+  if (state.notifEnabled) {
+    state.notifEnabled = false;
+    localStorage.setItem("ap.notif", "0");
+    renderNotifToggle();
+    return;
+  }
+  if (typeof Notification === "undefined") {
+    alert("This browser doesn't expose the Notification API.");
+    return;
+  }
+  if (Notification.permission === "denied") {
+    alert("Notifications are blocked for this site. Enable them in browser settings.");
+    return;
+  }
+  if (Notification.permission !== "granted") {
+    const result = await Notification.requestPermission();
+    if (result !== "granted") return;
+  }
+  state.notifEnabled = true;
+  localStorage.setItem("ap.notif", "1");
+  renderNotifToggle();
+}
+
+async function reloadBridge() {
+  const ok = confirm(
+    "Reload the bridge service? The connection will drop for ~1 second " +
+    "and reconnect automatically. If the new code fails to import, the " +
+    "current service stays up."
+  );
+  if (!ok) return;
+  const btn = $("reload-btn");
+  btn.disabled = true;
+  btn.textContent = "Reloading…";
+  try {
+    const res = await fetch("/api/admin/reload", { method: "POST" });
+    if (!res.ok) {
+      const detail = await res.text();
+      alert(`Reload failed: ${res.status} ${detail}`);
+    }
+  } catch (e) {
+    // Expected: the request was in flight when the listener was torn down.
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Reload";
+    }, 2000);
+  }
+}
+
+renderNotifToggle();
+
+$("settings-btn").addEventListener("click", () => {
+  const panel = $("settings-panel");
+  panel.hidden = !panel.hidden;
+  $("settings-btn").setAttribute("aria-expanded", String(!panel.hidden));
+});
+$("notif-toggle").addEventListener("click", toggleNotifications);
+$("reload-btn").addEventListener("click", reloadBridge);
 
 $("snap-back").addEventListener("click", closeSnapshots);
 $("send-go").addEventListener("click", sendOrQueue);

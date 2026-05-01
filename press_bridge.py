@@ -54,6 +54,10 @@ class BridgeCallbacks:
     # the queue-drain path on busy → idle transitions.
     perform_window_send: Optional[Callable[[dict, str, dict], None]] = None
     perform_read: Optional[Callable[[str, dict], Optional[str]]] = None
+    # Hot-reload hook for /api/admin/reload. The callback is expected to
+    # importlib.reload(press_bridge) and restart the FastAPI service so
+    # the user can ship code changes from a phone over Tailscale.
+    request_reload: Optional[Callable[[], None]] = None
 
 
 # ---- per-window state + snapshot ring buffer ----------------------------
@@ -543,6 +547,21 @@ def build_app(service: BridgeService):
     @app.get("/api/health")
     async def health() -> JSONResponse:
         return JSONResponse({"ok": True, "uptime_s": int(time.time() - started_at)})
+
+    @app.post("/api/admin/reload")
+    async def admin_reload() -> JSONResponse:
+        """Hot-reload the press_bridge module + restart the FastAPI
+        listener so code edits take effect without killing the desktop
+        process. Risky: if the new code is broken the bridge can come
+        back up dead. The MainWindow side does an import test first so
+        a syntax error keeps the old service running."""
+        if service.callbacks.request_reload is None:
+            raise HTTPException(status_code=501, detail="reload not wired")
+        try:
+            service.callbacks.request_reload()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return JSONResponse({"reload_scheduled": True})
 
     @app.get("/api/state")
     async def state() -> JSONResponse:

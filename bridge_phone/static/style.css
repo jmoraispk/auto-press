@@ -56,6 +56,45 @@ header h1 {
 .freshness.stale { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
 .freshness.live { color: var(--green); border-color: rgba(34, 197, 94, 0.4); }
 
+button.icon {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#settings-panel {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+}
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--card-border);
+}
+.setting:last-of-type { border-bottom: none; }
+.setting-name { flex: 1; font-size: 13px; }
+.setting button { padding: 4px 10px; font-size: 12px; }
+.setting button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.setting-hint { margin: 6px 0 4px; font-size: 11px; }
+.setting-hint code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
 main { display: flex; flex-direction: column; gap: 14px; }
 
 .muted {

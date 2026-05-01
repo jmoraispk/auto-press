@@ -836,6 +836,10 @@ class CollapsibleCard(HeaderCardWidget):
 
 class MainWindow(QMainWindow):
     hotkey_triggered = Signal()
+    # Fires when the bridge HTTP /api/admin/reload endpoint is hit. Goes
+    # through Qt so the actual reload runs on the main thread (the bridge
+    # request handler is on its own asyncio thread).
+    bridge_reload_requested = Signal()
 
     CHROME_HEIGHT = 120
 
@@ -851,6 +855,7 @@ class MainWindow(QMainWindow):
         self._bridge_host_override = bridge_host
         self._bridge_port_override = bridge_port
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
+        self.bridge_reload_requested.connect(self._reload_bridge_service, Qt.QueuedConnection)
 
         setTheme(Theme.DARK)
         setThemeColor(WINDOWS_ACCENT)
@@ -2717,6 +2722,7 @@ class MainWindow(QMainWindow):
             perform_send=self._bridge_perform_send,
             perform_window_send=self._bridge_perform_window_send,
             perform_read=None,
+            request_reload=self._bridge_request_reload,
         )
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
@@ -2733,6 +2739,37 @@ class MainWindow(QMainWindow):
             self._log(f"  {url}")
             print(f"  {url}", flush=True)
         self._bridge_log(f"service started → {primary_url}")
+
+    def _bridge_request_reload(self) -> None:
+        """Called from the bridge's request handler thread when the phone
+        hits POST /api/admin/reload. We just emit a Qt signal so the
+        actual restart runs on the main thread."""
+        self.bridge_reload_requested.emit()
+
+    def _reload_bridge_service(self) -> None:
+        """Hot-reload the press_bridge module and restart the listener.
+
+        Strategy: try to importlib.reload() *before* tearing the running
+        service down. If the new code has a syntax error or import fails,
+        the existing service stays up — the user can keep the connection
+        and ssh in to fix the breakage. Only after a successful re-import
+        do we stop+start.
+        """
+        self._log("[bridge] reload requested")
+        self._bridge_log("reload requested — re-importing press_bridge…")
+        import importlib
+        try:
+            import press_bridge as _pb
+            importlib.reload(_pb)
+        except Exception as exc:
+            msg = f"reload aborted (import failed): {exc}"
+            self._log(f"[bridge] {msg}")
+            self._bridge_log(msg)
+            return
+        self._bridge_log("module re-imported, restarting listener…")
+        self._stop_bridge_service()
+        # Brief pause so uvicorn fully unwinds before we bind again.
+        QTimer.singleShot(500, self._start_bridge_service)
 
     def _stop_bridge_service(self) -> None:
         if self._bridge is None:
