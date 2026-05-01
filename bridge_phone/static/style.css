@@ -367,7 +367,12 @@ button.primary {
 }
 .snapshot {
   background: var(--card);
-  border: 1px solid var(--card-border);
+  /* Slightly lighter border than other cards: visually it sits next to
+     Cursor's own whitish-grey window outline that's part of the
+     captured image, so a too-dark border here looks like the picture
+     ends at a sharp dark line. The top edge especially benefits — the
+     image's top pixels are usually the lightest in the frame. */
+  border: 1px solid #3d4452;
   border-radius: 8px;
   overflow: hidden;
   cursor: zoom-in;
@@ -387,6 +392,9 @@ button.primary {
   font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  /* Internal separator stays the darker page-card border — only the
+     outer outline of the tile got lightened above, so the timestamp
+     strip still reads as part of the same card. */
   border-top: 1px solid var(--card-border);
   white-space: nowrap;
   overflow: hidden;
