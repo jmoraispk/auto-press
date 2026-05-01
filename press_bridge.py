@@ -160,9 +160,9 @@ class WindowStore:
 
     def enqueue(self, window_id: str, text: str) -> tuple[bool, int]:
         """Append a queued message; returns (accepted, new_position).
-        Caps at ``self._max_queue`` to prevent unbounded growth."""
-        text = (text or "").strip()
-        if not text:
+        Caps at ``self._max_queue``. Empty / whitespace-only text is OK
+        — the send pipeline interprets that as "click + Enter, no paste"."""
+        if text is None:
             return False, 0
         with self._lock:
             q = self._queues.setdefault(window_id, [])
@@ -601,10 +601,14 @@ def build_app(service: BridgeService):
 
     @app.post("/api/windows/{window_id}/send")
     async def window_send(window_id: str, payload: dict) -> JSONResponse:
-        text = (payload.get("text") if isinstance(payload, dict) else "") or ""
-        text = text.strip()
-        if not text:
-            raise HTTPException(status_code=400, detail="text required")
+        # Allow empty / whitespace-only text. Empty means "click + Enter
+        # without pasting" — used when the user already typed the message
+        # in the target window from their laptop and just wants to fire
+        # Enter from the phone. Strict validation: text key must exist and
+        # be a string, but the string itself can be anything.
+        if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
+            raise HTTPException(status_code=400, detail="text (string) required")
+        text = payload["text"]
         cfg = service.callbacks.cfg_snapshot()
         win_cfg = next(
             (w for w in (cfg.get("bridge") or {}).get("windows", [])

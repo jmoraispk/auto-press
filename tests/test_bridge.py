@@ -307,13 +307,19 @@ def test_window_store_queue_enqueue_dequeue():
     assert pos == 1
     accepted, pos = store.enqueue("w1", "world")
     assert pos == 2
-    accepted, _ = store.enqueue("w1", "")  # empty rejected
+    # Empty / whitespace strings are allowed: the send pipeline interprets
+    # them as "click + Enter, no paste". Only None is rejected.
+    accepted, pos = store.enqueue("w1", "")
+    assert accepted is True
+    assert pos == 3
+    accepted, _ = store.enqueue("w1", None)
     assert accepted is False
-    assert store.pending("w1") == ["hello", "world"]
+    assert store.pending("w1") == ["hello", "world", ""]
     assert store.dequeue("w1") == "hello"
-    assert store.pending("w1") == ["world"]
+    assert store.pending("w1") == ["world", ""]
     assert store.dequeue("w1") == "world"
-    assert store.dequeue("w1") is None  # empty
+    assert store.dequeue("w1") == ""
+    assert store.dequeue("w1") is None  # empty queue
     assert store.pending("w1") == []
 
 
@@ -428,6 +434,48 @@ def test_window_send_endpoint_queues_when_busy(fastapi_client):
     assert res.json()["queued"] is True
     assert service.windows.pending("w1") == ["hold"]
     assert calls["window_send"] == []  # not fired yet
+
+
+def test_window_send_endpoint_accepts_empty_text_when_idle(fastapi_client):
+    """Empty payload = "just click + Enter" — useful when the user has
+    already typed the message in the target window and only needs the
+    submit keystroke from the bridge."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.update(
+        [{"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}], {}
+    )
+    res = client.post("/api/windows/w1/send", json={"text": ""})
+    assert res.status_code == 200
+    assert calls["window_send"][0][1] == ""
+
+
+def test_window_send_endpoint_accepts_whitespace_text(fastapi_client):
+    """A single space / dot is a real message — pass it through verbatim."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.update(
+        [{"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}], {}
+    )
+    res = client.post("/api/windows/w1/send", json={"text": " "})
+    assert res.status_code == 200
+    assert calls["window_send"][0][1] == " "
+
+
+def test_window_send_endpoint_400_when_text_field_missing(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.update(
+        [{"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}], {}
+    )
+    res = client.post("/api/windows/w1/send", json={})
+    assert res.status_code == 400
 
 
 def test_window_send_endpoint_404_for_unknown_window(fastapi_client):

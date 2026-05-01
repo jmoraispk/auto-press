@@ -134,20 +134,27 @@ def paste_text_and_enter(
     pre_paste_delay_ms: int = 150,
     clipboard_restore_delay_ms: int = 500,
 ) -> None:
-    """Paste `text` via Ctrl+V then press Enter, restoring the prior clipboard.
+    """Paste ``text`` via Ctrl+V then press Enter, restoring the prior
+    clipboard. Empty text is allowed: in that case the clipboard is left
+    untouched and we just press Enter — useful when the user already
+    composed the message in the target field and only needs the submit
+    keystroke from the bridge.
 
     Pre-delay lets the focused field settle after the click; the restore
     delay covers slow-clipboard apps that otherwise read the new value back
     into themselves before we put the original contents back.
     """
     _pin_thread_v2_dpi()
-    saved = get_clipboard_text()
-    set_clipboard_text(text)
     if pre_paste_delay_ms > 0:
         time.sleep(pre_paste_delay_ms / 1000.0)
-    pyautogui.hotkey("ctrl", "v")
-    time.sleep(0.05)
-    pyautogui.press("enter")
-    if clipboard_restore_delay_ms > 0:
-        time.sleep(clipboard_restore_delay_ms / 1000.0)
-    set_clipboard_text(saved)
+    if text:
+        saved = get_clipboard_text()
+        set_clipboard_text(text)
+        pyautogui.hotkey("ctrl", "v")
+        time.sleep(0.05)
+        pyautogui.press("enter")
+        if clipboard_restore_delay_ms > 0:
+            time.sleep(clipboard_restore_delay_ms / 1000.0)
+        set_clipboard_text(saved)
+    else:
+        pyautogui.press("enter")

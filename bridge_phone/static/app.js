@@ -251,11 +251,10 @@ function setSendStatus(msg, kind) {
 async function sendOrQueue() {
   const id = state.current;
   if (!id) return;
-  const text = $("send-text").value.trim();
-  if (!text) {
-    setSendStatus("Type something first.", "error");
-    return;
-  }
+  // Allow empty / whitespace — that's the "just press Enter" case for
+  // when the user already typed the message in the target window from
+  // the laptop. No client-side .trim(); the bridge accepts any string.
+  const text = $("send-text").value;
   setSendStatus("Sending…");
   try {
     const res = await fetch(

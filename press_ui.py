@@ -1449,11 +1449,10 @@ class MainWindow(QMainWindow):
         outer.addLayout(svc_row)
 
         # Idle template card.
-        tpl_card = HeaderCardWidget()
-        tpl_card.setTitle("Idle indicator")
-        # Tuck the long explanation behind an info icon next to the title;
-        # HeaderCardWidget exposes its title via headerLayout, so we add
-        # a small ToolButton there.
+        tpl_card = CollapsibleCard("Idle indicator")
+        # Info button between the title (index 0) and CollapsibleCard's
+        # trailing stretch + chevron, so it sits next to the title rather
+        # than getting shoved past the collapse toggle.
         tpl_info = ToolButton(FIF.INFO)
         tpl_info.setToolTip(
             "Capture the visual cue that means a Cursor window is idle "
@@ -1462,7 +1461,7 @@ class MainWindow(QMainWindow):
             "all configured windows."
         )
         tpl_info.setFixedSize(22, 22)
-        tpl_card.headerLayout.addWidget(tpl_info)
+        tpl_card.headerLayout.insertWidget(1, tpl_info)
 
         tpl_body = QVBoxLayout()
         tpl_body.setContentsMargins(2, 0, 2, 0)
@@ -1509,15 +1508,14 @@ class MainWindow(QMainWindow):
         outer.addWidget(tpl_card)
 
         # Cursor windows card.
-        win_card = HeaderCardWidget()
-        win_card.setTitle("Cursor windows")
+        win_card = CollapsibleCard("Cursor windows")
         win_info = ToolButton(FIF.INFO)
         win_info.setToolTip(
             "Drag a box around each Cursor window. The bridge scans inside "
             "that box for the idle template. Click a name to rename."
         )
         win_info.setFixedSize(22, 22)
-        win_card.headerLayout.addWidget(win_info)
+        win_card.headerLayout.insertWidget(1, win_info)
 
         win_body = QVBoxLayout()
         win_body.setContentsMargins(2, 0, 2, 0)
@@ -1549,8 +1547,7 @@ class MainWindow(QMainWindow):
         win_card.viewLayout.addLayout(win_body)
 
         # Bridge log card.
-        log_card = HeaderCardWidget()
-        log_card.setTitle("Bridge log")
+        log_card = CollapsibleCard("Bridge log")
         log_body = QVBoxLayout()
         log_body.setContentsMargins(2, 0, 2, 0)
         log_body.setSpacing(6)
