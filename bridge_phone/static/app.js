@@ -161,13 +161,20 @@ function renderQueue() {
     const span = document.createElement("span");
     span.className = "queue-text";
     span.textContent = pending[i];
-    const btn = document.createElement("button");
-    btn.className = "queue-send-now";
-    btn.textContent = "Send now";
+    const sendBtn = document.createElement("button");
+    sendBtn.className = "queue-send-now";
+    sendBtn.textContent = "Send now";
+    const delBtn = document.createElement("button");
+    delBtn.className = "queue-delete";
+    delBtn.textContent = "✕";
+    delBtn.title = "Remove from queue";
+    delBtn.setAttribute("aria-label", "Remove from queue");
     const idx = i;
-    btn.addEventListener("click", () => sendQueuedNow(idx, btn));
+    sendBtn.addEventListener("click", () => sendQueuedNow(idx, sendBtn));
+    delBtn.addEventListener("click", () => deleteQueuedItem(idx, delBtn));
     li.appendChild(span);
-    li.appendChild(btn);
+    li.appendChild(sendBtn);
+    li.appendChild(delBtn);
     list.appendChild(li);
   }
 }
@@ -305,6 +312,29 @@ async function sendOrQueue() {
     } else {
       const detail = await res.text();
       setSendStatus(`Error ${res.status}: ${detail}`, "error");
+    }
+  } catch (e) {
+    setSendStatus(`Network error: ${e.message}`, "error");
+  }
+}
+
+async function deleteQueuedItem(idx, btn) {
+  const id = state.current;
+  if (!id) return;
+  if (btn) btn.disabled = true;
+  // Optimistic local removal so the row disappears immediately. SSE
+  // will reconcile if the server rejects (e.g. wrong index).
+  patchPendingOptimistic((p) => p.filter((_, i) => i !== idx));
+  try {
+    const res = await fetch(
+      `/api/windows/${encodeURIComponent(id)}/queue/${idx}`,
+      { method: "DELETE" }
+    );
+    if (!res.ok) {
+      const detail = await res.text();
+      setSendStatus(`Delete failed: ${res.status} ${detail}`, "error");
+    } else {
+      setSendStatus("Removed from queue.", "success");
     }
   } catch (e) {
     setSendStatus(`Network error: ${e.message}`, "error");

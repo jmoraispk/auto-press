@@ -551,6 +551,34 @@ def test_window_queue_send_now_pops_specific_index_and_fires(fastapi_client):
     assert service.windows.pending("w1") == ["first", "third"]
 
 
+def test_window_queue_delete_one_pops_specific_index(fastapi_client):
+    """The trash button on a queued row should drop *that* message
+    without firing it. Adjacent items keep their order."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.enqueue("w1", "first")
+    service.windows.enqueue("w1", "second")
+    service.windows.enqueue("w1", "third")
+
+    res = client.delete("/api/windows/w1/queue/1")
+    assert res.status_code == 200
+    assert res.json() == {"deleted": True, "text": "second"}
+    assert service.windows.pending("w1") == ["first", "third"]
+    # No perform_window_send fired — delete is silent.
+    assert calls["window_send"] == []
+
+
+def test_window_queue_delete_one_404_for_bad_index(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    res = client.delete("/api/windows/w1/queue/0")
+    assert res.status_code == 404
+
+
 def test_window_queue_send_now_404_for_bad_index(fastapi_client):
     client, service, calls = fastapi_client
     calls["cfg"]["bridge"] = {

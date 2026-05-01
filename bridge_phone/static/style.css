@@ -252,6 +252,15 @@ button.primary {
   color: #fff;
   font-weight: 600;
 }
+#queue-list .queue-delete {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+}
+#queue-list .queue-delete:hover { color: var(--red); }
 #queue-clear { font-size: 12px; padding: 4px 9px; }
 
 #scroll-controls {

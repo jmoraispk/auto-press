@@ -833,6 +833,18 @@ def build_app(service: BridgeService):
         ).start()
         return JSONResponse({"scrolled": amount})
 
+    @app.delete("/api/windows/{window_id}/queue/{idx}")
+    async def queue_delete_one(window_id: str, idx: int) -> JSONResponse:
+        """Drop a specific queued message (by 0-based index) without
+        firing it. Useful when the user changes their mind about one
+        message but wants to keep the rest of the queue."""
+        text = service.windows.pop_at(window_id, idx)
+        if text is None:
+            raise HTTPException(status_code=404, detail="queue index out of range")
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse({"deleted": True, "text": text})
+
     @app.post("/api/windows/{window_id}/queue/{idx}/send_now")
     async def queue_send_now(window_id: str, idx: int) -> JSONResponse:
         """Pop one queued message and send it immediately, regardless of
