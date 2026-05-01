@@ -96,6 +96,42 @@ async function loadState() {
   } catch {}
 }
 
+async function refreshState() {
+  // Soft auto-refresh: same fetch as loadState, but doesn't touch the
+  // current view (no openWindow re-call, no composer reset, no page
+  // reload). Just merges new data into state and re-renders the bits
+  // that actually changed.
+  try {
+    const res = await fetch("/api/state");
+    if (!res.ok) return;
+    const data = await res.json();
+    state.snapshotsPerWindow = data.snapshots_per_window || 5;
+    state.intervalSeconds = data.interval_seconds || AUTO_RELOAD_DEFAULT_S;
+    state.rulesRunning = Boolean(data.rules_running);
+    // Keep the prior count for the open window so we only re-fetch
+    // snapshot images when they actually grew.
+    const prevCount =
+      state.current && state.windows.get(state.current)
+        ? (state.windows.get(state.current).snapshot_count || 0)
+        : 0;
+    state.windows.clear();
+    for (const w of data.windows || []) state.windows.set(w.id, w);
+    if ((data.windows || []).length) markEvent();
+    renderWindows();
+    renderRulesToggle();
+    // If the open window vanished (deleted on the desktop), drop back
+    // to the overview so we don't leave a stale detail view around.
+    if (state.current && !state.windows.has(state.current)) {
+      closeSnapshots();
+      return;
+    }
+    if (state.view === "snapshots" && state.current && state.windows.has(state.current)) {
+      const newCount = state.windows.get(state.current).snapshot_count || 0;
+      renderWindowDetail(newCount > prevCount);
+    }
+  } catch {}
+}
+
 // ---- views --------------------------------------------------------------
 
 function renderWindows() {
@@ -596,16 +632,20 @@ function applyAutoReload() {
   }
   if (!state.autoReloadEnabled) return;
   // Match the bridge tick cadence; clamp so a sub-second interval can't
-  // turn this into a reload-storm if someone mis-configures.
+  // turn this into a refresh-storm if someone mis-configures.
   const ms = Math.max(2000, Math.round(state.intervalSeconds * 1000));
   autoReloadHandle = setInterval(() => {
-    // Don't reload while typing into the composer — losing draft text on
-    // every interval would make the composer unusable.
+    // Don't refetch while typing into the composer or editing a queued
+    // message — re-rendering would drop the user's draft / rebuild the
+    // edit field.
     const active = document.activeElement;
     if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
       return;
     }
-    location.reload();
+    // Soft refresh: just re-fetch state and re-render the changed
+    // bits. No location.reload, no full-page flash. Keeps the
+    // composer text + scroll position intact.
+    refreshState();
   }, ms);
 }
 

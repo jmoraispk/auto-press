@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=15">
+  <link rel="stylesheet" href="/static/style.css?v=16">
   <title>auto-press</title>
 </head>
 <body>
@@ -38,9 +38,10 @@
     </div>
     <p class="muted setting-hint">
       Rules automation toggles the desktop Start button — pause auto-clicking
-      while reading the agent's output, resume when done. Auto-refresh hard-reloads
-      the page on the bridge tick cadence; Reload re-imports
-      <code>press_bridge.py</code> and restarts the listener.
+      while reading the agent's output, resume when done. Auto-refresh re-fetches
+      window state on the bridge tick cadence (no page flash; backup for when
+      SSE drops). Reload re-imports <code>press_bridge.py</code> and restarts
+      the listener.
     </p>
   </section>
 
@@ -91,6 +92,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=15"></script>
+  <script src="/static/app.js?v=16"></script>
 </body>
 </html>
