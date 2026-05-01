@@ -1432,6 +1432,11 @@ class MainWindow(QMainWindow):
         self._bridge_switch_status = CaptionLabel(
             "Stopped — toggle on to start the FastAPI service."
         )
+        # Render as HTML so the URL set later by _update_countdown can be a
+        # clickable anchor; openExternalLinks asks Qt to hand the click to
+        # the OS browser instead of trying to navigate inside the label.
+        self._bridge_switch_status.setTextFormat(Qt.RichText)
+        self._bridge_switch_status.setOpenExternalLinks(True)
         svc_row.addWidget(self._bridge_switch_status, 1)
         outer.addLayout(svc_row)
 
@@ -2651,7 +2656,13 @@ class MainWindow(QMainWindow):
             and hasattr(self, "_bridge_switch_status")
         ):
             primary = getattr(self, "_bridge_primary_url", "") or ""
-            head = f"Running — {primary}" if primary else "Running"
+            if primary:
+                # HTML anchor — the label is already in RichText mode and
+                # opens external links via the OS, so a click on this URL
+                # launches the user's default browser to the bridge page.
+                head = f'Running — <a href="{primary}" style="color: #4f9eff;">{primary}</a>'
+            else:
+                head = "Running"
             if self._next_tick_at is not None:
                 remaining = max(0.0, float(self._next_tick_at) - time.monotonic())
                 head += f"  ·  next tick in {remaining:.0f}s"
@@ -2749,7 +2760,9 @@ class MainWindow(QMainWindow):
         )
         primary_url = urls[0] if urls else f"http://localhost:{bridge_cfg.get('port', 8765)}/"
         self._bridge_primary_url = primary_url
-        self._bridge_switch_status.setText(f"Running — {primary_url}")
+        self._bridge_switch_status.setText(
+            f'Running — <a href="{primary_url}" style="color: #4f9eff;">{primary_url}</a>'
+        )
         self._log("[bridge] listening — open one of:")
         print("[bridge] listening — open one of:", flush=True)
         for url in urls:
