@@ -185,8 +185,10 @@ async function sendQueuedNow(idx, btn) {
       btn.disabled = false;
       btn.textContent = "Send now";
     } else {
-      // The window_state SSE event will re-render the queue; just leave
-      // the button as-is until the row is replaced.
+      // Optimistic remove so the row disappears immediately. The
+      // window_state SSE event lands shortly after and overwrites with
+      // the authoritative server view (no-op if it matches).
+      patchPendingOptimistic((p) => p.filter((_, i) => i !== idx));
       setSendStatus("Sent.", "success");
     }
   } catch (e) {
@@ -248,6 +250,22 @@ function setSendStatus(msg, kind) {
   el.className = "status" + (kind ? " " + kind : "");
 }
 
+// Apply a function to the current window's pending list and re-render
+// immediately, without waiting for the SSE round-trip. Whenever the
+// window_state event eventually lands, it overwrites this with the
+// authoritative server view; until then the user sees the result of
+// their tap right away.
+function patchPendingOptimistic(transform) {
+  const id = state.current;
+  if (!id) return;
+  const w = state.windows.get(id);
+  if (!w) return;
+  const next = { ...w, pending: transform(w.pending || []) };
+  state.windows.set(id, next);
+  renderWindows();
+  renderWindowDetail(false);
+}
+
 async function sendOrQueue() {
   const id = state.current;
   if (!id) return;
@@ -268,6 +286,9 @@ async function sendOrQueue() {
     if (res.ok) {
       const data = await res.json();
       if (data.queued) {
+        // Optimistic append so the queue list shows the new item without
+        // waiting for the SSE event.
+        patchPendingOptimistic((p) => [...p, text]);
         setSendStatus(`Queued (#${data.position}). Sends on next idle.`, "success");
       } else {
         setSendStatus("Sent.", "success");
@@ -275,6 +296,7 @@ async function sendOrQueue() {
       $("send-text").value = "";
     } else if (res.status === 202) {
       const data = await res.json();
+      patchPendingOptimistic((p) => [...p, text]);
       setSendStatus(`Queued (#${data.position}). Sends on next idle.`, "success");
       $("send-text").value = "";
     } else {
@@ -289,9 +311,13 @@ async function sendOrQueue() {
 async function clearQueue() {
   const id = state.current;
   if (!id) return;
+  // Optimistic empty so the list collapses immediately. If the server
+  // 500s, the SSE-driven re-sync will put the items back.
+  patchPendingOptimistic(() => []);
   try {
-    await fetch(`/api/windows/${encodeURIComponent(id)}/queue`, { method: "DELETE" });
-    setSendStatus("Queue cleared.", "success");
+    const res = await fetch(`/api/windows/${encodeURIComponent(id)}/queue`, { method: "DELETE" });
+    if (res.ok) setSendStatus("Queue cleared.", "success");
+    else setSendStatus(`Clear failed: ${res.status}`, "error");
   } catch (e) {
     setSendStatus(`Could not clear queue: ${e.message}`, "error");
   }
