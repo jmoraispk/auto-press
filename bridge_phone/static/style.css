@@ -126,6 +126,21 @@ main { display: flex; flex-direction: column; gap: 14px; }
 }
 .window:active { transform: scale(0.985); }
 .window.idle { border-color: rgba(34, 197, 94, 0.55); }
+.window.selected {
+  background: rgba(43, 125, 233, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.window-rename {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.window-rename:hover { color: var(--accent); }
 
 .dot {
   width: 9px;
@@ -153,7 +168,9 @@ main { display: flex; flex-direction: column; gap: 14px; }
 .window .chev {
   color: var(--muted);
   font-size: 16px;
+  transition: transform 0.15s ease;
 }
+.window.selected .chev { transform: rotate(90deg); color: var(--accent); }
 
 button {
   font-size: 13px;

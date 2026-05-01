@@ -68,6 +68,10 @@ class BridgeCallbacks:
     # output and resume when done.
     is_rules_running: Optional[Callable[[], bool]] = None
     set_rules_running: Optional[Callable[[bool], None]] = None
+    # Phone-side rename: takes (window_id, new_name) and returns True if
+    # the window was found + persisted, False otherwise. The desktop
+    # side mutates templates/config.json so the name survives restarts.
+    rename_window: Optional[Callable[[str, str], bool]] = None
 
 
 # ---- per-window state + snapshot ring buffer ----------------------------
@@ -165,6 +169,19 @@ class WindowStore:
         with self._lock:
             entry = self._windows.get(window_id)
             return dict(entry["state"]) if entry and entry["state"] else None
+
+    def update_window_name(self, window_id: str, name: str) -> bool:
+        """Mutate the cached display name of a window in place. Used by
+        the rename endpoint so the new name appears on phone clients
+        immediately rather than after the next worker tick."""
+        if not isinstance(name, str) or not name.strip():
+            return False
+        with self._lock:
+            entry = self._windows.get(window_id)
+            if entry is None or not entry["state"]:
+                return False
+            entry["state"]["name"] = name
+            return True
 
     def set_snapshot(self, window_id: str, png_bytes: bytes) -> bool:
         """Insert a snapshot for the window, bypassing the busy↔idle
@@ -798,6 +815,28 @@ def build_app(service: BridgeService):
         for s in service.windows.summaries():
             service.hub.publish_typed("window_state", s)
         return JSONResponse({"cleared": removed})
+
+    @app.put("/api/windows/{window_id}/name")
+    async def window_rename(window_id: str, payload: dict) -> JSONResponse:
+        """Rename a window from the phone. The new name is written to
+        templates/config.json so it persists across restarts, and the
+        cached display name in WindowStore is updated immediately so
+        connected phones see the new label without waiting for a tick."""
+        if not isinstance(payload, dict) or not isinstance(payload.get("name"), str):
+            raise HTTPException(status_code=400, detail="name (string) required")
+        new_name = payload["name"].strip()
+        if not new_name:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+        if service.callbacks.rename_window is None:
+            raise HTTPException(status_code=501, detail="rename not wired")
+        if not service.callbacks.rename_window(window_id, new_name):
+            raise HTTPException(status_code=404, detail="window not found")
+        # Reflect in the live store + fan SSE so phones update without
+        # waiting for the next tick to come around.
+        service.windows.update_window_name(window_id, new_name)
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse({"renamed": True, "name": new_name})
 
     @app.post("/api/windows/{window_id}/scroll")
     async def window_scroll(window_id: str, payload: dict) -> JSONResponse:

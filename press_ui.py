@@ -852,6 +852,11 @@ class MainWindow(QMainWindow):
     # Fires when /api/admin/rules is POSTed from the phone. Marshals to
     # the main thread so we touch the engine flag in the right context.
     bridge_set_rules_requested = Signal(bool)
+    # Fires when a window is renamed via the phone's rename endpoint.
+    # The cfg mutation happens synchronously on the bridge thread (so
+    # the endpoint can return success/failure); this signal exists only
+    # to refresh the desktop's bridge windows table on the main thread.
+    bridge_window_renamed_remote = Signal(str, str)
 
     CHROME_HEIGHT = 120
 
@@ -871,6 +876,9 @@ class MainWindow(QMainWindow):
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
         self.bridge_reload_requested.connect(self._reload_bridge_service, Qt.QueuedConnection)
         self.bridge_set_rules_requested.connect(self._set_rules_running_remote, Qt.QueuedConnection)
+        self.bridge_window_renamed_remote.connect(
+            self._on_bridge_window_renamed_remote, Qt.QueuedConnection
+        )
 
         setTheme(Theme.DARK)
         setThemeColor(WINDOWS_ACCENT)
@@ -1663,27 +1671,15 @@ class MainWindow(QMainWindow):
             self._bridge_left_splitter.setSizes([HEADER_H, HEADER_H])
 
     def _on_bridge_log_card_toggled(self, _expanded: bool) -> None:
-        """Same idea, but the log lives in the body's *horizontal*
-        splitter — collapsing means clamping width so the left column
-        gets the freed pixels."""
-        HEADER_W = 56  # title bar in the horizontal direction is narrower
-        sizes = self._bridge_body_splitter.sizes()
-        if not self._bridge_log_card.isExpanded() and sizes[1] > HEADER_W:
-            self._bridge_body_remembered["log"] = sizes[1]
-
-        if self._bridge_log_card.isExpanded():
-            self._bridge_log_card.setMinimumWidth(220)
-            self._bridge_log_card.setMaximumWidth(16777215)
-        else:
-            self._bridge_log_card.setMinimumWidth(0)
-            self._bridge_log_card.setMaximumWidth(HEADER_W)
-
-        total = sum(sizes) or (self._bridge_body_splitter.width() or 1000)
-        if self._bridge_log_card.isExpanded():
-            r = self._bridge_body_remembered.get("log", 460)
-            self._bridge_body_splitter.setSizes([max(0, total - r), r])
-        else:
-            self._bridge_body_splitter.setSizes([max(0, total - HEADER_W), HEADER_W])
+        """The bridge log lives in the body's horizontal splitter.
+        Earlier this clamped the log's max width to ~56 px on collapse,
+        which made the left column stretch to fill the freed pixels.
+        That's confusing — the user expects the left column to keep its
+        share of the row regardless of log state. CollapsibleCard hides
+        the body via view.setVisible() on its own; we deliberately don't
+        rejigger splitter sizes here, so the left column stays put and
+        the log card simply shows its header bar with empty space below."""
+        return
 
     # ---- bridge tab actions ----
 
@@ -2946,6 +2942,7 @@ class MainWindow(QMainWindow):
             request_reload=self._bridge_request_reload,
             is_rules_running=self._bridge_is_rules_running,
             set_rules_running=self._bridge_set_rules_running,
+            rename_window=self._bridge_rename_window,
         )
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
@@ -3114,6 +3111,26 @@ class MainWindow(QMainWindow):
         if running == bool(getattr(self, "_running", False)):
             return  # already in the requested state — no-op
         self._toggle_running()
+
+    def _bridge_rename_window(self, window_id: str, new_name: str) -> bool:
+        """Phone hit PUT /api/windows/{id}/name. Mutate the config under
+        the cfg lock, persist to disk, then queue a UI refresh on the
+        main thread. Returns True if the window was found."""
+        found = False
+        with self._cfg_lock:
+            for w in self._cfg.get("bridge", {}).get("windows", []):
+                if w.get("id") == window_id:
+                    w["name"] = new_name
+                    found = True
+                    break
+        if found:
+            self._persist()
+            self.bridge_window_renamed_remote.emit(window_id, new_name)
+        return found
+
+    def _on_bridge_window_renamed_remote(self, window_id: str, new_name: str) -> None:
+        self._refresh_bridge_windows_table()
+        self._bridge_log(f"renamed via web → '{new_name}'")
 
     def _bridge_perform_window_send(
         self, window: dict, text: str, bridge_cfg: dict

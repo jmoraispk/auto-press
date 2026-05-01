@@ -350,6 +350,7 @@ def fastapi_client():
         "window_scroll": [],
         "rules_running": False,
         "rules_set": [],
+        "renames": [],
         "cfg": {
             "interval_seconds": 10.0,
             "bridge": {"pre_paste_delay_ms": 5, "clipboard_restore_delay_ms": 5},
@@ -383,6 +384,14 @@ def fastapi_client():
         calls["rules_running"] = bool(running)
         calls["rules_set"].append(bool(running))
 
+    def rename_window(window_id, new_name):
+        calls["renames"].append((window_id, new_name))
+        for w in calls["cfg"].get("bridge", {}).get("windows", []):
+            if w.get("id") == window_id:
+                w["name"] = new_name
+                return True
+        return False
+
     callbacks = BridgeCallbacks(
         cfg_snapshot=cfg_snapshot,
         re_match_rule=re_match_rule,
@@ -391,6 +400,7 @@ def fastapi_client():
         perform_window_scroll=perform_window_scroll,
         is_rules_running=is_rules_running,
         set_rules_running=set_rules_running,
+        rename_window=rename_window,
     )
     service = BridgeService(callbacks)
     app = build_app(service)
@@ -637,6 +647,62 @@ def test_window_queue_send_now_404_for_bad_index(fastapi_client):
         "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
     }
     res = client.post("/api/windows/w1/queue/0/send_now")
+    assert res.status_code == 404
+
+
+def test_window_store_update_window_name_in_place():
+    """update_window_name flips the cached display name without waiting
+    for the next worker tick to repopulate state."""
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    # No state yet → refused.
+    assert store.update_window_name("w1", "X") is False
+    store.update(
+        [{"id": "w1", "name": "Old", "idle": True, "score": 0.95, "configured": True}],
+        {},
+    )
+    assert store.update_window_name("w1", "New") is True
+    [s] = store.summaries()
+    assert s["name"] == "New"
+    # Empty / whitespace rejected.
+    assert store.update_window_name("w1", "") is False
+    assert store.update_window_name("w1", "   ") is False
+
+
+def test_window_rename_endpoint_persists_and_pushes(fastapi_client):
+    """PUT /name calls the rename callback (which persists to config),
+    updates the cached display name, and fires SSE so phones see the
+    new label without waiting for a tick."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "Old", "region": [0, 0, 100, 100]}]
+    }
+    # Seed live state so update_window_name can mutate it.
+    service.windows.update(
+        [{"id": "w1", "name": "Old", "idle": True, "score": 0.95, "configured": True}],
+        {},
+    )
+    res = client.put("/api/windows/w1/name", json={"name": "Cursor — billing rewrite"})
+    assert res.status_code == 200
+    assert res.json() == {"renamed": True, "name": "Cursor — billing rewrite"}
+    assert calls["renames"] == [("w1", "Cursor — billing rewrite")]
+    [s] = service.windows.summaries()
+    assert s["name"] == "Cursor — billing rewrite"
+
+
+def test_window_rename_endpoint_400_on_empty_name(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "Old", "region": [0, 0, 100, 100]}]
+    }
+    res = client.put("/api/windows/w1/name", json={"name": "   "})
+    assert res.status_code == 400
+
+
+def test_window_rename_endpoint_404_for_unknown_window(fastapi_client):
+    client, service, calls = fastapi_client
+    res = client.put("/api/windows/missing/name", json={"name": "X"})
     assert res.status_code == 404
 
 

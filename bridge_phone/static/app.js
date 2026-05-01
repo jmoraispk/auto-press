@@ -86,6 +86,13 @@ async function loadState() {
     renderWindows();
     renderRulesToggle();
     applyAutoReload();
+    // After auto-refresh / page reload, restore the previously open
+    // window if one was selected and still exists.
+    let saved = null;
+    try { saved = sessionStorage.getItem("ap.current"); } catch {}
+    if (saved && state.windows.has(saved)) {
+      openWindow(saved);
+    }
   } catch {}
 }
 
@@ -99,7 +106,11 @@ function renderWindows() {
   empty.hidden = all.length > 0;
   for (const w of all) {
     const li = document.createElement("li");
-    li.className = "window " + (w.idle ? "idle" : "busy");
+    const isSelected = state.current === w.id;
+    li.className =
+      "window " +
+      (w.idle ? "idle" : "busy") +
+      (isSelected ? " selected" : "");
     li.dataset.id = w.id;
     const pendingTag =
       (w.pending && w.pending.length)
@@ -108,12 +119,26 @@ function renderWindows() {
     li.innerHTML = `
       <span class="dot" aria-hidden="true"></span>
       <div class="meta">
-        <div class="name">${escapeHtml(w.name || w.id)}</div>
-        <div class="sub">${w.idle ? "idle" : "busy"} · ${formatScore(w.score)}${pendingTag}</div>
+        <div class="name"></div>
+        <div class="sub">${w.idle ? "idle" : "busy"}${pendingTag}</div>
       </div>
+      <button class="window-rename" title="Rename" aria-label="Rename">✎</button>
       <span class="chev" aria-hidden="true">›</span>
     `;
-    li.addEventListener("click", () => openWindow(w.id));
+    li.querySelector(".name").textContent = w.name || w.id;
+    li.querySelector(".window-rename").addEventListener("click", (e) => {
+      e.stopPropagation();
+      promptRenameWindow(w);
+    });
+    li.addEventListener("click", () => {
+      // Toggle: tapping the selected row collapses the detail back to
+      // the overview; tapping any other row switches.
+      if (state.current === w.id) {
+        closeSnapshots();
+      } else {
+        openWindow(w.id);
+      }
+    });
     container.appendChild(li);
   }
 }
@@ -121,10 +146,14 @@ function renderWindows() {
 function openWindow(id) {
   state.view = "snapshots";
   state.current = id;
-  $("windows-section").hidden = true;
+  // Master-detail: keep the windows list visible above the detail
+  // panel. The selected row is highlighted via renderWindows.
   $("snapshots-section").hidden = false;
   $("send-text").value = "";
   setSendStatus("");
+  // Persist so an auto-refresh / accidental reload restores the view.
+  try { sessionStorage.setItem("ap.current", id); } catch {}
+  renderWindows();
   renderWindowDetail(true);
 }
 
@@ -132,7 +161,41 @@ function closeSnapshots() {
   state.view = "list";
   state.current = null;
   $("snapshots-section").hidden = true;
-  $("windows-section").hidden = false;
+  try { sessionStorage.removeItem("ap.current"); } catch {}
+  renderWindows();
+}
+
+async function promptRenameWindow(w) {
+  const current = w.name || w.id;
+  const next = prompt("Rename window", current);
+  if (next === null) return;
+  const trimmed = next.trim();
+  if (!trimmed || trimmed === current) return;
+  // Optimistic local update so the rename is visible immediately.
+  const stored = state.windows.get(w.id);
+  if (stored) state.windows.set(w.id, { ...stored, name: trimmed });
+  renderWindows();
+  if (state.view === "snapshots" && state.current === w.id) {
+    renderWindowDetail(false);
+  }
+  try {
+    const res = await fetch(`/api/windows/${encodeURIComponent(w.id)}/name`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      alert(`Rename failed: ${res.status} ${detail}`);
+      // Roll back optimistic update.
+      if (stored) state.windows.set(w.id, stored);
+      renderWindows();
+    }
+  } catch (e) {
+    alert(`Rename network error: ${e.message}`);
+    if (stored) state.windows.set(w.id, stored);
+    renderWindows();
+  }
 }
 
 function renderWindowDetail(refetchSnapshots) {
@@ -140,9 +203,7 @@ function renderWindowDetail(refetchSnapshots) {
   if (!id) return;
   const w = state.windows.get(id);
   $("snap-window-name").textContent = w ? (w.name || id) : id;
-  $("snap-status").textContent = w
-    ? `${w.idle ? "idle" : "busy"} · ${formatScore(w.score)}`
-    : "—";
+  $("snap-status").textContent = w ? (w.idle ? "idle" : "busy") : "—";
   renderQueue();
   if (refetchSnapshots) renderSnapshots();
 }
@@ -639,7 +700,6 @@ for (const btn of document.querySelectorAll(".scroll-btn")) {
   btn.addEventListener("click", () => scrollWindow(amount, btn));
 }
 
-$("snap-back").addEventListener("click", closeSnapshots);
 $("send-go").addEventListener("click", sendOrQueue);
 $("queue-clear").addEventListener("click", clearQueue);
 $("send-text").addEventListener("keydown", (e) => {
