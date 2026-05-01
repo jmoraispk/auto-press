@@ -3171,11 +3171,12 @@ class MainWindow(QMainWindow):
         """Focus Cursor's chat history with a slow double-click and press
         the Up arrow ``amount`` times to scroll roughly one screen.
 
-        Click target is 10% in from the left edge, 50% down — far from
-        the chat *input* (bottom) and clear of the message text in the
-        centre, where a double-click would highlight a word or follow
-        a hyperlink. The bridge endpoint then schedules a snapshot
-        recapture so the phone shows the scrolled view.
+        Click target is 5% in from the left edge, 50% down — sits hard
+        against the gutter, well outside the chat text where a double-
+        click can highlight a word or follow a hyperlink. (10% used to
+        catch text occasionally on narrow Cursor windows.) The bridge
+        endpoint then schedules a snapshot recapture so the phone
+        shows the scrolled view.
         """
         from press_core import focus_and_press_up
 
@@ -3183,7 +3184,7 @@ class MainWindow(QMainWindow):
         if not region or len(region) != 4:
             return
         x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
-        target = (x + int(w * 0.1), y + h // 2)
+        target = (x + int(w * 0.05), y + h // 2)
         focus_and_press_up(target, int(amount))
 
     def _bridge_is_rules_running(self) -> bool:

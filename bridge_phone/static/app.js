@@ -398,9 +398,9 @@ function renderSnapshots() {
   // back through previous scroll captures from this idle session.
   // Cache-bust so the same idx returns the latest bytes after a
   // re-capture; Cache-Control: no-store from the server too.
-  const bust = Date.now();
+  state.lightboxBust = Date.now();
   for (let i = 0; i < count; i++) {
-    const url = `/api/windows/${encodeURIComponent(id)}/snapshot/${i}?t=${bust}-${i}`;
+    const url = `/api/windows/${encodeURIComponent(id)}/snapshot/${i}?t=${state.lightboxBust}-${i}`;
     const card = document.createElement("div");
     card.className = "snapshot";
     const label =
@@ -411,9 +411,19 @@ function renderSnapshots() {
       <img src="${url}" alt="snapshot ${i + 1}" loading="lazy">
       <div class="ts">${label}</div>
     `;
-    card.addEventListener("click", () => openLightbox(url));
+    card.addEventListener("click", () => openLightboxAt(i));
     wrap.appendChild(card);
   }
+}
+
+// Lightbox state lives on `state` so the prev/next handlers (and the
+// browser-back popstate handler) can read it without a closure.
+function snapshotUrl(idx) {
+  const id = state.current;
+  if (!id) return "";
+  // Reuse the same cache-bust as the thumbnail grid so we don't re-
+  // download bytes we already have.
+  return `/api/windows/${encodeURIComponent(id)}/snapshot/${idx}?t=${state.lightboxBust}-${idx}`;
 }
 
 function formatRelativeTime(iso) {
@@ -428,13 +438,59 @@ function formatRelativeTime(iso) {
   return `${hr}h ago`;
 }
 
-function openLightbox(url) {
-  $("lightbox-img").src = url;
-  $("lightbox").hidden = false;
+// Lightbox is index-driven (not URL-driven) so prev/next can step
+// through the current window's snapshot deck without reaching back
+// into render state. `_lightboxPushedHistory` tracks whether we own
+// a history entry so the close path can decide between history.back()
+// (consume our entry) and a passive close (popstate already fired).
+function snapshotCount() {
+  const w = state.current ? state.windows.get(state.current) : null;
+  return w ? Math.min(w.snapshot_count || 0, state.snapshotsPerWindow) : 0;
 }
+
+function openLightboxAt(idx) {
+  const count = snapshotCount();
+  if (count === 0) return;
+  state.lightboxIdx = Math.max(0, Math.min(idx, count - 1));
+  $("lightbox-img").src = snapshotUrl(state.lightboxIdx);
+  $("lightbox-prev").hidden = state.lightboxIdx <= 0;
+  $("lightbox-next").hidden = state.lightboxIdx >= count - 1;
+  const counter = $("lightbox-counter");
+  counter.textContent = count > 1 ? `${state.lightboxIdx + 1} / ${count}` : "";
+  $("lightbox").hidden = false;
+  // First open in a session pushes a history entry so the phone's back
+  // button closes the lightbox instead of exiting the PWA. Subsequent
+  // prev/next navigation reuses the same entry — we don't want every
+  // arrow tap to grow the history stack.
+  if (!state._lightboxPushedHistory) {
+    try {
+      history.pushState({ lightbox: true }, "");
+      state._lightboxPushedHistory = true;
+    } catch {}
+  }
+}
+
+function lightboxStep(delta) {
+  if ($("lightbox").hidden) return;
+  const count = snapshotCount();
+  if (count === 0) return;
+  const next = state.lightboxIdx + delta;
+  if (next < 0 || next >= count) return;
+  openLightboxAt(next);
+}
+
 function closeLightbox() {
+  if ($("lightbox").hidden) return;
   $("lightbox").hidden = true;
   $("lightbox-img").src = "";
+  $("lightbox-counter").textContent = "";
+  // If we own a history entry, popping it keeps the URL bar in sync
+  // and prevents a stale "lightbox" state from sitting on the stack.
+  // The popstate handler clears the flag and skips the second close.
+  if (state._lightboxPushedHistory) {
+    state._lightboxPushedHistory = false;
+    try { history.back(); } catch {}
+  }
 }
 
 function setSendStatus(msg, kind) {
@@ -803,13 +859,61 @@ $("send-text").addEventListener("keydown", (e) => {
   }
 });
 $("lightbox").addEventListener("click", (e) => {
-  // Click on backdrop or close button closes; clicking the image itself
-  // doesn't, so the user can pinch-zoom on mobile.
-  if (e.target === $("lightbox") || e.target === $("lightbox-close")) {
+  // Click on backdrop closes; clicking the image, prev/next, or any
+  // control inside the lightbox doesn't, so pinch-zoom and arrow taps
+  // still work on mobile.
+  if (e.target === $("lightbox")) closeLightbox();
+});
+$("lightbox-close").addEventListener("click", closeLightbox);
+$("lightbox-prev").addEventListener("click", (e) => {
+  e.stopPropagation();
+  lightboxStep(-1);
+});
+$("lightbox-next").addEventListener("click", (e) => {
+  e.stopPropagation();
+  lightboxStep(1);
+});
+
+// Keyboard navigation — only meaningful on the desktop browser, but
+// wiring it up costs nothing on mobile (no hardware keys → no events).
+window.addEventListener("keydown", (e) => {
+  if ($("lightbox").hidden) return;
+  if (e.key === "ArrowLeft") { e.preventDefault(); lightboxStep(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); lightboxStep(1); }
+  else if (e.key === "Escape") { e.preventDefault(); closeLightbox(); }
+});
+
+// Touch swipe — record the start point on touchstart, compute the
+// horizontal delta on touchend, and only treat it as a swipe if the
+// gesture was mostly horizontal (filters out a vertical pan/scroll
+// trying to look at a tall snapshot).
+let _touchStartX = null;
+let _touchStartY = null;
+$("lightbox-img").addEventListener("touchstart", (e) => {
+  if (e.touches.length !== 1) { _touchStartX = null; return; }
+  _touchStartX = e.touches[0].clientX;
+  _touchStartY = e.touches[0].clientY;
+}, { passive: true });
+$("lightbox-img").addEventListener("touchend", (e) => {
+  if (_touchStartX === null) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - _touchStartX;
+  const dy = t.clientY - _touchStartY;
+  _touchStartX = null;
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+  lightboxStep(dx < 0 ? 1 : -1);
+}, { passive: true });
+
+// Browser/phone back: if the lightbox is open and the entry being
+// popped is ours, swallow it as a close. Clearing the flag *before*
+// the close call stops closeLightbox from calling history.back() a
+// second time (which would actually exit the PWA).
+window.addEventListener("popstate", () => {
+  if (!$("lightbox").hidden) {
+    state._lightboxPushedHistory = false;
     closeLightbox();
   }
 });
-$("lightbox-close").addEventListener("click", closeLightbox);
 
 loadState();
 connectSSE();

@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=20">
+  <link rel="stylesheet" href="/static/style.css?v=21">
   <title>auto-press</title>
 </head>
 <body>
@@ -89,9 +89,12 @@
 
   <div id="lightbox" hidden role="dialog" aria-modal="true">
     <button id="lightbox-close" class="ghost" aria-label="Close">×</button>
+    <button id="lightbox-prev" class="ghost lightbox-nav" aria-label="Previous snapshot">‹</button>
+    <button id="lightbox-next" class="ghost lightbox-nav" aria-label="Next snapshot">›</button>
+    <span id="lightbox-counter" aria-live="polite"></span>
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=18"></script>
+  <script src="/static/app.js?v=21"></script>
 </body>
 </html>

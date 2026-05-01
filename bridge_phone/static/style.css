@@ -425,3 +425,40 @@ button.primary {
   background: rgba(255, 255, 255, 0.1);
   border-color: transparent;
 }
+
+/* Prev/next sit pinned to the side edges, vertically centred. The
+   gutter buttons are taller than wide so they're easy to tap on a
+   phone without overlapping the image's vertical extent. They hide
+   themselves at the bounds via the `hidden` attribute. */
+#lightbox .lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 64px;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
+  color: var(--fg);
+}
+#lightbox-prev { left: 12px; }
+#lightbox-next { right: 12px; }
+#lightbox .lightbox-nav[hidden] { display: none; }
+
+#lightbox-counter {
+  position: absolute;
+  top: calc(14px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px 9px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+#lightbox-counter:empty { display: none; }
