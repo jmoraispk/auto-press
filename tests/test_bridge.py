@@ -222,6 +222,38 @@ def test_window_store_ring_buffer_caps_at_max():
     assert store.snapshot("w1", 3) is None  # past the buffer
 
 
+def test_window_store_clears_snapshots_on_busy_to_idle():
+    """Snapshot lifecycle: scroll captures accumulate during idle, stay
+    through the next busy spell, then a busy→idle transition wipes the
+    deque and writes only the fresh capture. So the user always sees a
+    coherent set of frames from the *current* idle session."""
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=10)
+    base = {"id": "w1", "name": "X", "configured": True, "score": 0.5}
+    # Initial busy observation — no image, no snapshot.
+    store.update([{**base, "idle": False}], {})
+    assert store.summaries()[0]["snapshot_count"] == 0
+    # First idle observation. prev was False, so update treats this as a
+    # busy→idle transition; clears (already empty) and stores the fresh
+    # idle capture.
+    store.update([{**base, "idle": True}], {"w1": b"png-idle-1"})
+    assert store.summaries()[0]["snapshot_count"] == 1
+    # User scrolls twice while idle — set_snapshot adds without wiping.
+    assert store.set_snapshot("w1", b"png-scroll-1") is True
+    assert store.set_snapshot("w1", b"png-scroll-2") is True
+    assert store.summaries()[0]["snapshot_count"] == 3
+    # Window goes busy. No image this tick → snapshots stay so the user
+    # can keep reviewing them while the agent works.
+    store.update([{**base, "idle": False}], {})
+    assert store.summaries()[0]["snapshot_count"] == 3
+    # busy → idle again. Wipe + new idle capture.
+    store.update([{**base, "idle": True}], {"w1": b"png-idle-2"})
+    summary = store.summaries()[0]
+    assert summary["snapshot_count"] == 1
+    assert store.snapshot("w1", 0)[1] == b"png-idle-2"
+
+
 def test_window_store_summary_carries_latest_snapshot_timestamp():
     """Summaries include snapshot_at so the phone can show
     "captured Xs ago" without having to inspect the PNG headers."""

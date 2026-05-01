@@ -112,21 +112,35 @@ def click_point(point: tuple[int, int]) -> None:
     pyautogui.click()
 
 
-def scroll_at(point: tuple[int, int], amount: int) -> None:
-    """Move cursor to ``point``, click once (so the panel under the cursor
-    takes scroll focus), then scroll by ``amount`` wheel notches.
+def focus_and_press_up(point: tuple[int, int], presses: int = 15) -> None:
+    """Focus the panel at ``point`` with two slow clicks, then press Up
+    arrow ``presses`` times to scroll Cursor's chat history.
 
-    Positive amount scrolls up (toward older content); negative scrolls
-    down. We click before scrolling because pyautogui.scroll routes the
-    wheel event to the focused window — without focus the scroll can be
-    consumed by whichever app last had it.
+    Why double-click with a delay:
+      - A single click in Cursor often lands the caret in the chat
+        *input* instead of giving the chat *history* focus. Two clicks
+        reliably take focus away from the input.
+      - 0.5 s between clicks avoids being interpreted as a fast double-
+        click (which would select a word) and gives the UI time to
+        settle between the two events.
+
+    Arrow keys instead of mouse wheel: pyautogui.scroll's wheel events
+    behave inconsistently across Cursor's nested electron views; Up-
+    arrow keystrokes are reliable and predictable. ~15 presses moves
+    roughly one screenful in Cursor's chat at default zoom.
     """
     _pin_thread_v2_dpi()
     x, y = int(point[0]), int(point[1])
     pyautogui.moveTo(x, y, duration=0)
     pyautogui.click()
-    time.sleep(0.05)
-    pyautogui.scroll(int(amount))
+    time.sleep(0.5)
+    pyautogui.click()
+    time.sleep(0.1)
+    for _ in range(max(0, int(presses))):
+        pyautogui.press("up")
+        # Tiny gap so each keystroke is processed as a discrete event
+        # — with no delay Cursor sometimes coalesces them.
+        time.sleep(0.02)
 
 
 def get_clipboard_text() -> str:

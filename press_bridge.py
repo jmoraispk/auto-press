@@ -29,7 +29,7 @@ LOG = logging.getLogger("press_bridge")
 
 EVENT_BUFFER_MAX = 100
 SSE_KEEPALIVE_SECS = 15.0
-SNAPSHOTS_PER_WINDOW = 1
+SNAPSHOTS_PER_WINDOW = 10
 
 PHONE_DIR = Path(__file__).resolve().parent / "bridge_phone"
 
@@ -95,7 +95,18 @@ class WindowStore:
     def update(self, states: list[dict], images: dict[str, bytes]) -> list[dict]:
         """Apply a fresh detector tick. Returns the list of windows whose
         idle/busy state changed since the previous tick — callers can use
-        this to decide which transitions to surface (SSE, ntfy)."""
+        this to decide which transitions to surface (SSE, ntfy).
+
+        Snapshot lifecycle: a busy → idle transition clears the existing
+        snapshot deque before appending the fresh capture. This is the
+        cycle the user wants — old scroll history from the *previous*
+        idle session shouldn't shadow the new "agent just finished"
+        moment. Snapshots accumulate during a single idle session via
+        set_snapshot() (called by /api/windows/{id}/scroll); they
+        persist through the following busy spell so the user can keep
+        reviewing them; then the next busy → idle wipes and starts
+        fresh.
+        """
         now = datetime.now(timezone.utc).isoformat()
         transitions: list[dict] = []
         with self._lock:
@@ -118,6 +129,10 @@ class WindowStore:
                     "last_update": now,
                 }
                 entry["state"] = stored
+                # busy → idle? wipe so the new fresh capture isn't mixed
+                # with stale scroll snapshots from the previous session.
+                if prev_idle is False and stored["idle"] is True:
+                    entry["snapshots"].clear()
                 png = images.get(wid)
                 if png is not None:
                     entry["snapshots"].append((now, png))

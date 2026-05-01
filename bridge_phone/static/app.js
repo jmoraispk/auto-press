@@ -346,19 +346,26 @@ function renderSnapshots() {
   empty.hidden = count > 0;
   wrap.innerHTML = "";
   if (count === 0) return;
-  // Cache-bust so the same idx returns the latest snapshot after a
-  // re-capture. Cache-Control: no-store from the server too.
+  // Show all stored snapshots. Index 0 is newest; later indices step
+  // back through previous scroll captures from this idle session.
+  // Cache-bust so the same idx returns the latest bytes after a
+  // re-capture; Cache-Control: no-store from the server too.
   const bust = Date.now();
-  const url = `/api/windows/${encodeURIComponent(id)}/snapshot/0?t=${bust}`;
-  const card = document.createElement("div");
-  card.className = "snapshot";
-  const tsLabel = w.snapshot_at ? `captured ${formatRelativeTime(w.snapshot_at)}` : "captured";
-  card.innerHTML = `
-    <img src="${url}" alt="last snapshot" loading="lazy">
-    <div class="ts">${tsLabel}</div>
-  `;
-  card.addEventListener("click", () => openLightbox(url));
-  wrap.appendChild(card);
+  for (let i = 0; i < count; i++) {
+    const url = `/api/windows/${encodeURIComponent(id)}/snapshot/${i}?t=${bust}-${i}`;
+    const card = document.createElement("div");
+    card.className = "snapshot";
+    const label =
+      i === 0
+        ? (w.snapshot_at ? `newest · ${formatRelativeTime(w.snapshot_at)}` : "newest")
+        : `${i} scroll${i === 1 ? "" : "s"} ago`;
+    card.innerHTML = `
+      <img src="${url}" alt="snapshot ${i + 1}" loading="lazy">
+      <div class="ts">${label}</div>
+    `;
+    card.addEventListener("click", () => openLightbox(url));
+    wrap.appendChild(card);
+  }
 }
 
 function formatRelativeTime(iso) {
@@ -665,18 +672,19 @@ async function scrollWindow(amount, btn) {
       const detail = await res.text();
       setSendStatus(`Scroll failed: ${res.status} ${detail}`, "error");
     } else {
-      setSendStatus(`Scrolled up ×${amount}.`, "success");
+      setSendStatus("Scrolled. New screenshot incoming.", "success");
     }
   } catch (e) {
     setSendStatus(`Scroll network error: ${e.message}`, "error");
   } finally {
     if (btn) {
-      // Brief lockout so a fast double-tap doesn't fire two scrolls
-      // before the snapshot recheck has a chance to land.
+      // Lockout long enough for the post-scroll capture to settle and
+      // the SSE event to land — otherwise a fast double-tap shoots
+      // off two scrolls before the screenshot rolls in.
       setTimeout(() => {
         btn.disabled = false;
         btn.classList.remove("loading");
-      }, 800);
+      }, 1200);
     }
   }
 }

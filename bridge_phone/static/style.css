@@ -321,19 +321,17 @@ button.primary {
 
 #scroll-controls {
   display: flex;
-  align-items: center;
-  gap: 6px;
   margin-top: 14px;
 }
-#scroll-controls .setting-name {
-  flex: 1;
-  font-size: 13px;
-  color: var(--muted);
-}
 .scroll-btn {
-  padding: 4px 10px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.scroll-btn:disabled,
+.scroll-btn.loading {
+  opacity: 0.55;
+  cursor: progress;
 }
 
 /* One snapshot per window, captured on busy → idle. Full image is

@@ -3129,18 +3129,23 @@ class MainWindow(QMainWindow):
     def _bridge_perform_window_scroll(
         self, window: dict, amount: int, bridge_cfg: dict
     ) -> None:
-        """Move the cursor to the centre of the window region, click so
-        the chat panel takes scroll focus, and scroll by ``amount`` wheel
-        notches (positive = up). The bridge endpoint then schedules a
-        snapshot recapture so the phone shows the new scrolled view."""
-        from press_core import scroll_at
+        """Focus Cursor's chat history with a slow double-click and press
+        the Up arrow ``amount`` times to scroll roughly one screen.
+
+        Click target is 10% in from the left edge, 50% down — far from
+        the chat *input* (bottom) and clear of the message text in the
+        centre, where a double-click would highlight a word or follow
+        a hyperlink. The bridge endpoint then schedules a snapshot
+        recapture so the phone shows the scrolled view.
+        """
+        from press_core import focus_and_press_up
 
         region = window.get("region")
         if not region or len(region) != 4:
             return
         x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
-        center = (x + w // 2, y + h // 2)
-        scroll_at(center, int(amount))
+        target = (x + int(w * 0.1), y + h // 2)
+        focus_and_press_up(target, int(amount))
 
     def _bridge_is_rules_running(self) -> bool:
         """Read the engine running flag — called from the bridge's request
