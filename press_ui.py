@@ -1013,10 +1013,16 @@ class MainWindow(QMainWindow):
         self._body_splitter = QSplitter(Qt.Horizontal)
         self._body_splitter.setChildrenCollapsible(False)
         self._body_splitter.setHandleWidth(6)
+        # Expand vertically regardless of children's sizeHints — without
+        # this, collapsing the left-column log card shrinks the splitter
+        # and the right-side editor scrolls instead of using the full
+        # available height.
+        self._body_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self._left_splitter = QSplitter(Qt.Vertical)
         self._left_splitter.setChildrenCollapsible(False)
         self._left_splitter.setHandleWidth(6)
+        self._left_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         rules_card = self._build_rules_card()
         self._log_panel = self._build_log_panel()
         rules_card.setMinimumHeight(140)
@@ -1193,7 +1199,11 @@ class MainWindow(QMainWindow):
         content = QWidget()
         content.setMinimumWidth(340)
         stack = QVBoxLayout(content)
-        stack.setContentsMargins(2, 0, 6, 0)
+        # Symmetric margins so the editor cards line up with the bridge
+        # tab's right column on the right edge. Earlier this was 2/0/6/0
+        # which made the rules editor extend a few pixels past where the
+        # bridge log card would.
+        stack.setContentsMargins(2, 0, 2, 0)
         stack.setSpacing(12)
 
         stack.addWidget(self._build_basics_card())
@@ -1453,13 +1463,15 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
 
-        # Inline service toggle row. The switch turns the FastAPI server
-        # + idle detector on/off; the status label shows the live URL
-        # while running. --bridge flips this on at launch.
+        # Inline service toggle row. Centered horizontally with stretch
+        # spacers on both sides so the [label] [switch] [status] cluster
+        # sits in the middle of the page rather than hugging the left
+        # edge with a long status string trailing off to the right.
         svc_row = QHBoxLayout()
         svc_row.setContentsMargins(2, 4, 2, 4)
         svc_row.setSpacing(10)
         svc_row.setAlignment(Qt.AlignVCenter)
+        svc_row.addStretch(1)
         svc_label = BodyLabel("Bridge service")
         svc_row.addWidget(svc_label, 0, Qt.AlignVCenter)
         self._bridge_switch = SwitchButton()
@@ -1467,15 +1479,13 @@ class MainWindow(QMainWindow):
         self._bridge_switch.setOffText("Off")
         self._bridge_switch.checkedChanged.connect(self._on_bridge_switch_toggled)
         svc_row.addWidget(self._bridge_switch, 0, Qt.AlignVCenter)
-        # Status label uses BodyLabel too so the font size matches the
-        # left-side label and the row reads as one consistent line. The
-        # URL is shown bold inside an HTML anchor so it stands out.
         self._bridge_switch_status = BodyLabel(
             "Stopped — toggle on to start the FastAPI service."
         )
         self._bridge_switch_status.setTextFormat(Qt.RichText)
         self._bridge_switch_status.setOpenExternalLinks(True)
-        svc_row.addWidget(self._bridge_switch_status, 1, Qt.AlignVCenter)
+        svc_row.addWidget(self._bridge_switch_status, 0, Qt.AlignVCenter)
+        svc_row.addStretch(1)
         outer.addLayout(svc_row)
 
         # Idle template card.
@@ -1576,15 +1586,10 @@ class MainWindow(QMainWindow):
 
         win_card.viewLayout.addLayout(win_body)
 
-        # Bridge log card. Force Expanding vertical size policy so the
-        # card's geometry tracks the horizontal splitter's full height
-        # — without it, hiding the body via CollapsibleCard.toggle()
-        # would shrink the card to its title bar and leave the right
-        # side looking "collapsed" while the left column kept its full
-        # height.
+        # Bridge log card. Sized like the left-column cards: when
+        # collapsed the card clamps to header height (44 px); when
+        # expanded the splitter assigns it the full row height.
         log_card = CollapsibleCard("Bridge log")
-        log_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        log_card.setMinimumHeight(160)
         log_body = QVBoxLayout()
         log_body.setContentsMargins(2, 0, 2, 0)
         log_body.setSpacing(6)
@@ -1607,6 +1612,7 @@ class MainWindow(QMainWindow):
         left_col = QSplitter(Qt.Vertical)
         left_col.setChildrenCollapsible(False)
         left_col.setHandleWidth(6)
+        left_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         left_col.addWidget(tpl_card)
         left_col.addWidget(win_card)
         left_col.setStretchFactor(0, 0)
@@ -1616,6 +1622,9 @@ class MainWindow(QMainWindow):
         body_split = QSplitter(Qt.Horizontal)
         body_split.setChildrenCollapsible(False)
         body_split.setHandleWidth(6)
+        # Same Expanding-on-both-axes treatment as the rules tab so
+        # collapsing children doesn't shrink the splitter itself.
+        body_split.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         body_split.addWidget(left_col)
         body_split.addWidget(log_card)
         body_split.setStretchFactor(0, 1)
@@ -1686,15 +1695,19 @@ class MainWindow(QMainWindow):
             self._bridge_left_splitter.setSizes([HEADER_H, HEADER_H])
 
     def _on_bridge_log_card_toggled(self, _expanded: bool) -> None:
-        """The bridge log lives in the body's horizontal splitter.
-        Earlier this clamped the log's max width to ~56 px on collapse,
-        which made the left column stretch to fill the freed pixels.
-        That's confusing — the user expects the left column to keep its
-        share of the row regardless of log state. CollapsibleCard hides
-        the body via view.setVisible() on its own; we deliberately don't
-        rejigger splitter sizes here, so the left column stays put and
-        the log card simply shows its header bar with empty space below."""
-        return
+        """Mirror the rules-tab pattern: clamp maxHeight to the header
+        bar (44 px) on collapse so the card actually shrinks instead of
+        sitting around its previous height; lift the clamp on expand so
+        the splitter is free to give it the full row height. We
+        deliberately don't touch splitter widths here — the left column
+        keeps its horizontal share of the row whatever the log is doing."""
+        HEADER_H = 44
+        if self._bridge_log_card.isExpanded():
+            self._bridge_log_card.setMinimumHeight(0)
+            self._bridge_log_card.setMaximumHeight(16777215)
+        else:
+            self._bridge_log_card.setMinimumHeight(0)
+            self._bridge_log_card.setMaximumHeight(HEADER_H)
 
     # ---- bridge tab actions ----
 
