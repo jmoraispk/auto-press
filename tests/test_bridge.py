@@ -222,6 +222,37 @@ def test_window_store_ring_buffer_caps_at_max():
     assert store.snapshot("w1", 3) is None  # past the buffer
 
 
+def test_window_store_summary_carries_latest_snapshot_timestamp():
+    """Summaries include snapshot_at so the phone can show
+    "captured Xs ago" without having to inspect the PNG headers."""
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=1)
+    base = {"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}
+    # First update with an image — snapshot_at populated.
+    store.update([base], {"w1": b"png-1"})
+    [s1] = store.summaries()
+    assert s1["snapshot_at"] is not None
+    first_ts = s1["snapshot_at"]
+    # Update without an image — timestamp stays the same.
+    store.update([base], {})
+    [s2] = store.summaries()
+    assert s2["snapshot_at"] == first_ts
+    assert s2["snapshot_count"] == 1
+
+
+def test_window_store_no_snapshot_yet_returns_none():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    store.update(
+        [{"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}], {}
+    )
+    [summary] = store.summaries()
+    assert summary["snapshot_at"] is None
+    assert summary["snapshot_count"] == 0
+
+
 def test_window_store_reports_only_idle_transitions():
     from press_bridge import WindowStore
 

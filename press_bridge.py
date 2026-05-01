@@ -29,7 +29,7 @@ LOG = logging.getLogger("press_bridge")
 
 EVENT_BUFFER_MAX = 100
 SSE_KEEPALIVE_SECS = 15.0
-SNAPSHOTS_PER_WINDOW = 5
+SNAPSHOTS_PER_WINDOW = 1
 
 PHONE_DIR = Path(__file__).resolve().parent / "bridge_phone"
 
@@ -123,6 +123,13 @@ class WindowStore:
                     continue
                 summary = dict(entry["state"])
                 summary["snapshot_count"] = len(entry["snapshots"])
+                # Latest snapshot's ISO timestamp (None if no snapshot yet).
+                # The phone uses this to render "captured Xs ago" instead of
+                # the meaningless "newest / N ticks ago" label that made
+                # sense only with a multi-frame ring buffer.
+                summary["snapshot_at"] = (
+                    entry["snapshots"][-1][0] if entry["snapshots"] else None
+                )
                 summary["pending"] = list(self._queues.get(wid, []))
                 out.append(summary)
             return out

@@ -580,22 +580,30 @@ class EngineWorker(QObject):
         if not states:
             return
 
-        # Encode RGB → PNG bytes here (in the worker thread) so the main
-        # thread doesn't pay for compression and Qt signals stay JSON-/
-        # bytes-friendly. Strip the rgb numpy array out of the state dicts
-        # before emitting.
+        # Decide which windows deserve a fresh snapshot this tick.
+        # Strategy: capture only when the window is currently idle AND
+        # was *not* idle the previous tick (or has never been observed).
+        # Snapshots while staying-idle would just duplicate; while busy
+        # they're noisy and not what the user wants to see when checking
+        # in. Transitions also drive the busy↔idle Qt signal.
         images: dict[str, bytes] = {}
         slim_states: list[dict] = []
         for state in states:
             rgb = state.pop("rgb", None)
             slim_states.append(state)
-            if rgb is None or not state.get("id"):
+            wid = state.get("id")
+            if not wid or not state.get("configured"):
                 continue
-            png = _encode_rgb_to_png(rgb)
-            if png is not None:
-                images[state["id"]] = png
+            is_idle = bool(state.get("idle"))
+            prev = self._last_window_idle.get(wid)
+            should_capture = is_idle and prev is not True
+            if should_capture and rgb is not None:
+                png = _encode_rgb_to_png(rgb)
+                if png is not None:
+                    images[wid] = png
 
         self.bridge_window_states.emit(slim_states, images)
+
         for state in slim_states:
             if not state.get("configured"):
                 continue

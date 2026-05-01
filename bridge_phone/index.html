@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=6">
   <title>auto-press</title>
 </head>
 <body>
@@ -67,8 +67,10 @@
         <button id="queue-clear" class="ghost">Clear queue</button>
       </div>
 
-      <h3 class="section-h">Snapshots</h3>
-      <p id="snap-empty" class="muted" hidden>No snapshots yet — wait for the next tick.</p>
+      <h3 class="section-h">Last snapshot</h3>
+      <p id="snap-empty" class="muted" hidden>
+        No snapshot yet — captured each time the window flips busy → idle.
+      </p>
       <div id="snapshots"></div>
     </section>
   </main>
@@ -78,6 +80,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>

@@ -204,21 +204,33 @@ function renderSnapshots() {
   const empty = $("snap-empty");
   const wrap = $("snapshots");
   empty.hidden = count > 0;
-  // Cache-bust each request so the same idx returns the latest snapshot
-  // after a tick. Cache-Control: no-store from the server too.
-  const bust = Date.now();
   wrap.innerHTML = "";
-  for (let i = 0; i < count; i++) {
-    const card = document.createElement("div");
-    card.className = "snapshot";
-    const url = `/api/windows/${encodeURIComponent(id)}/snapshot/${i}?t=${bust}-${i}`;
-    card.innerHTML = `
-      <img src="${url}" alt="snapshot ${i + 1}" loading="lazy">
-      <div class="ts">${i === 0 ? "newest" : `${i} tick${i === 1 ? "" : "s"} ago`}</div>
-    `;
-    card.addEventListener("click", () => openLightbox(url));
-    wrap.appendChild(card);
-  }
+  if (count === 0) return;
+  // Cache-bust so the same idx returns the latest snapshot after a
+  // re-capture. Cache-Control: no-store from the server too.
+  const bust = Date.now();
+  const url = `/api/windows/${encodeURIComponent(id)}/snapshot/0?t=${bust}`;
+  const card = document.createElement("div");
+  card.className = "snapshot";
+  const tsLabel = w.snapshot_at ? `captured ${formatRelativeTime(w.snapshot_at)}` : "captured";
+  card.innerHTML = `
+    <img src="${url}" alt="last snapshot" loading="lazy">
+    <div class="ts">${tsLabel}</div>
+  `;
+  card.addEventListener("click", () => openLightbox(url));
+  wrap.appendChild(card);
+}
+
+function formatRelativeTime(iso) {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (isNaN(t)) return "—";
+  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
 }
 
 function openLightbox(url) {
