@@ -1429,23 +1429,25 @@ class MainWindow(QMainWindow):
         # + idle detector on/off; the status label shows the live URL
         # while running. --bridge flips this on at launch.
         svc_row = QHBoxLayout()
-        svc_row.setContentsMargins(2, 0, 2, 0)
-        svc_row.setSpacing(8)
-        svc_row.addWidget(StrongBodyLabel("Bridge service"))
+        svc_row.setContentsMargins(2, 4, 2, 4)
+        svc_row.setSpacing(10)
+        svc_row.setAlignment(Qt.AlignVCenter)
+        svc_label = BodyLabel("Bridge service")
+        svc_row.addWidget(svc_label, 0, Qt.AlignVCenter)
         self._bridge_switch = SwitchButton()
         self._bridge_switch.setOnText("On")
         self._bridge_switch.setOffText("Off")
         self._bridge_switch.checkedChanged.connect(self._on_bridge_switch_toggled)
-        svc_row.addWidget(self._bridge_switch)
-        self._bridge_switch_status = CaptionLabel(
+        svc_row.addWidget(self._bridge_switch, 0, Qt.AlignVCenter)
+        # Status label uses BodyLabel too so the font size matches the
+        # left-side label and the row reads as one consistent line. The
+        # URL is shown bold inside an HTML anchor so it stands out.
+        self._bridge_switch_status = BodyLabel(
             "Stopped — toggle on to start the FastAPI service."
         )
-        # Render as HTML so the URL set later by _update_countdown can be a
-        # clickable anchor; openExternalLinks asks Qt to hand the click to
-        # the OS browser instead of trying to navigate inside the label.
         self._bridge_switch_status.setTextFormat(Qt.RichText)
         self._bridge_switch_status.setOpenExternalLinks(True)
-        svc_row.addWidget(self._bridge_switch_status, 1)
+        svc_row.addWidget(self._bridge_switch_status, 1, Qt.AlignVCenter)
         outer.addLayout(svc_row)
 
         # Idle template card.
@@ -1585,8 +1587,91 @@ class MainWindow(QMainWindow):
         body_split.setStretchFactor(1, 1)
         body_split.setSizes([520, 460])
 
+        # Stash everything the collapse handlers need.
+        self._bridge_tpl_card = tpl_card
+        self._bridge_win_card = win_card
+        self._bridge_log_card = log_card
+        self._bridge_left_splitter = left_col
+        self._bridge_body_splitter = body_split
+        self._bridge_left_remembered = {"tpl": 260, "win": 360}
+        self._bridge_body_remembered = {"log": 460}
+        tpl_card.expanded_changed.connect(self._on_bridge_left_card_toggled)
+        win_card.expanded_changed.connect(self._on_bridge_left_card_toggled)
+        log_card.expanded_changed.connect(self._on_bridge_log_card_toggled)
+
         outer.addWidget(body_split, 1)
         return page
+
+    # ---- bridge collapse handlers ----
+
+    def _on_bridge_left_card_toggled(self, _expanded: bool) -> None:
+        """Match the rules-tab behaviour: when one of the two cards in
+        the left vertical splitter collapses, clamp its max-height so the
+        splitter actually shrinks the pane to the header bar instead of
+        leaving a useless empty box. Remember the prior expanded size so
+        a re-open restores it."""
+        HEADER_H = 44
+        sizes = self._bridge_left_splitter.sizes()
+        sender = self.sender()
+        if (
+            sender is self._bridge_tpl_card
+            and not self._bridge_tpl_card.isExpanded()
+            and sizes[0] > HEADER_H
+        ):
+            self._bridge_left_remembered["tpl"] = sizes[0]
+        elif (
+            sender is self._bridge_win_card
+            and not self._bridge_win_card.isExpanded()
+            and sizes[1] > HEADER_H
+        ):
+            self._bridge_left_remembered["win"] = sizes[1]
+
+        for card, min_open in (
+            (self._bridge_tpl_card, 140),
+            (self._bridge_win_card, 140),
+        ):
+            if card.isExpanded():
+                card.setMinimumHeight(min_open)
+                card.setMaximumHeight(16777215)
+            else:
+                card.setMinimumHeight(0)
+                card.setMaximumHeight(HEADER_H)
+
+        total = sum(sizes) or (self._bridge_left_splitter.height() or 600)
+        tpl_exp = self._bridge_tpl_card.isExpanded()
+        win_exp = self._bridge_win_card.isExpanded()
+        if tpl_exp and win_exp:
+            t = self._bridge_left_remembered.get("tpl", 260)
+            self._bridge_left_splitter.setSizes([t, max(HEADER_H, total - t)])
+        elif tpl_exp:
+            self._bridge_left_splitter.setSizes([total - HEADER_H, HEADER_H])
+        elif win_exp:
+            self._bridge_left_splitter.setSizes([HEADER_H, total - HEADER_H])
+        else:
+            self._bridge_left_splitter.setSizes([HEADER_H, HEADER_H])
+
+    def _on_bridge_log_card_toggled(self, _expanded: bool) -> None:
+        """Same idea, but the log lives in the body's *horizontal*
+        splitter — collapsing means clamping width so the left column
+        gets the freed pixels."""
+        HEADER_W = 56  # title bar in the horizontal direction is narrower
+        sizes = self._bridge_body_splitter.sizes()
+        if not self._bridge_log_card.isExpanded() and sizes[1] > HEADER_W:
+            self._bridge_body_remembered["log"] = sizes[1]
+
+        if self._bridge_log_card.isExpanded():
+            self._bridge_log_card.setMinimumWidth(220)
+            self._bridge_log_card.setMaximumWidth(16777215)
+        else:
+            self._bridge_log_card.setMinimumWidth(0)
+            self._bridge_log_card.setMaximumWidth(HEADER_W)
+
+        total = sum(sizes) or (self._bridge_body_splitter.width() or 1000)
+        if self._bridge_log_card.isExpanded():
+            r = self._bridge_body_remembered.get("log", 460)
+            self._bridge_body_splitter.setSizes([max(0, total - r), r])
+        else:
+            self._bridge_body_splitter.setSizes([max(0, total - HEADER_W), HEADER_W])
 
     # ---- bridge tab actions ----
 
@@ -2665,7 +2750,7 @@ class MainWindow(QMainWindow):
                 # HTML anchor — the label is already in RichText mode and
                 # opens external links via the OS, so a click on this URL
                 # launches the user's default browser to the bridge page.
-                head = f'Running — <a href="{primary}" style="color: #4f9eff;">{primary}</a>'
+                head = f'Running — <a href="{primary}" style="color: #4f9eff; font-weight: 600;">{primary}</a>'
             else:
                 head = "Running"
             if self._next_tick_at is not None:
@@ -2766,7 +2851,7 @@ class MainWindow(QMainWindow):
         primary_url = urls[0] if urls else f"http://localhost:{bridge_cfg.get('port', 8765)}/"
         self._bridge_primary_url = primary_url
         self._bridge_switch_status.setText(
-            f'Running — <a href="{primary_url}" style="color: #4f9eff;">{primary_url}</a>'
+            f'Running — <a href="{primary_url}" style="color: #4f9eff; font-weight: 600;">{primary_url}</a>'
         )
         self._log("[bridge] listening — open one of:")
         print("[bridge] listening — open one of:", flush=True)
