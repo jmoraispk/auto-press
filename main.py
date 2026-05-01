@@ -100,6 +100,11 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     app.setApplicationName("Auto Press")
+    # Organization name is required for QSettings to land in a stable
+    # location (HKCU\Software\auto-press\Auto Press on Windows). Without
+    # it, QSettings falls back to a "Unknown Organization" key per Qt
+    # version and our window-state persistence wouldn't survive upgrades.
+    app.setOrganizationName("auto-press")
     app.setQuitOnLastWindowClosed(False)
 
     window = MainWindow(

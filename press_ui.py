@@ -20,6 +20,7 @@ from PySide6.QtCore import (
     QEventLoop,
     QObject,
     QRectF,
+    QSettings,
     QSize,
     Qt,
     QThread,
@@ -957,6 +958,10 @@ class MainWindow(QMainWindow):
         self._refresh_bridge_windows_table()
         self._set_running_status(False)
         self._log(f"[ready] loaded {CONFIG_PATH}")
+        # Restore window geometry + splitter sizes + collapse states from
+        # the previous session. Anything not in QSettings keeps the
+        # defaults set during the build phase above.
+        self._restore_window_state()
         # --activate: same effect as clicking Start once the UI is up.
         # Defer to the next event-loop iteration so widgets are fully
         # constructed before the worker reads its config.
@@ -1195,6 +1200,7 @@ class MainWindow(QMainWindow):
 
     def _build_basics_card(self) -> QWidget:
         card = CollapsibleCard("Basics")
+        self._basics_card = card
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -1230,6 +1236,7 @@ class MainWindow(QMainWindow):
 
     def _build_template_card(self) -> QWidget:
         card = CollapsibleCard("Match")
+        self._match_card = card
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -1372,6 +1379,7 @@ class MainWindow(QMainWindow):
 
     def _build_scope_card(self) -> QWidget:
         card = CollapsibleCard("Search scope", expanded=False)
+        self._scope_card = card
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -2805,7 +2813,97 @@ class MainWindow(QMainWindow):
         with self._cfg_lock:
             self._cfg["interval_seconds"] = float(self._interval_spin.value())
             save_config(self._cfg)
+        self._save_window_state()
         self._tray.hide()
+
+    # ---------- window state persistence (QSettings) ----------
+
+    def _collapsible_cards(self) -> dict:
+        """Map of stable key → CollapsibleCard for the cards we persist.
+        Built lazily because some attributes don't exist until the bridge
+        page or rule editor is built."""
+        return {
+            "rules_card": getattr(self, "_rules_card", None),
+            "log_card": getattr(self, "_log_card", None),
+            "basics_card": getattr(self, "_basics_card", None),
+            "match_card": getattr(self, "_match_card", None),
+            "scope_card": getattr(self, "_scope_card", None),
+            "bridge_tpl": getattr(self, "_bridge_tpl_card", None),
+            "bridge_win": getattr(self, "_bridge_win_card", None),
+            "bridge_log": getattr(self, "_bridge_log_card", None),
+        }
+
+    def _save_window_state(self) -> None:
+        """Persist window geometry + splitter sizes + each CollapsibleCard's
+        expanded state + active tab so the next launch picks up where this
+        one left off. Stored in QSettings (HKCU\\Software\\auto-press\\Auto
+        Press on Windows)."""
+        s = QSettings()
+        s.setValue("ui/geometry", self.saveGeometry())
+        if hasattr(self, "_body_splitter"):
+            s.setValue("ui/body_splitter", self._body_splitter.saveState())
+        if hasattr(self, "_left_splitter"):
+            s.setValue("ui/left_splitter", self._left_splitter.saveState())
+        if hasattr(self, "_bridge_left_splitter"):
+            s.setValue("ui/bridge_left_splitter", self._bridge_left_splitter.saveState())
+        if hasattr(self, "_bridge_body_splitter"):
+            s.setValue("ui/bridge_body_splitter", self._bridge_body_splitter.saveState())
+        if hasattr(self, "_tab_stack"):
+            s.setValue("ui/tab_index", int(self._tab_stack.currentIndex()))
+        for key, card in self._collapsible_cards().items():
+            if card is not None:
+                s.setValue(f"ui/{key}_expanded", bool(card.isExpanded()))
+
+    def _restore_window_state(self) -> None:
+        """Inverse of _save_window_state. Order matters:
+          1. Geometry (window size + position).
+          2. Card expanded states. Setting these fires expanded_changed,
+             which the rules + bridge collapse handlers use to clamp
+             max-height/width — that has to happen *before* splitter
+             restore so the splitter state we restore wins, not the
+             defaults the handlers reach for.
+          3. Splitter states.
+          4. Active tab.
+        """
+        s = QSettings()
+        geo = s.value("ui/geometry")
+        if geo is not None:
+            self.restoreGeometry(geo)
+
+        for key, card in self._collapsible_cards().items():
+            if card is None:
+                continue
+            v = s.value(f"ui/{key}_expanded")
+            if v is None:
+                continue
+            # On the registry backend QSettings returns native bools;
+            # on .ini it returns "true"/"false" strings.
+            expanded = v if isinstance(v, bool) else str(v).lower() == "true"
+            if card.isExpanded() != expanded:
+                card.setExpanded(expanded)
+
+        for key, attr in (
+            ("body_splitter", "_body_splitter"),
+            ("left_splitter", "_left_splitter"),
+            ("bridge_left_splitter", "_bridge_left_splitter"),
+            ("bridge_body_splitter", "_bridge_body_splitter"),
+        ):
+            sp = getattr(self, attr, None)
+            if sp is None:
+                continue
+            st = s.value(f"ui/{key}")
+            if st is not None:
+                sp.restoreState(st)
+
+        if hasattr(self, "_tab_stack"):
+            try:
+                idx = int(s.value("ui/tab_index", 0))
+            except (TypeError, ValueError):
+                idx = 0
+            idx = max(0, min(self._tab_stack.count() - 1, idx))
+            self._tab_stack.setCurrentIndex(idx)
+            if hasattr(self, "_tab_strip"):
+                self._tab_strip.setCurrentItem("bridge" if idx == 1 else "rules")
 
     # ---------- bridge ----------
 
