@@ -367,6 +367,30 @@ def test_window_store_drops_removed_windows():
     assert only["id"] == "w1"
 
 
+def test_window_store_prune_false_keeps_other_windows():
+    """Partial updates (e.g. _post_send_recheck on one window) call
+    update with prune=False so the other windows already in the store
+    aren't dropped just because they aren't in this single-window
+    states list."""
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    s1 = {"id": "w1", "name": "X", "idle": False, "score": 0.0, "configured": True}
+    s2 = {"id": "w2", "name": "Y", "idle": False, "score": 0.0, "configured": True}
+    store.update([s1, s2], {})
+    assert len(store.summaries()) == 2
+    # Partial update: only w1's new state, prune=False.
+    s1_busy = {"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}
+    store.update([s1_busy], {}, prune=False)
+    summaries = {s["id"]: s for s in store.summaries()}
+    assert set(summaries) == {"w1", "w2"}
+    assert summaries["w1"]["idle"] is True
+    # Default prune=True still removes missing.
+    store.update([s1_busy], {})
+    [only] = store.summaries()
+    assert only["id"] == "w1"
+
+
 def test_window_store_pop_at_removes_specific_message():
     from press_bridge import WindowStore
 

@@ -92,7 +92,12 @@ class WindowStore:
         # Drained one-per-transition when the window flips back to idle.
         self._queues: dict[str, list[str]] = {}
 
-    def update(self, states: list[dict], images: dict[str, bytes]) -> list[dict]:
+    def update(
+        self,
+        states: list[dict],
+        images: dict[str, bytes],
+        prune: bool = True,
+    ) -> list[dict]:
         """Apply a fresh detector tick. Returns the list of windows whose
         idle/busy state changed since the previous tick — callers can use
         this to decide which transitions to surface (SSE, ntfy).
@@ -106,6 +111,13 @@ class WindowStore:
         persist through the following busy spell so the user can keep
         reviewing them; then the next busy → idle wipes and starts
         fresh.
+
+        ``prune`` (default True) drops any windows currently in the
+        store that aren't in the incoming states list — used by the
+        worker tick which always sends the *complete* set so a removed
+        window is purged. Partial updates (e.g. _post_send_recheck on
+        one window after a phone-driven send) pass prune=False so they
+        don't accidentally wipe the others.
         """
         now = datetime.now(timezone.utc).isoformat()
         transitions: list[dict] = []
@@ -142,10 +154,11 @@ class WindowStore:
                     entry["snapshots"].append((now, png, None))
                 if prev_idle is not None and prev_idle != stored["idle"]:
                     transitions.append(stored)
-            # Drop windows that disappeared from config (e.g. user removed).
-            for wid in list(self._windows):
-                if wid not in seen_ids:
-                    self._windows.pop(wid, None)
+            if prune:
+                # Drop windows that disappeared from config (e.g. user removed).
+                for wid in list(self._windows):
+                    if wid not in seen_ids:
+                        self._windows.pop(wid, None)
         return transitions
 
     def summaries(self) -> list[dict]:
@@ -580,7 +593,10 @@ def _post_send_recheck(service: "BridgeService", window_id: str, delay_s: float 
         png = _png_from_rgb(rgb)
         if png is not None:
             images[s["id"]] = png
-    service.update_window_states(slim, images)
+    # Partial update — only this one window's state. prune=False so
+    # the other windows currently tracked in the store aren't dropped
+    # from the phone view by what's effectively a single-window tick.
+    service.update_window_states(slim, images, prune=False)
 
 
 class BridgeService:
@@ -627,11 +643,22 @@ class BridgeService:
                 target=send_ntfy, args=(bridge_cfg, event), daemon=True
             ).start()
 
-    def update_window_states(self, states: list[dict], images: dict[str, bytes]) -> None:
+    def update_window_states(
+        self,
+        states: list[dict],
+        images: dict[str, bytes],
+        prune: bool = True,
+    ) -> None:
         """Called from the engine worker every detection tick. Updates the
         ring buffer, fans state out over SSE, fires ntfy on busy → idle,
-        and drains one queued message per window that just flipped idle."""
-        transitions = self.windows.update(states, images)
+        and drains one queued message per window that just flipped idle.
+
+        ``prune`` is forwarded to WindowStore.update — the worker tick
+        sends a complete states list (prune=True), but partial-recheck
+        paths (e.g. _post_send_recheck on one window) call with
+        prune=False so the other windows aren't dropped from the store.
+        """
+        transitions = self.windows.update(states, images, prune=prune)
         # Always fan a "window_state" event so phone clients can stay in
         # sync without polling /api/state.
         for state in self.windows.summaries():

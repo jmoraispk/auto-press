@@ -293,26 +293,38 @@ function renderQueueRow(li, idx, text, editing) {
   const span = document.createElement("span");
   span.className = "queue-text";
   span.textContent = text;
+  span.title = "Double-click to edit";
+  // Double-click (not single-click) opens the inline editor so an
+  // accidental tap on a long message doesn't suddenly throw the user
+  // into edit mode.
+  span.addEventListener("dblclick", () =>
+    renderQueueRow(li, idx, text, true)
+  );
+  const actions = document.createElement("div");
+  actions.className = "queue-actions";
+  const sendBtn = document.createElement("button");
+  sendBtn.className = "queue-send-now";
+  sendBtn.textContent = "Send now";
   const editBtn = document.createElement("button");
   editBtn.className = "queue-edit";
   editBtn.textContent = "✎";
   editBtn.title = "Edit";
   editBtn.setAttribute("aria-label", "Edit message");
-  const sendBtn = document.createElement("button");
-  sendBtn.className = "queue-send-now";
-  sendBtn.textContent = "Send now";
   const delBtn = document.createElement("button");
   delBtn.className = "queue-delete";
   delBtn.textContent = "✕";
   delBtn.title = "Remove from queue";
   delBtn.setAttribute("aria-label", "Remove from queue");
-  editBtn.addEventListener("click", () => renderQueueRow(li, idx, text, true));
   sendBtn.addEventListener("click", () => sendQueuedNow(idx, sendBtn));
+  editBtn.addEventListener("click", () => renderQueueRow(li, idx, text, true));
   delBtn.addEventListener("click", () => deleteQueuedItem(idx, delBtn));
+  // Send Now → Edit → Delete left-to-right, kept together as a group
+  // so they wrap as a unit underneath the message text on narrow rows.
+  actions.appendChild(sendBtn);
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
   li.appendChild(span);
-  li.appendChild(editBtn);
-  li.appendChild(sendBtn);
-  li.appendChild(delBtn);
+  li.appendChild(actions);
 }
 
 async function saveQueuedEdit(idx, newText, li, prevText) {
