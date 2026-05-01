@@ -1230,6 +1230,13 @@ class MainWindow(QMainWindow):
         self._action_combo.currentTextChanged.connect(self._update_action_fields)
         self._text_edit = LineEdit()
         self._text_edit.setPlaceholderText("typed before Enter")
+        # Autosave: every input change writes back to the cfg under the
+        # cfg lock and persists. Loading a rule sets _suppress_autosave
+        # so we don't echo the just-loaded values back over the rule we
+        # navigated away from.
+        self._name_edit.editingFinished.connect(self._autosave_rule)
+        self._text_edit.editingFinished.connect(self._autosave_rule)
+        self._action_combo.currentTextChanged.connect(self._autosave_rule)
 
         grid.addWidget(self._name_edit, 1, 0)
         grid.addWidget(self._action_combo, 1, 1)
@@ -1356,6 +1363,7 @@ class MainWindow(QMainWindow):
         self._threshold_spin.setValue(0.90)
         self._threshold_spin.setFixedWidth(130)
         self._threshold_spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._threshold_spin.valueChanged.connect(self._autosave_rule)
         self._threshold_row.addWidget(self._threshold_spin)
         self._threshold_row.addStretch(1)
         meta_lay.addLayout(self._threshold_row)
@@ -1416,13 +1424,13 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(wrap)
         row.setContentsMargins(2, 0, 2, 0)
         row.setSpacing(8)
+        # Save is now automatic on every input change (see _autosave_rule).
+        # The button is gone; Test match is centred on the row.
         row.addStretch(1)
         test_btn = PushButton(FIF.PLAY, "Test match")
         test_btn.clicked.connect(self._test_selected_rule)
-        save_btn = PrimaryPushButton(FIF.SAVE, "Save rule")
-        save_btn.clicked.connect(self._save_selected_rule)
         row.addWidget(test_btn)
-        row.addWidget(save_btn)
+        row.addStretch(1)
         return wrap
 
     def _build_log_panel(self) -> QWidget:
@@ -1568,8 +1576,15 @@ class MainWindow(QMainWindow):
 
         win_card.viewLayout.addLayout(win_body)
 
-        # Bridge log card.
+        # Bridge log card. Force Expanding vertical size policy so the
+        # card's geometry tracks the horizontal splitter's full height
+        # — without it, hiding the body via CollapsibleCard.toggle()
+        # would shrink the card to its title bar and leave the right
+        # side looking "collapsed" while the left column kept its full
+        # height.
         log_card = CollapsibleCard("Bridge log")
+        log_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        log_card.setMinimumHeight(160)
         log_body = QVBoxLayout()
         log_body.setContentsMargins(2, 0, 2, 0)
         log_body.setSpacing(6)
@@ -2060,28 +2075,39 @@ class MainWindow(QMainWindow):
         rule = self._current_rule()
         if rule is None:
             self._clear_editor(); return
-        self._name_edit.setText(rule.get("name", ""))
-        self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
-        self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
-        self._text_edit.setText(rule.get("text", "continue"))
-        # Block the combo's signal so the programmatic update doesn't fire
-        # _on_template_selected and overwrite a colour rule's matcher.
-        self._template_combo.blockSignals(True)
-        self._template_combo.setCurrentText(rule.get("template_path") or "")
-        self._template_combo.blockSignals(False)
-        region = rule.get("search_region")
-        self._region_label.setText(
-            f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
-        )
-        self._update_action_fields()
-        self._update_match_preview()
+        # Suppress autosave while we programmatically populate the editor
+        # — otherwise switching rules would write the previous rule's
+        # values into the newly-selected rule.
+        self._suppress_autosave = True
+        try:
+            self._name_edit.setText(rule.get("name", ""))
+            self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
+            self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
+            self._text_edit.setText(rule.get("text", "continue"))
+            # Block the combo's signal so the programmatic update doesn't fire
+            # _on_template_selected and overwrite a colour rule's matcher.
+            self._template_combo.blockSignals(True)
+            self._template_combo.setCurrentText(rule.get("template_path") or "")
+            self._template_combo.blockSignals(False)
+            region = rule.get("search_region")
+            self._region_label.setText(
+                f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
+            )
+            self._update_action_fields()
+            self._update_match_preview()
+        finally:
+            self._suppress_autosave = False
 
     def _clear_editor(self) -> None:
-        self._name_edit.clear()
-        self._threshold_spin.setValue(0.90)
-        self._action_combo.setCurrentText(ACTION_CLICK)
-        self._text_edit.setText("continue")
-        self._template_combo.setCurrentText("")
+        self._suppress_autosave = True
+        try:
+            self._name_edit.clear()
+            self._threshold_spin.setValue(0.90)
+            self._action_combo.setCurrentText(ACTION_CLICK)
+            self._text_edit.setText("continue")
+            self._template_combo.setCurrentText("")
+        finally:
+            self._suppress_autosave = False
         self._region_label.setText("All monitors")
         self._update_action_fields()
         self._update_match_preview()
@@ -2127,6 +2153,28 @@ class MainWindow(QMainWindow):
             for pos, item in enumerate(self._cfg["rules"], start=1):
                 item["priority"] = pos
         self._persist(); self._refresh_rule_list(new_idx)
+
+    def _autosave_rule(self, *_args) -> None:
+        """Quietly persist the editor inputs to the active rule. Connected
+        to every editor field's change signal so the user never has to
+        hit Save. Suppressed during _load_selected_rule / _clear_editor
+        so programmatic input updates don't echo back into cfg."""
+        if getattr(self, "_suppress_autosave", False):
+            return
+        idx = self._current_rule_index()
+        if idx is None:
+            return
+        with self._cfg_lock:
+            rule = self._cfg["rules"][idx]
+            rule["name"] = self._name_edit.text().strip() or f"Rule {idx + 1}"
+            rule["threshold"] = max(0.0, min(1.0, float(self._threshold_spin.value())))
+            rule["action"] = (
+                self._action_combo.currentText()
+                if self._action_combo.currentText() in ACTION_TYPES
+                else ACTION_CLICK
+            )
+            rule["text"] = self._text_edit.text().strip() or "continue"
+        self._persist()
 
     def _save_selected_rule(self) -> bool:
         idx = self._current_rule_index()

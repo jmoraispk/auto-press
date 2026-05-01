@@ -117,13 +117,12 @@ function renderWindows() {
         ? ` · ${w.pending.length} queued`
         : "";
     li.innerHTML = `
-      <span class="dot" aria-hidden="true"></span>
-      <div class="meta">
+      <div class="window-head">
+        <span class="dot" aria-hidden="true"></span>
         <div class="name"></div>
-        <div class="sub">${w.idle ? "idle" : "busy"}${pendingTag}</div>
+        <button class="window-rename" title="Rename" aria-label="Rename">✎</button>
       </div>
-      <button class="window-rename" title="Rename" aria-label="Rename">✎</button>
-      <span class="chev" aria-hidden="true">›</span>
+      <div class="sub">${w.idle ? "idle" : "busy"}${pendingTag}</div>
     `;
     li.querySelector(".name").textContent = w.name || w.id;
     li.querySelector(".window-rename").addEventListener("click", (e) => {

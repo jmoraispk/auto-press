@@ -107,8 +107,11 @@ main { display: flex; flex-direction: column; gap: 14px; }
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* Responsive: 1 column on tight phone widths, 2 on a phone in
+     landscape, more on a wider browser. minmax keeps cards from
+     becoming unreadably small on a 4-window setup. */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 6px;
 }
 
@@ -116,13 +119,19 @@ main { display: flex; flex-direction: column; gap: 14px; }
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  padding: 9px 12px;
+  padding: 8px 10px;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 3px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.08s ease, border-color 0.15s ease;
+}
+.window-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .window:active { transform: scale(0.985); }
 .window.idle { border-color: rgba(34, 197, 94, 0.55); }
@@ -152,10 +161,11 @@ main { display: flex; flex-direction: column; gap: 14px; }
 .window.idle .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
 .window.busy .dot { background: var(--red); }
 
-.window .meta { flex: 1; min-width: 0; }
 .window .name {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -163,14 +173,10 @@ main { display: flex; flex-direction: column; gap: 14px; }
 .window .sub {
   font-size: 11px;
   color: var(--muted);
-  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.window .chev {
-  color: var(--muted);
-  font-size: 16px;
-  transition: transform 0.15s ease;
-}
-.window.selected .chev { transform: rotate(90deg); color: var(--accent); }
 
 button {
   font-size: 13px;
