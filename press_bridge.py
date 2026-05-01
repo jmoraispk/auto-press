@@ -243,6 +243,23 @@ class WindowStore:
             snap = entry["snapshots"][-1]
             return snap[2] if len(snap) >= 3 else None
 
+    def touch_last_snapshot(self, window_id: str) -> bool:
+        """Refresh the timestamp on the most recent snapshot without
+        replacing its bytes. Used by the scroll path so the user sees
+        feedback (the "captured Xs ago" label resets, an SSE window_state
+        event fires) when the dedup hash matches and we'd otherwise skip
+        the capture entirely."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            entry = self._windows.get(window_id)
+            if not entry or not entry["snapshots"]:
+                return False
+            last = entry["snapshots"][-1]
+            png = last[1] if len(last) >= 2 else None
+            rgb_hash = last[2] if len(last) >= 3 else None
+            entry["snapshots"][-1] = (now, png, rgb_hash)
+            return True
+
     # ---- pending-message queue ----
 
     def enqueue(self, window_id: str, text: str) -> tuple[bool, int]:
@@ -496,6 +513,14 @@ def _post_scroll_recheck(service: "BridgeService", window_id: str, delay_s: floa
     import hashlib
     rgb_hash = hashlib.md5(rgb.tobytes()).hexdigest()
     if service.windows.last_snapshot_hash(window_id) == rgb_hash:
+        # Same frame as before — but still bump the timestamp on the
+        # existing snapshot and fan an SSE event so the user gets
+        # visible feedback that scroll fired (freshness pill resets,
+        # "captured Xs ago" label restarts at 0). Without this the UI
+        # looks frozen when scrolling at the top of the chat.
+        if service.windows.touch_last_snapshot(window_id):
+            for s in service.windows.summaries():
+                service.hub.publish_typed("window_state", s)
         return
     png = _png_from_rgb(rgb)
     if not png:

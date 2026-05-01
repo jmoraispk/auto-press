@@ -222,6 +222,39 @@ def test_window_store_ring_buffer_caps_at_max():
     assert store.snapshot("w1", 3) is None  # past the buffer
 
 
+def test_window_store_touch_last_snapshot_bumps_timestamp_only():
+    """touch_last_snapshot updates the most recent snapshot's timestamp
+    without replacing the PNG or hash, so a dedup-skipped scroll still
+    fires a window_state event with a fresh snapshot_at."""
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    base = {"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}
+    store.update([base], {"w1": b"png-1"})
+    store.set_snapshot("w1", b"png-2", "hash-2")
+    [summary_before] = store.summaries()
+    ts_before = summary_before["snapshot_at"]
+    # Sleep a moment so the new ISO timestamp differs.
+    import time
+    time.sleep(0.01)
+    assert store.touch_last_snapshot("w1") is True
+    [summary_after] = store.summaries()
+    assert summary_after["snapshot_at"] != ts_before
+    # PNG and hash unchanged.
+    assert store.snapshot("w1", 0)[1] == b"png-2"
+    assert store.last_snapshot_hash("w1") == "hash-2"
+
+
+def test_window_store_touch_last_snapshot_returns_false_when_empty():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    assert store.touch_last_snapshot("w1") is False
+    base = {"id": "w1", "name": "X", "idle": True, "score": 0.95, "configured": True}
+    store.update([base], {})  # state but no snapshot
+    assert store.touch_last_snapshot("w1") is False
+
+
 def test_window_store_last_snapshot_hash_round_trip():
     """set_snapshot stashes the hash; last_snapshot_hash returns it.
     Worker-tick captures pass no hash and last_snapshot_hash is None,

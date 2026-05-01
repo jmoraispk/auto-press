@@ -475,6 +475,21 @@ class EngineWorker(QObject):
         with self._lock:
             return self._running
 
+    def reset_window_tracking(self) -> None:
+        """Forget every window's prior idle/busy observation.
+
+        Called when the bridge service is started (or restarted) so the
+        next tick treats each window as a first observation and
+        captures a fresh snapshot even if it's already idle. Without
+        this, a Reload that finds windows already idle would leave the
+        WindowStore empty until the next busy→idle transition because
+        the worker's tracking dict still says "prev=True" from before.
+
+        Atomic via reference replacement — the running tick reads its
+        own previous reference; this thread just rebinds the attribute.
+        """
+        self._last_window_idle = {}
+
     def run(self) -> None:
         # Pin PER_MONITOR_AWARE_V2 on this worker thread once. Sticky for the
         # thread's lifetime, so every capture + click iteration agrees on
@@ -582,11 +597,12 @@ class EngineWorker(QObject):
             return
 
         # Decide which windows deserve a fresh snapshot this tick.
-        # Strategy: capture only when the window is currently idle AND
-        # was *not* idle the previous tick (or has never been observed).
-        # Snapshots while staying-idle would just duplicate; while busy
-        # they're noisy and not what the user wants to see when checking
-        # in. Transitions also drive the busy↔idle Qt signal.
+        # Strategy:
+        #   - First observation (prev=None): always capture. Otherwise a
+        #     bridge restart that finds windows already idle would leave
+        #     the WindowStore empty until the next busy→idle transition.
+        #   - Subsequent ticks: capture only on busy→idle, so steady-
+        #     idle and steady-busy don't churn through duplicates.
         images: dict[str, bytes] = {}
         slim_states: list[dict] = []
         for state in states:
@@ -597,7 +613,7 @@ class EngineWorker(QObject):
                 continue
             is_idle = bool(state.get("idle"))
             prev = self._last_window_idle.get(wid)
-            should_capture = is_idle and prev is not True
+            should_capture = prev is None or (is_idle and prev is False)
             if should_capture and rgb is not None:
                 png = _encode_rgb_to_png(rgb)
                 if png is not None:
@@ -3013,6 +3029,10 @@ class MainWindow(QMainWindow):
         )
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
+        # Fresh service → fresh tracking. The next worker tick treats
+        # every window as first-observed so we capture a snapshot even
+        # for windows that are already idle.
+        self._worker.reset_window_tracking()
 
         urls = _bridge_urls(
             str(bridge_cfg.get("host", "0.0.0.0")), int(bridge_cfg.get("port", 8765))
