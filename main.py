@@ -79,6 +79,11 @@ def main() -> None:
         help="Start the optional remote bridge (FastAPI + phone PWA). Off by default.",
     )
     parser.add_argument(
+        "--activate",
+        action="store_true",
+        help="Start scanning rules immediately at launch (same as clicking Start).",
+    )
+    parser.add_argument(
         "--bridge-host",
         default=None,
         help="Override the bridge bind host (default from config: 0.0.0.0).",
@@ -102,6 +107,7 @@ def main() -> None:
         bridge_enabled=args.bridge,
         bridge_host=args.bridge_host,
         bridge_port=args.bridge_port,
+        auto_activate=args.activate,
     )
     window.show()
     _keepalive = _install_sigint(app, window)

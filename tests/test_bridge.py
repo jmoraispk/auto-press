@@ -249,6 +249,24 @@ def test_window_store_drops_removed_windows():
     assert only["id"] == "w1"
 
 
+def test_window_store_pop_at_removes_specific_message():
+    from press_bridge import WindowStore
+
+    store = WindowStore()
+    store.enqueue("w1", "first")
+    store.enqueue("w1", "second")
+    store.enqueue("w1", "third")
+    assert store.pop_at("w1", 1) == "second"
+    assert store.pending("w1") == ["first", "third"]
+    # Out-of-range returns None and leaves the queue alone.
+    assert store.pop_at("w1", 5) is None
+    assert store.pending("w1") == ["first", "third"]
+    # Popping the last item clears the per-window deque entry.
+    store.pop_at("w1", 0)
+    store.pop_at("w1", 0)
+    assert store.pending("w1") == []
+
+
 def test_window_store_queue_enqueue_dequeue():
     from press_bridge import WindowStore
 
@@ -414,6 +432,37 @@ def test_window_queue_drains_one_per_idle_transition(fastapi_client):
     assert len(calls["window_send"]) == 1
     assert calls["window_send"][0][1] == "first"
     assert service.windows.pending("w1") == ["second"]
+
+
+def test_window_queue_send_now_pops_specific_index_and_fires(fastapi_client):
+    """The 'Send now' button on a queued message should pop *that*
+    message from the queue and dispatch it via perform_window_send,
+    even if the window is currently busy."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    service.windows.update(
+        [{"id": "w1", "name": "X", "idle": False, "score": 0.1, "configured": True}], {}
+    )
+    service.windows.enqueue("w1", "first")
+    service.windows.enqueue("w1", "second")
+    service.windows.enqueue("w1", "third")
+
+    res = client.post("/api/windows/w1/queue/1/send_now")
+    assert res.status_code == 200
+    assert res.json() == {"sent": True, "text": "second"}
+    assert calls["window_send"][0][1] == "second"
+    assert service.windows.pending("w1") == ["first", "third"]
+
+
+def test_window_queue_send_now_404_for_bad_index(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [0, 0, 100, 100]}]
+    }
+    res = client.post("/api/windows/w1/queue/0/send_now")
+    assert res.status_code == 404
 
 
 def test_window_clear_queue(fastapi_client):

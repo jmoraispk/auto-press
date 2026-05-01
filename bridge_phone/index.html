@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=5">
   <title>auto-press</title>
 </head>
 <body>
@@ -25,10 +25,15 @@
       <button id="notif-toggle" class="ghost">off</button>
     </div>
     <div class="setting">
+      <span class="setting-name">Auto-refresh page</span>
+      <button id="autoreload-toggle" class="ghost">off</button>
+    </div>
+    <div class="setting">
       <span class="setting-name">Reload bridge service</span>
       <button id="reload-btn" class="ghost">Reload</button>
     </div>
     <p class="muted setting-hint">
+      Auto-refresh hard-reloads the page on the same cadence as the bridge tick;
       Reload re-imports <code>press_bridge.py</code> and restarts the listener.
       If the new code fails to import, the existing service keeps running.
     </p>
@@ -73,6 +78,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

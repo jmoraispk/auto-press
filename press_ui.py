@@ -849,11 +849,13 @@ class MainWindow(QMainWindow):
         bridge_enabled: bool = False,
         bridge_host: str | None = None,
         bridge_port: int | None = None,
+        auto_activate: bool = False,
     ):
         super().__init__()
         self._bridge_enabled = bool(bridge_enabled)
         self._bridge_host_override = bridge_host
         self._bridge_port_override = bridge_port
+        self._auto_activate = bool(auto_activate)
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
         self.bridge_reload_requested.connect(self._reload_bridge_service, Qt.QueuedConnection)
 
@@ -943,6 +945,11 @@ class MainWindow(QMainWindow):
         self._refresh_bridge_windows_table()
         self._set_running_status(False)
         self._log(f"[ready] loaded {CONFIG_PATH}")
+        # --activate: same effect as clicking Start once the UI is up.
+        # Defer to the next event-loop iteration so widgets are fully
+        # constructed before the worker reads its config.
+        if self._auto_activate:
+            QTimer.singleShot(0, self._toggle_running)
 
     # ---------- layout ----------
 

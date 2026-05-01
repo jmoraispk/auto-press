@@ -12,7 +12,11 @@ const state = {
   current: null,            // window id when in "snapshots" view
   lastEventAt: 0,           // ms epoch of last SSE event for the freshness pill
   notifEnabled: localStorage.getItem("ap.notif") === "1",
+  autoReloadEnabled: localStorage.getItem("ap.autoreload") === "1",
+  intervalSeconds: 10,      // populated from /api/state
 };
+
+const AUTO_RELOAD_DEFAULT_S = 10;
 
 // ---- SSE ----------------------------------------------------------------
 
@@ -73,10 +77,12 @@ async function loadState() {
     if (!res.ok) return;
     const data = await res.json();
     state.snapshotsPerWindow = data.snapshots_per_window || 5;
+    state.intervalSeconds = data.interval_seconds || AUTO_RELOAD_DEFAULT_S;
     state.windows.clear();
     for (const w of data.windows || []) state.windows.set(w.id, w);
     if ((data.windows || []).length) markEvent();
     renderWindows();
+    applyAutoReload();
   } catch {}
 }
 
@@ -147,10 +153,46 @@ function renderQueue() {
   $("queue-count").textContent = pending.length ? `(${pending.length})` : "";
   const list = $("queue-list");
   list.innerHTML = "";
-  for (const text of pending) {
+  for (let i = 0; i < pending.length; i++) {
     const li = document.createElement("li");
-    li.textContent = text;
+    const span = document.createElement("span");
+    span.className = "queue-text";
+    span.textContent = pending[i];
+    const btn = document.createElement("button");
+    btn.className = "queue-send-now";
+    btn.textContent = "Send now";
+    const idx = i;
+    btn.addEventListener("click", () => sendQueuedNow(idx, btn));
+    li.appendChild(span);
+    li.appendChild(btn);
     list.appendChild(li);
+  }
+}
+
+async function sendQueuedNow(idx, btn) {
+  const id = state.current;
+  if (!id) return;
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try {
+    const res = await fetch(
+      `/api/windows/${encodeURIComponent(id)}/queue/${idx}/send_now`,
+      { method: "POST" }
+    );
+    if (!res.ok) {
+      const detail = await res.text();
+      setSendStatus(`Send-now failed: ${res.status} ${detail}`, "error");
+      btn.disabled = false;
+      btn.textContent = "Send now";
+    } else {
+      // The window_state SSE event will re-render the queue; just leave
+      // the button as-is until the row is replaced.
+      setSendStatus("Sent.", "success");
+    }
+  } catch (e) {
+    setSendStatus(`Network error: ${e.message}`, "error");
+    btn.disabled = false;
+    btn.textContent = "Send now";
   }
 }
 
@@ -332,7 +374,45 @@ async function reloadBridge() {
   }
 }
 
+// ---- auto-reload (page refresh on a fixed cadence) ---------------------
+
+let autoReloadHandle = null;
+
+function renderAutoReloadToggle() {
+  const btn = $("autoreload-toggle");
+  btn.textContent = state.autoReloadEnabled ? "on" : "off";
+  btn.classList.toggle("on", state.autoReloadEnabled);
+}
+
+function applyAutoReload() {
+  if (autoReloadHandle) {
+    clearInterval(autoReloadHandle);
+    autoReloadHandle = null;
+  }
+  if (!state.autoReloadEnabled) return;
+  // Match the bridge tick cadence; clamp so a sub-second interval can't
+  // turn this into a reload-storm if someone mis-configures.
+  const ms = Math.max(2000, Math.round(state.intervalSeconds * 1000));
+  autoReloadHandle = setInterval(() => {
+    // Don't reload while typing into the composer — losing draft text on
+    // every interval would make the composer unusable.
+    const active = document.activeElement;
+    if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
+      return;
+    }
+    location.reload();
+  }, ms);
+}
+
+function toggleAutoReload() {
+  state.autoReloadEnabled = !state.autoReloadEnabled;
+  localStorage.setItem("ap.autoreload", state.autoReloadEnabled ? "1" : "0");
+  renderAutoReloadToggle();
+  applyAutoReload();
+}
+
 renderNotifToggle();
+renderAutoReloadToggle();
 
 $("settings-btn").addEventListener("click", () => {
   const panel = $("settings-panel");
@@ -340,6 +420,7 @@ $("settings-btn").addEventListener("click", () => {
   $("settings-btn").setAttribute("aria-expanded", String(!panel.hidden));
 });
 $("notif-toggle").addEventListener("click", toggleNotifications);
+$("autoreload-toggle").addEventListener("click", toggleAutoReload);
 $("reload-btn").addEventListener("click", reloadBridge);
 
 $("snap-back").addEventListener("click", closeSnapshots);

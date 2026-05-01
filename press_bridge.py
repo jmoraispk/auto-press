@@ -174,6 +174,19 @@ class WindowStore:
                 self._queues.pop(window_id, None)
             return text
 
+    def pop_at(self, window_id: str, idx: int) -> Optional[str]:
+        """Remove the queued message at ``idx`` (0 = oldest) and return it.
+        Used by /queue/{idx}/send_now so the user can fire one specific
+        queued message without waiting for an idle transition."""
+        with self._lock:
+            q = self._queues.get(window_id)
+            if not q or not (0 <= idx < len(q)):
+                return None
+            text = q.pop(idx)
+            if not q:
+                self._queues.pop(window_id, None)
+            return text
+
     def pending(self, window_id: str) -> list[str]:
         with self._lock:
             return list(self._queues.get(window_id, []))
@@ -653,6 +666,41 @@ def build_app(service: BridgeService):
         for s in service.windows.summaries():
             service.hub.publish_typed("window_state", s)
         return JSONResponse({"cleared": removed})
+
+    @app.post("/api/windows/{window_id}/queue/{idx}/send_now")
+    async def queue_send_now(window_id: str, idx: int) -> JSONResponse:
+        """Pop one queued message and send it immediately, regardless of
+        whether the window is currently idle. Useful when the user has
+        composed a follow-up while the agent's still busy and decides
+        they want to interrupt anyway."""
+        cfg = service.callbacks.cfg_snapshot()
+        win_cfg = next(
+            (w for w in (cfg.get("bridge") or {}).get("windows", [])
+             if w.get("id") == window_id),
+            None,
+        )
+        if win_cfg is None:
+            raise HTTPException(status_code=404, detail="window not found")
+        if service.callbacks.perform_window_send is None:
+            raise HTTPException(status_code=501, detail="window send not wired")
+        text = service.windows.pop_at(window_id, idx)
+        if text is None:
+            raise HTTPException(status_code=404, detail="queue index out of range")
+        bridge_cfg = cfg.get("bridge") or {}
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(
+                None,
+                service.callbacks.perform_window_send,
+                win_cfg,
+                text,
+                bridge_cfg,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"send failed: {exc}") from exc
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse({"sent": True, "text": text})
 
     @app.get("/api/windows/{window_id}/snapshot/{idx}")
     async def window_snapshot(window_id: str, idx: int) -> Response:
