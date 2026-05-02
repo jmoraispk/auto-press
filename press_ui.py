@@ -1876,6 +1876,26 @@ class MainWindow(QMainWindow):
         self._refresh_bridge_windows_table()
         self._bridge_log(f"removed '{name}'")
 
+    def _move_bridge_window(self, window_id: str, direction: int) -> None:
+        """Swap a window with its neighbour. ``direction`` is -1 for up,
+        +1 for down. Persisting the new order propagates to the phone
+        UI on the next /api/state read so the cards rearrange to match
+        the desktop list (which the user lays out left-to-right per
+        monitor)."""
+        idx = self._find_window_index(window_id)
+        if idx is None:
+            return
+        with self._cfg_lock:
+            windows = self._cfg.get("bridge", {}).get("windows", [])
+            new_idx = idx + direction
+            if not (0 <= new_idx < len(windows)):
+                return
+            windows[idx], windows[new_idx] = windows[new_idx], windows[idx]
+            name = windows[new_idx].get("name", "Cursor")
+        self._persist()
+        self._refresh_bridge_windows_table()
+        self._bridge_log(f"moved '{name}' {'up' if direction < 0 else 'down'}")
+
     def _refresh_bridge_windows_table(self) -> None:
         table = getattr(self, "_bridge_windows_table", None)
         if table is None:
@@ -1911,6 +1931,25 @@ class MainWindow(QMainWindow):
             cl = QHBoxLayout(cell)
             cl.setContentsMargins(2, 2, 2, 2)
             cl.setSpacing(4)
+
+            # Up / down move the window in the list. Edges disable the
+            # button that would walk off the list — saves a no-op log
+            # entry plus the visual cue tells the user "you're already
+            # at the top". The phone reads the list in this order, so
+            # left-to-right monitor layout maps to top-to-bottom rows.
+            up_btn = ToolButton(FIF.UP)
+            up_btn.setToolTip("Move up")
+            up_btn.setEnabled(row > 0)
+            up_btn.clicked.connect(
+                lambda _checked=False, _id=wid: self._move_bridge_window(_id, -1)
+            )
+            down_btn = ToolButton(FIF.DOWN)
+            down_btn.setToolTip("Move down")
+            down_btn.setEnabled(row < len(windows) - 1)
+            down_btn.clicked.connect(
+                lambda _checked=False, _id=wid: self._move_bridge_window(_id, 1)
+            )
+
             region_btn = ToolButton(FIF.CAMERA)
             region_btn.setToolTip("Re-capture window region")
             region_btn.clicked.connect(
@@ -1921,6 +1960,8 @@ class MainWindow(QMainWindow):
             del_btn.clicked.connect(
                 lambda _checked=False, _id=wid: self._delete_bridge_window(_id)
             )
+            cl.addWidget(up_btn)
+            cl.addWidget(down_btn)
             cl.addWidget(region_btn)
             cl.addWidget(del_btn)
             table.setCellWidget(row, 2, cell)
