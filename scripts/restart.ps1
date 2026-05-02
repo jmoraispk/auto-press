@@ -38,7 +38,12 @@ if (-not $RepoDir) {
 function Step($msg) { Write-Host ">> $msg" -ForegroundColor Cyan }
 function Note($msg) { Write-Host "   $msg" -ForegroundColor DarkGray }
 
-# Resolve python from the project's .venv so we don't depend on PATH.
+# Resolve python from the project's .venv. We use python.exe (not the
+# windowless pythonw.exe) because pythonw maps stdout/stderr to NUL,
+# which uvicorn / Qt / our own logging trip over during startup. The
+# console window gets hidden via Start-Process -WindowStyle Hidden so
+# the user-visible result is the same: the Qt window appears, no
+# terminal in sight.
 $python = Join-Path $RepoDir ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
     throw "python not found at $python — run 'uv sync' from $RepoDir first."
@@ -82,13 +87,15 @@ if ($procs) {
 }
 
 # 3. Re-launch detached. Calling .venv\Scripts\python.exe directly skips
-#    uv's wrapper so we don't get a stray cmd window for `uv run`. The
-#    Qt app brings its own window.
-Step "Launching $python main.py --bridge --activate"
+#    uv's wrapper (no stray cmd window for `uv run`). -WindowStyle Hidden
+#    keeps the python console off-screen so the user only sees the Qt
+#    window come up.
+Step "Launching $python main.py --bridge --activate (hidden console)"
 Start-Process `
     -FilePath $python `
     -ArgumentList "main.py", "--bridge", "--activate" `
-    -WorkingDirectory $RepoDir | Out-Null
+    -WorkingDirectory $RepoDir `
+    -WindowStyle Hidden | Out-Null
 
 # 4. Two-stage readiness check. PySide6's cold import + Qt window
 #    construction can take 30 s on first launch, and uvicorn binds the
