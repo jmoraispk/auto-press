@@ -60,9 +60,10 @@
   </h1>
 
   <p class="hero-sub">
-    CodeAway puts your IDE on autopilot. When Cursor stalls, it clicks
-    Continue. When you walk away, your phone holds the leash. So you can —
-    actually — code away from your desk.
+    Your IDE on autopilot.
+    <br>
+    It clicks continue when prompted; your phone is the local remote.
+    Walk away — your agents won't.
   </p>
 
   <div class="hero-actions">
@@ -106,14 +107,12 @@
 
       <div class="platform-tabs" role="tablist" aria-label="Platform">
         <button class="platform-tab is-active" data-platform="windows" role="tab" aria-selected="true">Windows</button>
-        <button class="platform-tab" data-platform="macos" role="tab" aria-selected="false">macOS<span class="beta">β</span></button>
-        <button class="platform-tab" data-platform="linux" role="tab" aria-selected="false">Linux<span class="beta">β</span></button>
+        <button class="platform-tab" data-platform="unix" role="tab" aria-selected="false">macOS / Linux<span class="beta">β</span></button>
       </div>
     </div>
 
     <div class="terminal-body">
-      <pre class="code"><span class="comment" id="install-comment"># 100% local. Installs uv, clones the source, syncs deps.</span>
-<span class="line"><span class="prompt">$</span> <span class="cmd" id="install-cmd">powershell -c "irm https://codeaway.dev/install.ps1 | iex"</span></span></pre>
+      <pre class="code" id="install-pre"></pre>
       <button class="copy" id="copy-cmd" aria-label="Copy command" title="Copy">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -126,11 +125,11 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         </span>
         <div class="warning-body">
-          <p><strong>Untested platform.</strong> The install script will
-          fetch and sync, but the engine relies on Win32 APIs and won't
-          run as-is on <span id="untested-os">macOS</span> yet.</p>
+          <p><strong>Untested platform.</strong> The install script
+          fetches and syncs fine, but the engine relies on Win32 APIs
+          and won't run as-is on macOS / Linux today.</p>
           <button type="button" class="btn btn-ghost btn-sm" id="request-port">
-            Request a <span id="untested-os-2">macOS</span> port
+            Request a macOS / Linux port
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
           </button>
         </div>
@@ -170,6 +169,23 @@
 
     <div class="timeline-row without">
       <div class="row-label">
+        <span class="row-figure" aria-hidden="true">
+          <svg viewBox="0 0 64 56" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <!-- desk -->
+            <line x1="6" y1="48" x2="58" y2="48"/>
+            <!-- monitor -->
+            <rect x="36" y="22" width="20" height="16" rx="1.5"/>
+            <line x1="40" y1="48" x2="52" y2="48"/>
+            <line x1="46" y1="38" x2="46" y2="48"/>
+            <!-- person slumped over keyboard -->
+            <circle cx="20" cy="22" r="4"/>
+            <path d="M20 26 Q22 32 28 36 L34 38"/>
+            <path d="M20 26 L14 36 L14 48"/>
+            <!-- glow lines on the monitor -->
+            <line class="screen-glow" x1="40" y1="27" x2="52" y2="27"/>
+            <line class="screen-glow" x1="40" y1="31" x2="48" y2="31"/>
+          </svg>
+        </span>
         <span class="row-tag">Without</span>
         Tied to the desk
       </div>
@@ -186,6 +202,30 @@
 
     <div class="timeline-row with">
       <div class="row-label">
+        <span class="row-figure walking" aria-hidden="true">
+          <svg viewBox="0 0 64 56" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <!-- ground -->
+            <line x1="6" y1="50" x2="58" y2="50" stroke-dasharray="3 4" opacity="0.4"/>
+            <!-- person walking -->
+            <g class="figure">
+              <!-- head up -->
+              <circle cx="32" cy="14" r="4"/>
+              <!-- torso -->
+              <line x1="32" y1="18" x2="32" y2="32"/>
+              <!-- back leg -->
+              <line class="leg-back" x1="32" y1="32" x2="26" y2="46"/>
+              <!-- front leg, slightly bent -->
+              <line class="leg-front" x1="32" y1="32" x2="38" y2="42"/>
+              <line class="leg-front" x1="38" y1="42" x2="38" y2="46"/>
+              <!-- forward arm holding phone -->
+              <line x1="32" y1="22" x2="40" y2="26"/>
+              <!-- phone -->
+              <rect x="40" y="24" width="6" height="8" rx="1"/>
+              <!-- back arm swinging -->
+              <line class="arm-back" x1="32" y1="22" x2="26" y2="28"/>
+            </g>
+          </svg>
+        </span>
         <span class="row-tag with-tag">With</span>
         Walk while it works
       </div>
@@ -327,14 +367,6 @@
       MIT licensed. The whole codebase is on GitHub — fork it, read it,
       break it, send it back better.
     </p>
-    <div class="banner-actions">
-      <a class="btn btn-primary" href="https://github.com/jmoraispk/codeaway" target="_blank" rel="noopener">
-        Read the source
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/jmoraispk/codeaway/blob/main/LICENSE" target="_blank" rel="noopener">
-        MIT license
-      </a>
-    </div>
   </div>
 </section>
 
@@ -353,14 +385,22 @@
       id="fr-text"
       class="request-text"
       rows="5"
-      placeholder="A feature you wish CodeAway had. A workflow it doesn't fit. A bug. A wild idea. Whatever — write it here, then send it via the channel you prefer."
+      placeholder="A feature you wish CodeAway had. A workflow it doesn't fit. A bug. A wild idea."
       aria-label="Feature request"
     ></textarea>
 
-    <p id="fr-status" class="request-status" aria-live="polite"></p>
-
     <div class="request-channels">
-      <button type="button" class="channel" data-channel="issue">
+      <a class="channel" id="channel-email" href="" rel="noopener">
+        <span class="channel-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+        </span>
+        <span class="channel-body">
+          <span class="channel-title">Send by email</span>
+          <span class="channel-sub">Opens in your default mail client.</span>
+        </span>
+      </a>
+
+      <a class="channel" id="channel-issue" href="" target="_blank" rel="noopener">
         <span class="channel-icon" aria-hidden="true">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
         </span>
@@ -368,27 +408,7 @@
           <span class="channel-title">Open a GitHub issue</span>
           <span class="channel-sub">Best for bugs and tracked feature requests.</span>
         </span>
-      </button>
-
-      <button type="button" class="channel" data-channel="pr">
-        <span class="channel-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><circle cx="18" cy="18" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/></svg>
-        </span>
-        <span class="channel-body">
-          <span class="channel-title">Send a pull request</span>
-          <span class="channel-sub">If you've already got the fix in mind.</span>
-        </span>
-      </button>
-
-      <button type="button" class="channel" data-channel="email">
-        <span class="channel-icon" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
-        </span>
-        <span class="channel-body">
-          <span class="channel-title">Email me directly</span>
-          <span class="channel-sub">For private feedback or anything off-the-record.</span>
-        </span>
-      </button>
+      </a>
     </div>
   </div>
 </section>

@@ -676,6 +676,69 @@ code {
   color: var(--fg);
   font-weight: 500;
 }
+
+/* Small character illustrations sit above each row's tag — slumped at
+   a desk for "Without", walking with a phone for "With". They're inline
+   SVGs so they inherit `currentColor`, which we tint per row. */
+.row-figure {
+  display: inline-flex;
+  align-items: center;
+  width: 64px;
+  height: 56px;
+  margin-bottom: 4px;
+}
+.row-figure svg { width: 100%; height: 100%; overflow: visible; }
+.timeline-row.without .row-figure { color: rgba(252, 165, 165, 0.85); }
+.timeline-row.with    .row-figure { color: rgba(134, 239, 172, 0.95); }
+
+/* Subtle pulse on the monitor "glow" lines so the slumped figure looks
+   passively staring rather than just static. */
+.row-figure .screen-glow {
+  animation: screenpulse 2.6s ease-in-out infinite;
+  opacity: 0.5;
+}
+.row-figure .screen-glow:nth-of-type(2) { animation-delay: 0.4s; }
+@keyframes screenpulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.85; }
+}
+
+/* Walking cycle on the With figure — legs swing alternately. The whole
+   figure also drifts a hair forward + back to suggest forward motion
+   without translating across the row (which would land on the timeline
+   bar and look broken). */
+.row-figure.walking .figure {
+  animation: bob 1.6s ease-in-out infinite;
+  transform-origin: 32px 32px;
+}
+.row-figure.walking .leg-back {
+  transform-origin: 32px 32px;
+  animation: swingback 1.6s ease-in-out infinite;
+}
+.row-figure.walking .leg-front {
+  transform-origin: 32px 32px;
+  animation: swingfront 1.6s ease-in-out infinite;
+}
+.row-figure.walking .arm-back {
+  transform-origin: 32px 22px;
+  animation: armswing 1.6s ease-in-out infinite;
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1.5px); }
+}
+@keyframes swingback {
+  0%, 100% { transform: rotate(-12deg); }
+  50%      { transform: rotate(8deg); }
+}
+@keyframes swingfront {
+  0%, 100% { transform: rotate(8deg); }
+  50%      { transform: rotate(-12deg); }
+}
+@keyframes armswing {
+  0%, 100% { transform: rotate(8deg); }
+  50%      { transform: rotate(-8deg); }
+}
 .row-tag {
   display: inline-flex;
   align-items: center;
@@ -1045,7 +1108,7 @@ code {
 
 .request-channels {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
   margin-top: 18px;
 }

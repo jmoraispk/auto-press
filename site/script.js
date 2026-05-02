@@ -17,89 +17,98 @@ const $ = (id) => document.getElementById(id);
 
 // ---- Quickstart matrix ------------------------------------------------
 //
-// Keyed [method][platform] → { comment, cmd, tested }. Strings are
-// rendered into a plain text node (no innerHTML) so backticks, $, &
-// etc. are safe by default — and the `cmd` element keeps its own
-// monospace styling.
+// Keyed [method][platform] → { tested, lines }. Each line is either
+// { type: "cmd", text } (rendered with a $ prompt) or { type: "comment",
+// text } (rendered grey, no prompt). Building the block as discrete
+// lines lets the uv-install hint sit between `cd codeaway` and
+// `uv sync` without breaking the prompt rhythm, and the copy button
+// can pull out only the cmd lines.
 
 const INSTALL = {
   "one-liner": {
     windows: {
-      comment: "# 100% local. Installs uv, clones the source, syncs deps.",
-      cmd: 'powershell -c "irm https://codeaway.dev/install.ps1 | iex"',
       tested: true,
+      lines: [
+        { type: "comment", text: "# 100% local. Installs uv, clones the source, syncs deps." },
+        { type: "cmd",     text: 'powershell -c "irm https://codeaway.dev/install.ps1 | iex"' },
+      ],
     },
-    macos: {
-      comment: "# Untested on macOS — script fetches and syncs, runtime is Win32-only today.",
-      cmd: "curl -fsSL https://codeaway.dev/install.sh | sh",
+    unix: {
       tested: false,
-    },
-    linux: {
-      comment: "# Untested on Linux — script fetches and syncs, runtime is Win32-only today.",
-      cmd: "curl -fsSL https://codeaway.dev/install.sh | sh",
-      tested: false,
+      lines: [
+        { type: "comment", text: "# Untested on macOS / Linux — fetches and syncs, runtime is Win32-only today." },
+        { type: "cmd",     text: "curl -fsSL https://codeaway.dev/install.sh | sh" },
+      ],
     },
   },
   hackable: {
     windows: {
-      comment: "# don't have uv? install with: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\"",
-      cmd:
-        "git clone https://github.com/jmoraispk/codeaway.git\n" +
-        "cd codeaway\n" +
-        "uv sync --extra bridge\n" +
-        "uv run main.py --bridge --activate",
       tested: true,
+      lines: [
+        { type: "cmd",     text: "git clone https://github.com/jmoraispk/codeaway.git" },
+        { type: "cmd",     text: "cd codeaway" },
+        { type: "comment", text: '# don\'t have uv? install with: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"' },
+        { type: "cmd",     text: "uv sync --extra bridge" },
+        { type: "cmd",     text: "uv run main.py --bridge --activate" },
+      ],
     },
-    macos: {
-      comment: "# don't have uv? install with: curl -LsSf https://astral.sh/uv/install.sh | sh",
-      cmd:
-        "git clone https://github.com/jmoraispk/codeaway.git\n" +
-        "cd codeaway\n" +
-        "uv sync --extra bridge\n" +
-        "uv run main.py --bridge --activate",
+    unix: {
       tested: false,
-    },
-    linux: {
-      comment: "# don't have uv? install with: curl -LsSf https://astral.sh/uv/install.sh | sh",
-      cmd:
-        "git clone https://github.com/jmoraispk/codeaway.git\n" +
-        "cd codeaway\n" +
-        "uv sync --extra bridge\n" +
-        "uv run main.py --bridge --activate",
-      tested: false,
+      lines: [
+        { type: "cmd",     text: "git clone https://github.com/jmoraispk/codeaway.git" },
+        { type: "cmd",     text: "cd codeaway" },
+        { type: "comment", text: "# don't have uv? install with: curl -LsSf https://astral.sh/uv/install.sh | sh" },
+        { type: "cmd",     text: "uv sync --extra bridge" },
+        { type: "cmd",     text: "uv run main.py --bridge --activate" },
+      ],
     },
   },
 };
 
-const PLATFORM_LABEL = { windows: "Windows", macos: "macOS", linux: "Linux" };
+const PLATFORM_LABEL = { windows: "Windows", unix: "macOS / Linux" };
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function renderInstallLines(entry) {
+  // Build the <pre> contents one element per line so the prompt $
+  // shows on each command line and comments break the cmd block
+  // without disturbing the prompt rhythm. Manual escaping because we
+  // ship the result via innerHTML.
+  return entry.lines.map((line) => {
+    if (line.type === "comment") {
+      return `<span class="comment">${escapeHtml(line.text)}</span>`;
+    }
+    return `<span class="line"><span class="prompt">$</span> <span class="cmd">${escapeHtml(line.text)}</span></span>`;
+  }).join("\n");
+}
 
 (function wireQuickstart() {
   const term = document.querySelector(".terminal");
   if (!term) return;
 
-  const cmdEl = $("install-cmd");
-  const commentEl = $("install-comment");
+  const preEl = $("install-pre");
   const warn = $("untested-warn");
   const requestBtn = $("request-port");
 
+  function currentEntry() {
+    return INSTALL[term.dataset.method] &&
+      INSTALL[term.dataset.method][term.dataset.platform];
+  }
+
   function render() {
-    const method = term.dataset.method;
-    const platform = term.dataset.platform;
-    const entry = INSTALL[method] && INSTALL[method][platform];
-    if (!entry) return;
-    cmdEl.textContent = entry.cmd;
-    commentEl.textContent = entry.comment;
+    const entry = currentEntry();
+    if (!entry || !preEl) return;
+    preEl.innerHTML = renderInstallLines(entry);
     warn.hidden = entry.tested;
-    if (!entry.tested) {
-      const label = PLATFORM_LABEL[platform] || platform;
-      $("untested-os").textContent = label;
-      $("untested-os-2").textContent = label;
-    }
-    // Mark untested platform tabs visually so the row reads as
-    // "Windows is the safe one" without needing to hover or read.
+    // Untested platform tabs paint red while active so the row reads
+    // as "Windows is the safe one" without needing to hover.
     document.querySelectorAll(".platform-tab").forEach((btn) => {
       const p = btn.dataset.platform;
-      const tested = INSTALL[method][p] && INSTALL[method][p].tested;
+      const tested = INSTALL[term.dataset.method][p] && INSTALL[term.dataset.method][p].tested;
       btn.classList.toggle(
         "beta-warning",
         btn.classList.contains("is-active") && !tested
@@ -129,8 +138,7 @@ const PLATFORM_LABEL = { windows: "Windows", macos: "macOS", linux: "Linux" };
 
   if (requestBtn) {
     requestBtn.addEventListener("click", () => {
-      const platform = term.dataset.platform;
-      const label = PLATFORM_LABEL[platform] || platform;
+      const label = PLATFORM_LABEL[term.dataset.platform] || term.dataset.platform;
       const text = $("fr-text");
       if (text) {
         text.value =
@@ -138,6 +146,9 @@ const PLATFORM_LABEL = { windows: "Windows", macos: "macOS", linux: "Linux" };
           `Today the engine relies on Win32 APIs (per-monitor DPI, ` +
           `RegisterHotKey, EnumDisplayMonitors). Happy to help test if a ` +
           `port lands.`;
+        // Trigger the input handler so the feedback channel hrefs pick
+        // up the new body without a manual key press.
+        text.dispatchEvent(new Event("input", { bubbles: true }));
       }
       const target = $("request");
       if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -149,26 +160,41 @@ const PLATFORM_LABEL = { windows: "Windows", macos: "macOS", linux: "Linux" };
   }
 
   render();
+
+  // Expose the current cmd-line text for the copy button below.
+  window.__copyInstall = function () {
+    const entry = currentEntry();
+    if (!entry) return "";
+    return entry.lines
+      .filter((l) => l.type === "cmd")
+      .map((l) => l.text)
+      .join("\n");
+  };
 })();
 
 // ---- Copy install command --------------------------------------------
 
 (function wireCopyInstall() {
   const btn = $("copy-cmd");
-  const cmdEl = $("install-cmd");
-  if (!btn || !cmdEl) return;
+  if (!btn) return;
 
   btn.addEventListener("click", async () => {
-    const text = cmdEl.textContent;
+    // Pull from the helper the Quickstart wiring exposed — that way
+    // we copy only the cmd lines, not the leading comment, joined by
+    // newlines so a paste at a shell prompt runs them as a script.
+    const text = (window.__copyInstall && window.__copyInstall()) || "";
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
       btn.classList.add("copied");
       setTimeout(() => btn.classList.remove("copied"), 1200);
     } catch {
-      // Selection fallback for browsers that block clipboard writes
-      // outside HTTPS or off a user gesture chain.
+      // Clipboard API can be blocked in non-HTTPS contexts; fall back
+      // to selecting the rendered <pre> so the user can ctrl+c.
+      const pre = $("install-pre");
+      if (!pre) return;
       const range = document.createRange();
-      range.selectNode(cmdEl);
+      range.selectNode(pre);
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
@@ -178,79 +204,34 @@ const PLATFORM_LABEL = { windows: "Windows", macos: "macOS", linux: "Linux" };
 
 // ---- Feature-request channels ----------------------------------------
 //
-// All three buttons funnel through the same handler; the channel decides
-// which URL we open. The textarea content is always passed along so the
-// user doesn't have to retype.
+// Two real <a href> links instead of buttons-that-trigger-window.open —
+// popup blockers and "nothing happened" feedback go away because click
+// is just normal navigation. We keep the link hrefs in sync with the
+// textarea so whatever the user typed travels with them to GitHub or
+// their mail client. Empty textarea is fine: the link still works and
+// the destination form stays empty.
 
 (function wireFeatureRequest() {
   const text = $("fr-text");
-  const status = $("fr-status");
-  if (!text || !status) return;
+  const emailLink = $("channel-email");
+  const issueLink = $("channel-issue");
+  if (!text || !emailLink || !issueLink) return;
 
-  function setStatus(msg, kind) {
-    status.textContent = msg || "";
-    status.className = "request-status" + (kind ? " " + kind : "");
+  const subject = encodeURIComponent("CodeAway — feature request");
+
+  function sync() {
+    const body = text.value;
+    const enc = body ? encodeURIComponent(body) : "";
+    emailLink.href = body
+      ? `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${enc}`
+      : `mailto:${CONTACT_EMAIL}?subject=${subject}`;
+    issueLink.href = body
+      ? `https://github.com/${REPO}/issues/new?body=${enc}`
+      : `https://github.com/${REPO}/issues/new`;
   }
 
-  function payload() {
-    return text.value.trim();
-  }
-
-  function open(url) {
-    // _blank with noopener so the new tab can't reach back into this
-    // page. Falls back to same-tab navigation if the popup is blocked.
-    const w = window.open(url, "_blank", "noopener,noreferrer");
-    if (!w) window.location.href = url;
-  }
-
-  function submit(channel) {
-    const body = payload();
-    if (!body) {
-      text.focus();
-      setStatus("Type something first.", "error");
-      return;
-    }
-
-    if (channel === "issue") {
-      const url =
-        `https://github.com/${REPO}/issues/new?body=` +
-        encodeURIComponent(body);
-      open(url);
-      setStatus("Opening a new GitHub issue with your text…", "success");
-      return;
-    }
-
-    if (channel === "pr") {
-      // PRs need a fork+branch+commit, which we can't pre-build from the
-      // browser. Best we can do: copy the text to the clipboard so it's
-      // ready when they open the PR description box, then send them to
-      // the contributing flow.
-      navigator.clipboard.writeText(body).catch(() => {});
-      const url = `https://github.com/${REPO}/compare`;
-      open(url);
-      setStatus(
-        "Opening the compare page. Your text is on the clipboard — paste it into the PR description.",
-        "success"
-      );
-      return;
-    }
-
-    if (channel === "email") {
-      const url =
-        `mailto:${CONTACT_EMAIL}` +
-        `?subject=` + encodeURIComponent("CodeAway — feature request") +
-        `&body=` + encodeURIComponent(body);
-      // Same-tab navigation is correct for mailto: — opening in _blank
-      // leaves an empty tab behind on most browsers.
-      window.location.href = url;
-      setStatus("Opening your mail client…", "success");
-      return;
-    }
-  }
-
-  for (const btn of document.querySelectorAll(".channel")) {
-    btn.addEventListener("click", () => submit(btn.dataset.channel));
-  }
+  text.addEventListener("input", sync);
+  sync();
 })();
 
 // ---- Why-section timeline reveal -------------------------------------
