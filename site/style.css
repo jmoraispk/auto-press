@@ -258,11 +258,37 @@ code {
 }
 
 .hero-sub {
-  margin: 0 auto 38px;
+  margin: 0 auto 14px;
   max-width: 56ch;
   font-size: clamp(16px, 1.5vw, 19px);
   color: var(--fg-mute);
-  line-height: 1.6;
+  line-height: 1.65;
+}
+.hero-sub em {
+  font-style: normal;
+  color: var(--fg);
+  font-weight: 500;
+  /* Real button names get the foreground colour treatment so they
+     read as concrete UI references rather than emphasis. */
+}
+
+/* Tagline punctuates the value-prop list — slightly larger, a touch
+   of weight, italic gradient mark for the "autopilot" word so it
+   visually rhymes with the hero title's `away`. */
+.hero-tagline {
+  margin: 0 auto 38px;
+  font-size: clamp(17px, 1.7vw, 21px);
+  font-weight: 500;
+  color: var(--fg);
+  letter-spacing: -0.015em;
+}
+.hero-tagline em {
+  font-style: italic;
+  font-weight: 500;
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 80%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .hero-actions {
@@ -694,53 +720,87 @@ code {
 .timeline-row.without .row-figure { color: rgba(252, 165, 165, 0.85); }
 .timeline-row.with    .row-figure { color: rgba(134, 239, 172, 0.95); }
 
-/* Subtle pulse on the monitor "glow" lines so the slumped figure looks
-   passively staring rather than just static. */
+/* Slumped figure — the screen flickers irregularly (real monitors
+   don't pulse on a sine wave) and the torso has a slow inhale/exhale
+   so the figure reads as alive but stuck rather than dead-static. */
 .row-figure .screen-glow {
-  animation: screenpulse 2.6s ease-in-out infinite;
-  opacity: 0.5;
+  animation: screenflicker 3.4s steps(1, end) infinite;
+  opacity: 0.4;
 }
-.row-figure .screen-glow:nth-of-type(2) { animation-delay: 0.4s; }
-@keyframes screenpulse {
-  0%, 100% { opacity: 0.25; }
-  50%      { opacity: 0.85; }
+.row-figure .screen-glow:nth-of-type(2) {
+  animation-duration: 2.7s;
+  animation-delay: -0.6s;
+}
+@keyframes screenflicker {
+  0%, 18%, 100% { opacity: 0.35; }
+  20%, 38%      { opacity: 0.8; }
+  40%, 60%      { opacity: 0.5; }
+  62%, 78%      { opacity: 0.92; }
+  80%, 96%      { opacity: 0.45; }
 }
 
-/* Walking cycle on the With figure — legs swing alternately. The whole
-   figure also drifts a hair forward + back to suggest forward motion
-   without translating across the row (which would land on the timeline
-   bar and look broken). */
+/* Walking cycle on the With figure. Each part has its own keyframes
+   so legs counter-swing correctly, the torso bobs in sync with leg
+   contact, and the back arm swings opposite to the front leg (which
+   is what real walking looks like — front leg out, back arm forward).
+   Cubic-bezier easing instead of ease-in-out so the swings feel like
+   a real pendulum, accelerating into the strike and slowing at the
+   reach. */
 .row-figure.walking .figure {
-  animation: bob 1.6s ease-in-out infinite;
   transform-origin: 32px 32px;
+  animation: bodybob 1.4s cubic-bezier(0.46, 0, 0.54, 1) infinite;
 }
 .row-figure.walking .leg-back {
   transform-origin: 32px 32px;
-  animation: swingback 1.6s ease-in-out infinite;
+  animation: legswing-a 1.4s cubic-bezier(0.46, 0, 0.54, 1) infinite;
 }
 .row-figure.walking .leg-front {
   transform-origin: 32px 32px;
-  animation: swingfront 1.6s ease-in-out infinite;
+  animation: legswing-b 1.4s cubic-bezier(0.46, 0, 0.54, 1) infinite;
 }
 .row-figure.walking .arm-back {
   transform-origin: 32px 22px;
-  animation: armswing 1.6s ease-in-out infinite;
+  animation: armswing 1.4s cubic-bezier(0.46, 0, 0.54, 1) infinite;
 }
-@keyframes bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-1.5px); }
+@keyframes bodybob {
+  0%, 50%, 100% { transform: translateY(0); }
+  25%           { transform: translateY(-1.6px); }
+  75%           { transform: translateY(-1.6px); }
 }
-@keyframes swingback {
-  0%, 100% { transform: rotate(-12deg); }
-  50%      { transform: rotate(8deg); }
+@keyframes legswing-a {
+  0%, 100% { transform: rotate(-16deg); }
+  50%      { transform: rotate(14deg); }
 }
-@keyframes swingfront {
-  0%, 100% { transform: rotate(8deg); }
-  50%      { transform: rotate(-12deg); }
+@keyframes legswing-b {
+  0%, 100% { transform: rotate(14deg); }
+  50%      { transform: rotate(-16deg); }
 }
 @keyframes armswing {
-  0%, 100% { transform: rotate(8deg); }
-  50%      { transform: rotate(-8deg); }
+  0%, 100% { transform: rotate(14deg); }
+  50%      { transform: rotate(-14deg); }
+}
+
+/* After the With bar finishes filling, a quiet shimmer travels across
+   it on a long loop — communicates "agent is still working" without
+   getting noisy. The timing-delay matches the bar's transition-delay
+   so the shimmer only starts after the fill animation is complete. */
+@keyframes shimmer {
+  0%   { background-position: -100% 0; opacity: 0.7; }
+  100% { background-position: 200% 0; opacity: 0.7; }
+}
+#why.is-visible .timeline-row.with .block {
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.18) 50%,
+      transparent 100%
+    ),
+    linear-gradient(90deg, var(--accent), var(--accent-2));
+  background-size: 50% 100%, 100% 100%;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -100% 0, 0 0;
+  animation: shimmer 4.5s 2.4s linear infinite;
 }
 .row-tag {
   display: inline-flex;
@@ -894,6 +954,105 @@ code {
   display: block;
   margin-bottom: 4px;
   letter-spacing: -0.01em;
+}
+
+/* ---- Use cases ------------------------------------------------- */
+.use-cases {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: clamp(60px, 8vw, 120px) var(--gutter);
+}
+.use-case-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 880px) { .use-case-grid { grid-template-columns: 1fr; } }
+
+.use-case {
+  position: relative;
+  padding: 32px 30px 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
+    var(--bg-card);
+  transition: border-color var(--t-med), transform var(--t-med),
+              box-shadow var(--t-med);
+}
+.use-case:hover {
+  border-color: rgba(125, 167, 232, 0.4);
+  transform: translateY(-3px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+.use-case-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, rgba(125, 167, 232, 0.18), rgba(167, 139, 250, 0.12));
+  color: var(--accent);
+  border: 1px solid rgba(125, 167, 232, 0.3);
+  margin-bottom: 18px;
+}
+.use-case-tag {
+  margin: 0 0 10px;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-weight: 500;
+}
+.use-case h3 {
+  margin: 0 0 14px;
+  font-size: clamp(20px, 2vw, 24px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.use-case-body {
+  margin: 0 0 18px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--fg-mute);
+}
+.use-case-body em {
+  font-style: normal;
+  color: var(--fg);
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 0.92em;
+}
+.use-case-bullets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--fg);
+}
+.use-case-bullets li {
+  position: relative;
+  padding-left: 18px;
+  color: var(--fg-mute);
+}
+.use-case-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.7;
 }
 
 /* ---- Features grid --------------------------------------------- */
