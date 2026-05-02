@@ -356,14 +356,14 @@ button.primary {
   cursor: progress;
 }
 
-/* Snapshots are tiled like the windows grid above — auto-fit columns
-   so a phone in portrait gets ~3 across and a wider browser packs
-   more. Each tile crops to a fixed height with the top of the image
-   showing (where the recent message is); tap to open the lightbox
-   for the full untruncated view. */
+/* Snapshots tile in two fixed columns. With auto-fit + 1fr, a single
+   snapshot would stretch to the full row width, eating vertical
+   real-estate and showing less of the chat. Two columns means a lone
+   snapshot takes half the row (just like one of the cells in a
+   2-snapshot layout) and additional ones wrap below it as expected. */
 #snapshots {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
 .snapshot {
@@ -378,7 +378,7 @@ button.primary {
 .snapshot img {
   display: block;
   width: 100%;
-  height: 180px;
+  height: 260px;
   object-fit: cover;
   object-position: top center;
   background: #000;

@@ -237,8 +237,13 @@ function renderWindowDetail(refetchSnapshots) {
   const id = state.current;
   if (!id) return;
   const w = state.windows.get(id);
-  $("snap-window-name").textContent = w ? (w.name || id) : id;
-  $("snap-status").textContent = w ? (w.idle ? "idle" : "busy") : "—";
+  // The list card already shows the dot colour + "busy/idle" text, so
+  // the detail title used to repeat it on its own line. Fold it into
+  // the heading instead — "Window Name (Busy)" — to spend the row on
+  // the name and keep the status legible at a glance.
+  const name = w ? (w.name || id) : id;
+  const status = w ? (w.idle ? "Idle" : "Busy") : "";
+  $("snap-window-name").textContent = status ? `${name} (${status})` : name;
   renderQueue();
   if (refetchSnapshots) renderSnapshots();
 }
