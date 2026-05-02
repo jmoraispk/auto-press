@@ -491,20 +491,23 @@ code {
   margin: 0;
   font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.6;
   color: var(--fg);
   white-space: pre;
   overflow-x: auto;
   /* Keeps the comment soft so the eye lands on the command itself. */
 }
+/* All children render as block-level lines so we get one row per
+   item without injecting "\n" between elements (which would render
+   as a second blank line under the previous row's natural break). */
+.code .comment,
+.code .line { display: block; }
+
 .code .comment {
-  display: block;
   color: var(--fg-faint);
   font-style: italic;
-  margin-bottom: 4px;
   white-space: pre-wrap;
 }
-.code .line { display: block; }
 .code .prompt {
   color: var(--accent);
   user-select: none;
@@ -512,6 +515,13 @@ code {
 }
 .code .cmd { color: var(--fg); }
 .code .cmd .str { color: #f6c177; }
+/* Trailing shell-style comment on a cmd line — muted so the eye
+   lands on the command, but still visible as a hint. */
+.code .trail-comment {
+  color: var(--fg-faint);
+  font-style: italic;
+  margin-left: 8px;
+}
 
 .copy {
   position: absolute;
@@ -551,6 +561,10 @@ code {
   border-radius: var(--r-sm);
   background: rgba(239, 68, 68, 0.06);
 }
+/* The explicit `display: flex` above wins over the user-agent
+   [hidden]{display:none} rule, so the warning leaks onto the Windows
+   tab even when JS sets warn.hidden = true. Re-assert it. */
+.warning[hidden] { display: none; }
 .warning-icon {
   display: inline-flex;
   align-items: center;
@@ -638,34 +652,23 @@ code {
   margin-bottom: 56px;
 }
 
-.timeline-axis {
-  display: flex;
-  justify-content: space-between;
-  margin: 0 0 24px;
-  padding: 0 4px;
-  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--fg-faint);
-}
-
 .timeline-row {
   display: grid;
-  grid-template-columns: 200px 1fr 180px;
+  grid-template-columns: 200px 1fr;
   align-items: center;
-  gap: 18px;
-  padding: 18px 0;
+  gap: 22px;
+  /* Extra top padding leaves room for the absolute-positioned hours
+     label (~6 h / ~12 h) above each bar. */
+  padding: 30px 0 22px;
   border-top: 1px solid var(--line);
 }
-.timeline-row:first-of-type { border-top: none; padding-top: 6px; }
+.timeline-row:first-of-type { border-top: none; padding-top: 14px; }
 
 @media (max-width: 780px) {
   .timeline-row {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 14px;
   }
-  /* On narrow screens the row label wraps under the bar; the stats
-     follow the bar, keeping the visual rhythm vertical. */
 }
 
 .row-label {
@@ -831,26 +834,21 @@ code {
 }
 .marker-icon { display: inline-flex; color: var(--accent); }
 
-.row-stats {
-  text-align: right;
-  font-size: 13px;
-  color: var(--fg-mute);
-  letter-spacing: -0.005em;
-}
-.timeline-row.with .row-stats { color: var(--fg); }
-.stat-num {
-  display: inline-block;
+/* Hours label hovering above the right edge of each bar — replaces
+   the third grid column from the previous design. Top-positioned so
+   it sits in the gap above the track without colliding with the bar
+   itself or the markers below. */
+.bar-hours {
+  position: absolute;
+  top: -22px;
+  right: 0;
   font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-weight: 600;
-  font-size: 16px;
-  color: var(--fg);
-  margin-right: 4px;
+  font-size: 14px;
+  letter-spacing: -0.01em;
 }
-.timeline-row.with .stat-num { color: #86efac; }
-
-@media (max-width: 780px) {
-  .row-stats { text-align: left; }
-}
+.timeline-row.without .bar-hours { color: rgba(252, 165, 165, 0.95); }
+.timeline-row.with    .bar-hours { color: #86efac; }
 
 .why-points {
   display: grid;

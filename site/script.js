@@ -45,21 +45,21 @@ const INSTALL = {
     windows: {
       tested: true,
       lines: [
-        { type: "cmd",     text: "git clone https://github.com/jmoraispk/codeaway.git" },
-        { type: "cmd",     text: "cd codeaway" },
-        { type: "comment", text: '# don\'t have uv? install with: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"' },
-        { type: "cmd",     text: "uv sync --extra bridge" },
-        { type: "cmd",     text: "uv run main.py --bridge --activate" },
+        { type: "cmd", text: "git clone https://github.com/jmoraispk/codeaway.git" },
+        { type: "cmd", text: "cd codeaway" },
+        { type: "cmd", text: "uv sync --extra bridge",
+          trail: '# install uv: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"' },
+        { type: "cmd", text: "uv run main.py --bridge --activate" },
       ],
     },
     unix: {
       tested: false,
       lines: [
-        { type: "cmd",     text: "git clone https://github.com/jmoraispk/codeaway.git" },
-        { type: "cmd",     text: "cd codeaway" },
-        { type: "comment", text: "# don't have uv? install with: curl -LsSf https://astral.sh/uv/install.sh | sh" },
-        { type: "cmd",     text: "uv sync --extra bridge" },
-        { type: "cmd",     text: "uv run main.py --bridge --activate" },
+        { type: "cmd", text: "git clone https://github.com/jmoraispk/codeaway.git" },
+        { type: "cmd", text: "cd codeaway" },
+        { type: "cmd", text: "uv sync --extra bridge",
+          trail: "# install uv: curl -LsSf https://astral.sh/uv/install.sh | sh" },
+        { type: "cmd", text: "uv run main.py --bridge --activate" },
       ],
     },
   },
@@ -74,16 +74,22 @@ function escapeHtml(s) {
 }
 
 function renderInstallLines(entry) {
-  // Build the <pre> contents one element per line so the prompt $
-  // shows on each command line and comments break the cmd block
-  // without disturbing the prompt rhythm. Manual escaping because we
-  // ship the result via innerHTML.
+  // One element per line. Each cmd gets a $ prompt; an optional
+  // `trail` field becomes a muted shell-style comment on the same
+  // line so the uv-install hint sits next to `uv sync` instead of
+  // breaking the prompt rhythm with a free-floating banner.
+  //
+  // Joining with "" (not "\n") because each span is display:block —
+  // the extra newline in <pre> would render as a second blank line.
   return entry.lines.map((line) => {
     if (line.type === "comment") {
       return `<span class="comment">${escapeHtml(line.text)}</span>`;
     }
-    return `<span class="line"><span class="prompt">$</span> <span class="cmd">${escapeHtml(line.text)}</span></span>`;
-  }).join("\n");
+    const trail = line.trail
+      ? `<span class="trail-comment"> ${escapeHtml(line.trail)}</span>`
+      : "";
+    return `<span class="line"><span class="prompt">$</span> <span class="cmd">${escapeHtml(line.text)}</span>${trail}</span>`;
+  }).join("");
 }
 
 (function wireQuickstart() {
