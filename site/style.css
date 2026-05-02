@@ -619,6 +619,222 @@ code {
   line-height: 1.6;
 }
 
+/* ---- Why -------------------------------------------------------- */
+.why {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: clamp(60px, 8vw, 120px) var(--gutter);
+}
+.why .section-head h2 br { display: block; }
+
+.timeline-card {
+  position: relative;
+  padding: clamp(24px, 3vw, 36px) clamp(20px, 3vw, 40px);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    var(--bg-card);
+  margin-bottom: 56px;
+}
+
+.timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 24px;
+  padding: 0 4px;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--fg-faint);
+}
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 180px;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+.timeline-row:first-of-type { border-top: none; padding-top: 6px; }
+
+@media (max-width: 780px) {
+  .timeline-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  /* On narrow screens the row label wraps under the bar; the stats
+     follow the bar, keeping the visual rhythm vertical. */
+}
+
+.row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--fg);
+  font-weight: 500;
+}
+.row-tag {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.row-tag.with-tag {
+  background: rgba(34, 197, 94, 0.14);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.32);
+}
+
+.track {
+  position: relative;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+  overflow: visible;  /* let markers escape the track to land just below */
+}
+
+.block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--start);
+  /* Width grows from 0 to (end - start) on the .is-visible class so the
+     bar fills in once when the section scrolls into view. The fixed-
+     position approach (left: --start) keeps each block's left edge
+     anchored — only the right edge animates. */
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 1.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.timeline-row.without .block {
+  background: linear-gradient(90deg, rgba(125, 167, 232, 0.55), rgba(125, 167, 232, 0.4));
+  /* Without bar uses a flatter, less saturated colour so "with" reads
+     as the upgrade. Same hue keeps it from feeling like a different
+     metric. */
+}
+
+#why.is-visible .block { width: calc(var(--end) - var(--start)); }
+
+/* Stagger so blocks fill left-to-right rather than all at once. */
+#why.is-visible .timeline-row.without .block:nth-child(1) { transition-delay: 0.05s; }
+#why.is-visible .timeline-row.without .block:nth-child(2) { transition-delay: 0.20s; }
+#why.is-visible .timeline-row.without .block:nth-child(3) { transition-delay: 0.35s; }
+#why.is-visible .timeline-row.without .block:nth-child(4) { transition-delay: 0.50s; }
+#why.is-visible .timeline-row.with .block { transition-delay: 0.65s; transition-duration: 1.6s; }
+
+.markers {
+  position: absolute;
+  inset: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+}
+.marker {
+  position: absolute;
+  top: calc(100% + 8px);
+  transform: translateX(-50%) translateY(8px);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition-delay: 1.8s;
+}
+.marker:nth-child(2) { transition-delay: 2.0s; }
+.marker:nth-child(3) { transition-delay: 2.2s; }
+#why.is-visible .marker {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.marker-icon { display: inline-flex; color: var(--accent); }
+
+.row-stats {
+  text-align: right;
+  font-size: 13px;
+  color: var(--fg-mute);
+  letter-spacing: -0.005em;
+}
+.timeline-row.with .row-stats { color: var(--fg); }
+.stat-num {
+  display: inline-block;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--fg);
+  margin-right: 4px;
+}
+.timeline-row.with .stat-num { color: #86efac; }
+
+@media (max-width: 780px) {
+  .row-stats { text-align: left; }
+}
+
+.why-points {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: why;
+}
+@media (max-width: 760px) { .why-points { grid-template-columns: 1fr; } }
+
+.why-point {
+  position: relative;
+  padding: 22px 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  transition: border-color var(--t-med), transform var(--t-med);
+}
+.why-point:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-2px);
+}
+.point-num {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  font-weight: 500;
+}
+.why-point p {
+  margin: 0;
+  color: var(--fg-mute);
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+.why-point p strong {
+  color: var(--fg);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
 /* ---- Features grid --------------------------------------------- */
 .features {
   max-width: var(--max);

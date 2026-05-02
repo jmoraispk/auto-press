@@ -253,6 +253,36 @@ const PLATFORM_LABEL = { windows: "Windows", macos: "macOS", linux: "Linux" };
   }
 })();
 
+// ---- Why-section timeline reveal -------------------------------------
+//
+// Bars stay collapsed until the user scrolls the Why section into view.
+// First trip past the threshold flips an `is-visible` class that the CSS
+// listens for; the observer disconnects after that so the bars don't
+// re-animate on every subsequent scroll past.
+
+(function wireWhyReveal() {
+  const why = $("why");
+  if (!why) return;
+  if (typeof IntersectionObserver === "undefined") {
+    // Old browsers or test runners — just show the final state.
+    why.classList.add("is-visible");
+    return;
+  }
+  const obs = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          why.classList.add("is-visible");
+          obs.disconnect();
+          break;
+        }
+      }
+    },
+    { threshold: 0.25 }
+  );
+  obs.observe(why);
+})();
+
 // ---- Film-grain overlay ----------------------------------------------
 
 (function paintGrain() {

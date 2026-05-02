@@ -18,6 +18,18 @@ CodeAway (internally still <code>auto-press</code>) keeps [Cursor](https://curso
 
 > **Free forever. MIT licensed. No accounts, no telemetry, no pricing.** Landing page lives in [`site/`](site/) and is deployed at [codeaway.dev](https://codeaway.dev).
 
+## ☕ Why this exists
+
+Coding is supposed to be a calm activity, not a chained-to-the-desk one. CodeAway exists for three reasons:
+
+1. **Take a real walk in the middle of the day — and stay productive.** Your agents keep working while you're outside. Lunch, a coffee, a half-hour around the block: none of it costs you progress.
+
+2. **Stop feeling bad about stepping away.** No more "I should probably stay at my desk in case the agent stalls." It won't, and if it does, your phone is the leash.
+
+3. **Travel without a laptop.** Long meetings, doctor's appointments, the in-between hours — your phone is enough, and often faster than the IDE itself, since the bridge cuts straight to the chat without IDE chrome.
+
+A normal workday has a few hours of dead time — agents thinking, tests running, you waiting. CodeAway turns those hours into ground covered.
+
 ## ✨ Why
 
 - 🧠 **Built for LLM agents** — keeps Cursor loops unblocked while you do other work.
