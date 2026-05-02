@@ -26,17 +26,17 @@ const INSTALL = {
   "one-liner": {
     windows: {
       comment: "# 100% local. Installs uv, clones the source, syncs deps.",
-      cmd: 'powershell -c "irm https://codeaway.org/install.ps1 | iex"',
+      cmd: 'powershell -c "irm https://codeaway.dev/install.ps1 | iex"',
       tested: true,
     },
     macos: {
       comment: "# Untested on macOS — script fetches and syncs, runtime is Win32-only today.",
-      cmd: "curl -fsSL https://codeaway.org/install.sh | sh",
+      cmd: "curl -fsSL https://codeaway.dev/install.sh | sh",
       tested: false,
     },
     linux: {
       comment: "# Untested on Linux — script fetches and syncs, runtime is Win32-only today.",
-      cmd: "curl -fsSL https://codeaway.org/install.sh | sh",
+      cmd: "curl -fsSL https://codeaway.dev/install.sh | sh",
       tested: false,
     },
   },

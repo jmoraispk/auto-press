@@ -11,10 +11,10 @@
 #
 # In other words: this script gets you a working source checkout and
 # a synced .venv. The runtime itself needs a port — see `Request a
-# port` on https://codeaway.org if you want it, or open a PR.
+# port` on https://codeaway.dev if you want it, or open a PR.
 #
 # Read the source: https://github.com/jmoraispk/codeaway/blob/main/site/install.sh
-# Run with:        curl -fsSL https://codeaway.org/install.sh | sh
+# Run with:        curl -fsSL https://codeaway.dev/install.sh | sh
 
 set -e
 

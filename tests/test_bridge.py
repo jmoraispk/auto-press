@@ -856,6 +856,34 @@ def test_window_scroll_endpoint_404_for_unknown_window(fastapi_client):
     assert res.status_code == 404
 
 
+def test_window_snapshot_endpoint_returns_captured(fastapi_client):
+    """The recapture endpoint accepts no body and reports {captured: true}.
+    The actual capture runs on a daemon thread; we don't assert the side
+    effect here — _post_scroll_recheck has its own coverage. The contract
+    we care about is: window must exist, must have a region, must be
+    configured."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [10, 20, 300, 400]}]
+    }
+    res = client.post("/api/windows/w1/snapshot")
+    assert res.status_code == 200
+    assert res.json() == {"captured": True}
+
+
+def test_window_snapshot_endpoint_404_for_unknown_window(fastapi_client):
+    client, service, calls = fastapi_client
+    res = client.post("/api/windows/missing/snapshot")
+    assert res.status_code == 404
+
+
+def test_window_snapshot_endpoint_400_when_window_has_no_region(fastapi_client):
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {"windows": [{"id": "w1", "name": "X", "region": None}]}
+    res = client.post("/api/windows/w1/snapshot")
+    assert res.status_code == 400
+
+
 def test_admin_rules_get_reflects_callback(fastapi_client):
     client, service, calls = fastapi_client
     calls["rules_running"] = True

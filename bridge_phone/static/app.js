@@ -758,7 +758,42 @@ async function toggleRules() {
   }
 }
 
-// ---- scroll the open window --------------------------------------------
+// ---- scroll / recapture the open window --------------------------------
+
+async function recaptureWindow(btn) {
+  // POST to /snapshot — captures a fresh PNG of the window's region with
+  // no scroll and no clicks. Useful when the user has rearranged windows
+  // on the desktop and the stored tile is showing the wrong content.
+  const id = state.current;
+  if (!id) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("loading");
+  }
+  try {
+    const res = await fetch(
+      `/api/windows/${encodeURIComponent(id)}/snapshot`,
+      { method: "POST" }
+    );
+    if (!res.ok) {
+      const detail = await res.text();
+      setSendStatus(`Recapture failed: ${res.status} ${detail}`, "error");
+    } else {
+      setSendStatus("New screenshot incoming.", "success");
+    }
+  } catch (e) {
+    setSendStatus(`Recapture network error: ${e.message}`, "error");
+  } finally {
+    if (btn) {
+      // Shorter lockout than scroll — there's no scroll-animation settle
+      // delay, just the capture itself plus a short SSE roundtrip.
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.classList.remove("loading");
+      }, 700);
+    }
+  }
+}
 
 async function scrollWindow(amount, btn) {
   const id = state.current;
@@ -810,10 +845,13 @@ $("notif-toggle").addEventListener("click", toggleNotifications);
 $("autoreload-toggle").addEventListener("click", toggleAutoReload);
 $("reload-btn").addEventListener("click", reloadBridge);
 $("rules-toggle").addEventListener("click", toggleRules);
-for (const btn of document.querySelectorAll(".scroll-btn")) {
+for (const btn of document.querySelectorAll(".scroll-btn[data-amount]")) {
   const amount = Number(btn.dataset.amount || "1");
   btn.addEventListener("click", () => scrollWindow(amount, btn));
 }
+$("recapture-btn").addEventListener("click", (e) =>
+  recaptureWindow(e.currentTarget)
+);
 
 // Desktop browsers don't have native pull-to-refresh, so we approximate
 // it: when the page is already at the top and the user keeps scrolling

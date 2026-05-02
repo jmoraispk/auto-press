@@ -991,6 +991,35 @@ def build_app(service: BridgeService):
         ).start()
         return JSONResponse({"scrolled": amount})
 
+    @app.post("/api/windows/{window_id}/snapshot")
+    async def window_snapshot(window_id: str) -> JSONResponse:
+        """Capture a fresh snapshot of the window region, right now, no
+        scroll and no clicks. Used when the user has rearranged windows
+        on the desktop and the stored snapshot has gone stale.
+
+        Same path as the post-scroll recheck — just with zero settle
+        delay. The dedup hash still applies, so if nothing actually
+        changed on screen, the freshness pill resets but no duplicate
+        tile gets stored.
+        """
+        cfg = service.callbacks.cfg_snapshot()
+        win_cfg = next(
+            (w for w in (cfg.get("bridge") or {}).get("windows", [])
+             if w.get("id") == window_id),
+            None,
+        )
+        if win_cfg is None:
+            raise HTTPException(status_code=404, detail="window not found")
+        if not win_cfg.get("region"):
+            raise HTTPException(status_code=400, detail="window has no region")
+        threading.Thread(
+            target=_post_scroll_recheck,
+            args=(service, window_id),
+            kwargs={"delay_s": 0.0},
+            daemon=True,
+        ).start()
+        return JSONResponse({"captured": True})
+
     @app.put("/api/windows/{window_id}/queue/{idx}")
     async def queue_update_one(window_id: str, idx: int, payload: dict) -> JSONResponse:
         """Edit a queued message in place — same accept-anything-string

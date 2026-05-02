@@ -333,6 +333,7 @@ button.primary {
 
 #scroll-controls {
   display: flex;
+  gap: 6px;
   margin-top: 12px;
 }
 .scroll-btn {

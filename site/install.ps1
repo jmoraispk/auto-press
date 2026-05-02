@@ -13,7 +13,7 @@
 # pypi.org (Python deps), and github.com (the source). No telemetry.
 #
 # Read the source: https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1
-# Run with:        powershell -c "irm https://codeaway.org/install.ps1 | iex"
+# Run with:        powershell -c "irm https://codeaway.dev/install.ps1 | iex"
 
 $ErrorActionPreference = "Stop"
 
