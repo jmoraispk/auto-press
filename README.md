@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="imgs/ui.png" alt="auto-press UI" width="760">
+  <img src="imgs/ui.jpg" alt="auto-press UI" width="760">
 </p>
 
 <h1 align="center">🖱️ auto-press</h1>

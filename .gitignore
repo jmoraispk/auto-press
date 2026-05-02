@@ -15,3 +15,6 @@ nuitka-crash-report.xml
 # itself is preserved via templates/.gitkeep so the app can write into it.
 templates/*
 !templates/.gitkeep
+
+# Claude Code per-repo settings
+.claude/
