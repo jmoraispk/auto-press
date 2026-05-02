@@ -14,7 +14,7 @@
 
 <p align="center"><strong>Code away from your desk — open-source automation for IDEs and AI agents.</strong></p>
 
-CodeAway (internally still <code>auto-press</code>) keeps [Cursor](https://cursor.com/) agents moving without babysitting. Sandboxes take time to spin up and don't work for every workflow; if you already have a Cursor window open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's fast, local, and it works on anything you can see on your screen.
+CodeAway keeps [Cursor](https://cursor.com/) agents moving without babysitting. Sandboxes take time to spin up and don't work for every workflow; if you already have a Cursor window open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's simple, fast and local.
 
 > **Free forever. MIT licensed. No accounts, no telemetry, no pricing.** Landing page lives in [`site/`](site/) and is deployed at [codeaway.dev](https://codeaway.dev).
 
