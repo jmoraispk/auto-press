@@ -335,6 +335,227 @@ code {
   opacity: 0.8;
 }
 
+/* ---- Quickstart terminal --------------------------------------- */
+.quickstart {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: clamp(40px, 6vw, 80px) var(--gutter) clamp(20px, 3vw, 40px);
+}
+
+.terminal {
+  max-width: 880px;
+  margin: 0 auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
+    #0e0e14;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+/* Traffic-light dots — purely decorative, just sets the
+   "this is a terminal window" frame. */
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.dots i:nth-child(1) { background: #ff5f57; }
+.dots i:nth-child(2) { background: #febc2e; }
+.dots i:nth-child(3) { background: #28c840; }
+
+.method-tabs,
+.platform-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, 0.3);
+}
+.platform-tabs { margin-left: auto; }
+
+.method-tab,
+.platform-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px;
+  border: none;
+  background: transparent;
+  color: var(--fg-mute);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.method-tab:hover,
+.platform-tab:hover { color: var(--fg); }
+
+.method-tab.is-active {
+  color: #08080b;
+  background: var(--accent);
+}
+.platform-tab.is-active {
+  color: var(--fg);
+  background: rgba(125, 167, 232, 0.18);
+  border: 1px solid rgba(125, 167, 232, 0.4);
+  /* The border makes it sit 1 px taller than its inactive siblings;
+     compensate by trimming padding so the active pill stays visually
+     the same height as the rest. */
+  padding: 5px 12px;
+}
+.platform-tab.is-active.beta-warning {
+  color: #fda4af;
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
+.beta {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--fg-faint);
+  text-transform: uppercase;
+}
+.platform-tab.is-active .beta { color: inherit; opacity: 0.7; }
+
+@media (max-width: 640px) {
+  .terminal-head { gap: 10px; }
+  .platform-tabs { margin-left: 0; }
+  .dots { display: none; }
+  .method-tab, .platform-tab { padding: 5px 10px; font-size: 12px; }
+}
+
+/* ---- Terminal body --------------------------------------------- */
+.terminal-body {
+  position: relative;
+  padding: 22px 22px 22px;
+}
+.code {
+  margin: 0;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg);
+  white-space: pre;
+  overflow-x: auto;
+  /* Keeps the comment soft so the eye lands on the command itself. */
+}
+.code .comment {
+  display: block;
+  color: var(--fg-faint);
+  font-style: italic;
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+}
+.code .line { display: block; }
+.code .prompt {
+  color: var(--accent);
+  user-select: none;
+  margin-right: 8px;
+}
+.code .cmd { color: var(--fg); }
+.code .cmd .str { color: #f6c177; }
+
+.copy {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg-mute);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast),
+              background var(--t-fast);
+}
+.copy:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+.copy.copied {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: var(--r-sm);
+  background: rgba(239, 68, 68, 0.06);
+}
+.warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #fca5a5;
+}
+.warning-body { flex: 1; min-width: 0; }
+.warning-body p {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg);
+}
+.warning-body p strong { color: #fca5a5; font-weight: 600; }
+
+.btn-sm {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.quickstart-note {
+  text-align: center;
+  margin: 20px auto 0;
+  max-width: 720px;
+  font-size: 13px;
+  color: var(--fg-faint);
+}
+.quickstart-note a {
+  color: var(--fg-mute);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+.quickstart-note a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
 /* ---- Section heads --------------------------------------------- */
 .section-head {
   margin-bottom: 56px;
