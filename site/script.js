@@ -42,26 +42,29 @@ const INSTALL = {
   },
   hackable: {
     windows: {
-      comment: "# Read it, run it. Nothing magic.",
+      comment: "# don't have uv? install with: powershell -c \"irm https://astral.sh/uv/install.ps1 | iex\"",
       cmd:
-        "git clone https://github.com/jmoraispk/codeaway.git $HOME\\codeaway\n" +
-        "cd $HOME\\codeaway; uv sync --extra bridge\n" +
+        "git clone https://github.com/jmoraispk/codeaway.git\n" +
+        "cd codeaway\n" +
+        "uv sync --extra bridge\n" +
         "uv run main.py --bridge --activate",
       tested: true,
     },
     macos: {
-      comment: "# Untested on macOS — clone + sync work, runtime is Win32-only today.",
+      comment: "# don't have uv? install with: curl -LsSf https://astral.sh/uv/install.sh | sh",
       cmd:
-        "git clone https://github.com/jmoraispk/codeaway.git ~/codeaway\n" +
-        "cd ~/codeaway && uv sync --extra bridge\n" +
+        "git clone https://github.com/jmoraispk/codeaway.git\n" +
+        "cd codeaway\n" +
+        "uv sync --extra bridge\n" +
         "uv run main.py --bridge --activate",
       tested: false,
     },
     linux: {
-      comment: "# Untested on Linux — clone + sync work, runtime is Win32-only today.",
+      comment: "# don't have uv? install with: curl -LsSf https://astral.sh/uv/install.sh | sh",
       cmd:
-        "git clone https://github.com/jmoraispk/codeaway.git ~/codeaway\n" +
-        "cd ~/codeaway && uv sync --extra bridge\n" +
+        "git clone https://github.com/jmoraispk/codeaway.git\n" +
+        "cd codeaway\n" +
+        "uv sync --extra bridge\n" +
         "uv run main.py --bridge --activate",
       tested: false,
     },
