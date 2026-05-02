@@ -38,10 +38,50 @@ def default_rule(name: str = "New Rule") -> dict:
     }
 
 
+def default_bridge_window(name: str = "Cursor") -> dict:
+    """A single Cursor window the bridge should monitor.
+
+    region          — whole-window bbox in physical pixels [x, y, w, h]
+    chat_target     — click point for the chat input [x, y]; defaults to
+                       the centre of the bottom 20% of `region` if None
+    read_region     — area to snapshot as a PNG so the phone can show
+                       the agent's most recent reply; None disables read
+    """
+    return {
+        "id": uuid.uuid4().hex[:8],
+        "name": name,
+        "region": None,
+        "chat_target": None,
+        "read_region": None,
+    }
+
+
 # Windows Virtual-Key code for the default global start/stop hotkey.
 # 0x22 is VK_PAGEDOWN; modifiers bitmask matches RegisterHotKey MOD_* flags.
 DEFAULT_HOTKEY_VK = 0x22
 DEFAULT_HOTKEY_MODS = 0
+
+
+def default_bridge_config() -> dict:
+    # The bridge is gated by the --bridge CLI flag, not by config. The keys
+    # here describe what the bridge monitors (windows + idle template) plus
+    # bind/notification/timing knobs.
+    return {
+        "host": "0.0.0.0",
+        "port": 8765,
+        "ntfy_topic": "",
+        "ntfy_server": "https://ntfy.sh",
+        "pre_paste_delay_ms": 150,
+        "clipboard_restore_delay_ms": 500,
+        "tailnet_only": False,
+        # The single template that, when found inside a window's region,
+        # means that window is idle and ready for input.
+        "idle_template_path": None,
+        "idle_threshold": 0.90,
+        # Cursor windows the bridge watches; empty list = bridge has nothing
+        # useful to do. Each entry is a default_bridge_window() dict.
+        "windows": [],
+    }
 
 
 def default_config() -> dict:
@@ -50,6 +90,7 @@ def default_config() -> dict:
         "hotkey_vk": DEFAULT_HOTKEY_VK,
         "hotkey_mods": DEFAULT_HOTKEY_MODS,
         "rules": [],
+        "bridge": default_bridge_config(),
     }
 
 
@@ -71,10 +112,14 @@ def _valid_region(region) -> bool:
     if not isinstance(region, list) or len(region) != 4:
         return False
     try:
-        left, top, width, height = [int(v) for v in region]
+        # Only width/height must be positive. left/top can be negative on
+        # Windows when a monitor is placed to the left of (or above) the
+        # primary — physical coords there are negative. Stripping such
+        # regions wiped persisted bridge windows on multi-monitor setups.
+        _left, _top, width, height = [int(v) for v in region]
     except (TypeError, ValueError):
         return False
-    return width > 0 and height > 0 and left >= 0 and top >= 0
+    return width > 0 and height > 0
 
 
 def _valid_rgb(value) -> bool:
@@ -84,6 +129,18 @@ def _valid_rgb(value) -> bool:
         return all(0 <= int(c) <= 255 for c in value)
     except (TypeError, ValueError):
         return False
+
+
+def _valid_point(value) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return False
+    try:
+        int(value[0]); int(value[1])
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def _normalize_rule(rule: dict, priority: int) -> dict:
@@ -124,11 +181,67 @@ def _normalize_rule(rule: dict, priority: int) -> dict:
     return base
 
 
+def _normalize_window(window: dict | None) -> dict:
+    base = default_bridge_window()
+    if isinstance(window, dict):
+        for key in base:
+            if key in window:
+                base[key] = window[key]
+    if not isinstance(base.get("id"), str) or not base["id"].strip():
+        base["id"] = uuid.uuid4().hex[:8]
+    if not isinstance(base.get("name"), str) or not base["name"].strip():
+        base["name"] = "Cursor"
+    if not _valid_region(base.get("region")):
+        base["region"] = None
+    if _valid_point(base.get("chat_target")) and base.get("chat_target") is not None:
+        base["chat_target"] = [int(base["chat_target"][0]), int(base["chat_target"][1])]
+    else:
+        base["chat_target"] = None
+    if not _valid_region(base.get("read_region")):
+        base["read_region"] = None
+    return base
+
+
 def _valid_vk(value) -> bool:
     try:
         return 0 <= int(value) <= 0xFFFF
     except (TypeError, ValueError):
         return False
+
+
+def _normalize_bridge(bridge: dict | None) -> dict:
+    base = default_bridge_config()
+    if not isinstance(bridge, dict):
+        return base
+    if isinstance(bridge.get("host"), str) and bridge["host"].strip():
+        base["host"] = bridge["host"].strip()
+    try:
+        port = int(bridge.get("port", base["port"]))
+        if 1 <= port <= 65535:
+            base["port"] = port
+    except (TypeError, ValueError):
+        pass
+    if isinstance(bridge.get("ntfy_topic"), str):
+        base["ntfy_topic"] = bridge["ntfy_topic"].strip()
+    if isinstance(bridge.get("ntfy_server"), str) and bridge["ntfy_server"].strip():
+        base["ntfy_server"] = bridge["ntfy_server"].strip()
+    base["pre_paste_delay_ms"] = int(_clamp_float(bridge.get("pre_paste_delay_ms"), 150, 0, 10000))
+    base["clipboard_restore_delay_ms"] = int(
+        _clamp_float(bridge.get("clipboard_restore_delay_ms"), 500, 0, 10000)
+    )
+    base["tailnet_only"] = bool(bridge.get("tailnet_only", False))
+
+    tpl = bridge.get("idle_template_path")
+    if isinstance(tpl, str) and tpl.strip():
+        base["idle_template_path"] = tpl.strip()
+    else:
+        base["idle_template_path"] = None
+    base["idle_threshold"] = _clamp_float(bridge.get("idle_threshold"), 0.90, 0.0, 1.0)
+
+    raw_windows = bridge.get("windows")
+    if isinstance(raw_windows, list):
+        base["windows"] = [_normalize_window(w) for w in raw_windows]
+    return base
 
 
 def normalize_config(config: dict | None) -> dict:
@@ -143,6 +256,7 @@ def normalize_config(config: dict | None) -> dict:
         raw_rules = config.get("rules")
         if isinstance(raw_rules, list):
             base["rules"] = [_normalize_rule(rule, idx + 1) for idx, rule in enumerate(raw_rules)]
+        base["bridge"] = _normalize_bridge(config.get("bridge"))
     return base
 
 

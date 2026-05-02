@@ -95,3 +95,97 @@ def do_action(mode: str, click_target: tuple[int, int], text_before_enter: str |
         pyautogui.press("enter")
 
     pyautogui.moveTo(old.x, old.y, duration=0)
+
+
+# ---- bridge primitives ---------------------------------------------------
+
+def click_point(point: tuple[int, int]) -> None:
+    """Move the cursor and click — without restoring the previous cursor pos.
+
+    do_action snaps back so unattended automation looks invisible. The bridge
+    instead keeps the cursor at the click target so the pasted text lands in
+    the right field, since some apps refuse focus until the next user input.
+    """
+    _pin_thread_v2_dpi()
+    x, y = int(point[0]), int(point[1])
+    pyautogui.moveTo(x, y, duration=0)
+    pyautogui.click()
+
+
+def focus_and_press_up(point: tuple[int, int], presses: int = 15) -> None:
+    """Focus the panel at ``point`` with two slow clicks, then press Up
+    arrow ``presses`` times to scroll Cursor's chat history.
+
+    Why double-click with a delay:
+      - A single click in Cursor often lands the caret in the chat
+        *input* instead of giving the chat *history* focus. Two clicks
+        reliably take focus away from the input.
+      - 0.5 s between clicks avoids being interpreted as a fast double-
+        click (which would select a word) and gives the UI time to
+        settle between the two events.
+
+    Arrow keys instead of mouse wheel: pyautogui.scroll's wheel events
+    behave inconsistently across Cursor's nested electron views; Up-
+    arrow keystrokes are reliable and predictable. ~15 presses moves
+    roughly one screenful in Cursor's chat at default zoom.
+    """
+    _pin_thread_v2_dpi()
+    x, y = int(point[0]), int(point[1])
+    pyautogui.moveTo(x, y, duration=0)
+    pyautogui.click()
+    time.sleep(0.5)
+    pyautogui.click()
+    time.sleep(0.1)
+    for _ in range(max(0, int(presses))):
+        pyautogui.press("up")
+        # Tiny gap so each keystroke is processed as a discrete event
+        # — with no delay Cursor sometimes coalesces them.
+        time.sleep(0.02)
+
+
+def get_clipboard_text() -> str:
+    """Best-effort current clipboard text (empty string if unavailable)."""
+    import pyperclip  # ships transitively with pyautogui
+    try:
+        return pyperclip.paste() or ""
+    except Exception:
+        return ""
+
+
+def set_clipboard_text(text: str) -> None:
+    import pyperclip
+    try:
+        pyperclip.copy(text)
+    except Exception:
+        pass
+
+
+def paste_text_and_enter(
+    text: str,
+    pre_paste_delay_ms: int = 150,
+    clipboard_restore_delay_ms: int = 500,
+) -> None:
+    """Paste ``text`` via Ctrl+V then press Enter, restoring the prior
+    clipboard. Empty text is allowed: in that case the clipboard is left
+    untouched and we just press Enter — useful when the user already
+    composed the message in the target field and only needs the submit
+    keystroke from the bridge.
+
+    Pre-delay lets the focused field settle after the click; the restore
+    delay covers slow-clipboard apps that otherwise read the new value back
+    into themselves before we put the original contents back.
+    """
+    _pin_thread_v2_dpi()
+    if pre_paste_delay_ms > 0:
+        time.sleep(pre_paste_delay_ms / 1000.0)
+    if text:
+        saved = get_clipboard_text()
+        set_clipboard_text(text)
+        pyautogui.hotkey("ctrl", "v")
+        time.sleep(0.05)
+        pyautogui.press("enter")
+        if clipboard_restore_delay_ms > 0:
+            time.sleep(clipboard_restore_delay_ms / 1000.0)
+        set_clipboard_text(saved)
+    else:
+        pyautogui.press("enter")

@@ -1,0 +1,465 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --fg: #e7eaf0;
+  --muted: #8b93a7;
+  --accent: #2b7de9;
+  --green: #22c55e;
+  --red: #ef4444;
+  --card: #141822;
+  --card-border: #1f2533;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100dvh;
+}
+
+body {
+  padding: calc(10px + var(--safe-top)) 12px calc(10px + var(--safe-bottom));
+  /* Cap reading width on desktop — phone CSS that fills a 27" monitor
+     looks ridiculous; 480 px ≈ a wide phone. */
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+header h1 {
+  font-size: 18px;
+  margin: 0;
+  flex: 1;
+  letter-spacing: 0.4px;
+}
+
+.freshness {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+}
+.freshness.stale { color: var(--red); border-color: rgba(239, 68, 68, 0.4); }
+.freshness.live { color: var(--green); border-color: rgba(34, 197, 94, 0.4); }
+
+button.icon {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#settings-panel {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+}
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--card-border);
+}
+.setting:last-of-type { border-bottom: none; }
+.setting-name { flex: 1; font-size: 13px; }
+.setting button { padding: 4px 10px; font-size: 12px; }
+.setting button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.setting-hint { margin: 6px 0 4px; font-size: 11px; }
+.setting-hint code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+main { display: flex; flex-direction: column; gap: 14px; }
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+#windows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* Responsive: 1 column on tight phone widths, 2 on a phone in
+     landscape, more on a wider browser. minmax keeps cards from
+     becoming unreadably small on a 4-window setup. */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.window {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease, border-color 0.15s ease;
+}
+.window-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.window:active { transform: scale(0.985); }
+.window.idle { border-color: rgba(34, 197, 94, 0.55); }
+.window.selected {
+  background: rgba(43, 125, 233, 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.window-rename {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+}
+.window-rename:hover { color: var(--accent); }
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+.window.idle .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
+.window.busy .dot { background: var(--red); }
+
+.window .name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.window .sub {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button {
+  font-size: 13px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+button.ghost { background: transparent; }
+button:active { transform: scale(0.97); }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.section-h {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 1px;
+  margin: 14px 0 6px;
+}
+
+#snapshots-section h2 {
+  font-size: 16px;
+  margin: 6px 0 4px;
+}
+#snap-back {
+  margin-bottom: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+#composer textarea {
+  width: 100%;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+}
+#composer .row { display: flex; gap: 8px; margin-top: 6px; }
+#composer .row > button { flex: 1; }
+.status { margin-top: 5px; font-size: 12px; min-height: 1.2em; color: var(--muted); }
+.status.error { color: var(--red); }
+.status.success { color: var(--green); }
+
+#queue-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 1px;
+  margin: 14px 0 4px;
+}
+#queue-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#queue-list li {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--fg);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+#queue-list .queue-text {
+  /* Wide-but-flexible: takes the row when there's space, wraps the
+     action group below when the message is long. cursor: text gives
+     a hint that double-clicking it opens an editor. */
+  flex: 1 1 60%;
+  min-width: 0;
+  word-break: break-word;
+  cursor: text;
+}
+#queue-list .queue-text::before {
+  content: "↪ ";
+  color: var(--muted);
+}
+#queue-list .queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+#queue-list .queue-send-now {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+#queue-list .queue-delete,
+#queue-list .queue-edit {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+}
+#queue-list .queue-delete:hover { color: var(--red); }
+#queue-list .queue-edit:hover { color: var(--accent); }
+
+/* Inline edit mode replaces the row's content with a textarea + Save/
+   Cancel. Switch to flex-start so the buttons sit at the top of a
+   multi-line textarea instead of dragging vertical-centre weirdly. */
+#queue-list li.editing {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+#queue-list .queue-edit-text {
+  flex: 1 1 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+#queue-list .queue-save,
+#queue-list .queue-cancel {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+#queue-list .queue-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+#queue-clear { font-size: 12px; padding: 4px 9px; }
+
+#scroll-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.scroll-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.scroll-btn .arrow {
+  font-size: 13px;
+  line-height: 1;
+}
+.scroll-btn:disabled,
+.scroll-btn.loading {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* Snapshots tile in two fixed columns. With auto-fit + 1fr, a single
+   snapshot would stretch to the full row width, eating vertical
+   real-estate and showing less of the chat. Two columns means a lone
+   snapshot takes half the row (just like one of the cells in a
+   2-snapshot layout) and additional ones wrap below it as expected. */
+#snapshots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.snapshot {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: zoom-in;
+  display: flex;
+  flex-direction: column;
+}
+.snapshot img {
+  display: block;
+  width: 100%;
+  height: 260px;
+  object-fit: cover;
+  object-position: top center;
+  background: #000;
+}
+.snapshot .ts {
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--card-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Lightbox: tap a thumbnail to see the full image. The :not([hidden])
+   guard matters — `display: flex` would otherwise override the implicit
+   display:none the `hidden` attribute provides, leaving the page covered
+   in a black overlay whenever the lightbox is closed. */
+#lightbox:not([hidden]) {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: calc(20px + var(--safe-top)) 16px calc(20px + var(--safe-bottom));
+}
+#lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+#lightbox-close {
+  position: absolute;
+  top: calc(8px + var(--safe-top));
+  right: 12px;
+  font-size: 22px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
+}
+
+/* Prev/next sit pinned to the side edges, vertically centred. The
+   gutter buttons are taller than wide so they're easy to tap on a
+   phone without overlapping the image's vertical extent. They hide
+   themselves at the bounds via the `hidden` attribute. */
+#lightbox .lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 64px;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
+  color: var(--fg);
+}
+#lightbox-prev { left: 12px; }
+#lightbox-next { right: 12px; }
+#lightbox .lightbox-nav[hidden] { display: none; }
+
+#lightbox-counter {
+  position: absolute;
+  top: calc(14px + var(--safe-top));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px 9px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+#lightbox-counter:empty { display: none; }

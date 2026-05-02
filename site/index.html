@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08080b">
+  <meta name="description" content="CodeAway — open-source automation for IDEs and AI agents. Cursor keeps moving, you don't have to.">
+  <meta property="og:title" content="CodeAway — Code away from your desk.">
+  <meta property="og:description" content="Open-source automation for IDEs and AI agents. Cursor keeps moving, you don't have to.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="apple-touch-icon" href="favicon.svg">
+  <link rel="mask-icon" href="favicon.svg" color="#7da7e8">
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <link rel="stylesheet" href="style.css">
+  <title>CodeAway — Code away from your desk.</title>
+</head>
+<body>
+
+<canvas id="grain" aria-hidden="true"></canvas>
+
+<header class="nav">
+  <a class="brand" href="#top" aria-label="CodeAway home">
+    <span class="brand-mark" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 6 4 12 9 18"></polyline>
+        <polyline points="15 6 20 12 15 18"></polyline>
+      </svg>
+    </span>
+    <span class="brand-name">CodeAway</span>
+  </a>
+  <nav class="nav-links">
+    <a href="#why">Why</a>
+    <a href="#use-cases">Use cases</a>
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#request">Request a feature</a>
+    <a class="nav-github" href="https://github.com/jmoraispk/codeaway" target="_blank" rel="noopener">
+      <span class="star-icon" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>
+      </span>
+      <span>Star on GitHub</span>
+    </a>
+  </nav>
+</header>
+
+<main id="top">
+
+<!-- HERO ---------------------------------------------------------- -->
+<section class="hero">
+  <div class="hero-aurora" aria-hidden="true"></div>
+
+  <p class="eyebrow">
+    <span class="eyebrow-dot"></span>
+    Free · open source · 100% local · no accounts
+  </p>
+
+  <h1 class="hero-title">
+    Code <span class="grad">away</span>.
+  </h1>
+
+  <p class="hero-sub">
+    Give AI prompts from your phone to your laptop.<br>
+    Auto-click <em>Continue</em>, <em>Accept Change</em>, or <em>Accept Edit</em>.<br>
+    Walk away knowing that your agents won't.
+  </p>
+  <p class="hero-tagline">Your IDE on <em>autopilot</em>.</p>
+
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="#quickstart">
+      Install in one command
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/jmoraispk/codeaway" target="_blank" rel="noopener">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.35.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.38s1.95.13 2.86.38c2.18-1.49 3.14-1.18 3.14-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+      View on GitHub
+    </a>
+  </div>
+
+  <div class="hero-shot">
+    <div class="hero-shot-glow" aria-hidden="true"></div>
+    <img src="assets/auto-press-ui.jpg" alt="CodeAway desktop UI on Windows" loading="lazy">
+  </div>
+</section>
+
+<!-- QUICKSTART ---------------------------------------------------- -->
+<section id="quickstart" class="quickstart">
+  <header class="section-head">
+    <p class="section-eyebrow">Quick start</p>
+    <h2>One command. Then you're in.</h2>
+    <p class="section-lede">
+      The installer drops <code>uv</code>, the source, and the deps into
+      <code>~/codeaway</code>. Nothing leaves your machine — read
+      <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">the script</a>
+      first if you'd like.
+    </p>
+  </header>
+
+  <div class="terminal" data-method="one-liner" data-platform="windows">
+    <div class="terminal-head">
+      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+
+      <div class="method-tabs" role="tablist" aria-label="Install method">
+        <button class="method-tab is-active" data-method="one-liner" role="tab" aria-selected="true">One-liner</button>
+        <button class="method-tab" data-method="hackable" role="tab" aria-selected="false">Hackable</button>
+      </div>
+
+      <div class="platform-tabs" role="tablist" aria-label="Platform">
+        <button class="platform-tab is-active" data-platform="windows" role="tab" aria-selected="true">Windows</button>
+        <button class="platform-tab" data-platform="unix" role="tab" aria-selected="false">macOS / Linux<span class="beta">β</span></button>
+      </div>
+    </div>
+
+    <div class="terminal-body">
+      <pre class="code" id="install-pre"></pre>
+      <button class="copy" id="copy-cmd" aria-label="Copy command" title="Copy">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
+
+      <div class="warning" id="untested-warn" hidden>
+        <span class="warning-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </span>
+        <div class="warning-body">
+          <p><strong>Untested platform.</strong> The install script
+          fetches and syncs fine, but the engine relies on Win32 APIs
+          and won't run as-is on macOS / Linux today.</p>
+          <button type="button" class="btn btn-ghost btn-sm" id="request-port">
+            Request a macOS / Linux port
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="quickstart-note">
+    Sources for the installers:
+    <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">install.ps1</a>
+    ·
+    <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.sh" target="_blank" rel="noopener">install.sh</a>.
+    No backend, no telemetry, no credentials.
+  </p>
+</section>
+
+<!-- WHY ----------------------------------------------------------- -->
+<section id="why" class="why">
+  <header class="section-head">
+    <p class="section-eyebrow">Why this exists</p>
+    <h2>Coding is faster<br>when you're not chained to it.</h2>
+    <p class="section-lede">
+      Most workdays have a few hours of dead time — agents thinking,
+      tests running, you waiting. CodeAway turns those hours into
+      ground covered.
+    </p>
+  </header>
+
+  <div class="timeline-card">
+    <div class="timeline-row without">
+      <div class="row-label">
+        <span class="row-figure" aria-hidden="true">
+          <svg viewBox="0 0 64 56" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <!-- desk -->
+            <line x1="6" y1="48" x2="58" y2="48"/>
+            <!-- monitor -->
+            <rect x="36" y="22" width="20" height="16" rx="1.5"/>
+            <line x1="40" y1="48" x2="52" y2="48"/>
+            <line x1="46" y1="38" x2="46" y2="48"/>
+            <!-- person slumped over keyboard -->
+            <circle cx="20" cy="22" r="4"/>
+            <path d="M20 26 Q22 32 28 36 L34 38"/>
+            <path d="M20 26 L14 36 L14 48"/>
+            <!-- glow lines on the monitor -->
+            <line class="screen-glow" x1="40" y1="27" x2="52" y2="27"/>
+            <line class="screen-glow" x1="40" y1="31" x2="48" y2="31"/>
+          </svg>
+        </span>
+        <span class="row-tag">Without</span>
+        Tied to the desk
+      </div>
+      <div class="track" role="presentation">
+        <span class="bar-hours">~6 h</span>
+        <!-- Track represents a full day, ~7 am–7 pm. Blocks stay
+             confined to roughly 25–80% (a workday's 9-to-5 window),
+             summing to ~6 h of agent activity inside that band. The
+             empty edges visualise "you only worked while at the
+             desk". -->
+        <div class="block" style="--start: 26%; --end: 36%"></div>
+        <div class="block" style="--start: 39%; --end: 47%"></div>
+        <div class="block" style="--start: 51%; --end: 60%"></div>
+        <div class="block" style="--start: 63%; --end: 71%"></div>
+        <div class="block" style="--start: 73%; --end: 79%"></div>
+      </div>
+    </div>
+
+    <div class="timeline-row with">
+      <div class="row-label">
+        <span class="row-figure walking" aria-hidden="true">
+          <svg viewBox="0 0 64 56" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <!-- ground -->
+            <line x1="6" y1="50" x2="58" y2="50" stroke-dasharray="3 4" opacity="0.4"/>
+            <!-- person walking -->
+            <g class="figure">
+              <!-- head up -->
+              <circle cx="32" cy="14" r="4"/>
+              <!-- torso -->
+              <line x1="32" y1="18" x2="32" y2="32"/>
+              <!-- back leg -->
+              <line class="leg-back" x1="32" y1="32" x2="26" y2="46"/>
+              <!-- front leg, slightly bent -->
+              <line class="leg-front" x1="32" y1="32" x2="38" y2="42"/>
+              <line class="leg-front" x1="38" y1="42" x2="38" y2="46"/>
+              <!-- forward arm holding phone -->
+              <line x1="32" y1="22" x2="40" y2="26"/>
+              <!-- phone -->
+              <rect x="40" y="24" width="6" height="8" rx="1"/>
+              <!-- back arm swinging -->
+              <line class="arm-back" x1="32" y1="22" x2="26" y2="28"/>
+            </g>
+          </svg>
+        </span>
+        <span class="row-tag with-tag">With</span>
+        Walk while it works
+      </div>
+      <div class="track" role="presentation">
+        <span class="bar-hours">~12 h</span>
+        <div class="block" style="--start: 0%; --end: 100%"></div>
+        <ul class="markers">
+          <!-- Markers spread across the full ~12 h track. Walk lands
+               in the morning shoulder (before the 9 am Without window),
+               lunch in the middle, Uber in the evening shoulder
+               (after the 5 pm Without window) — visualising that the
+               With timeline covers the parts of the day a desk-bound
+               developer can't. -->
+          <li class="marker" style="left: 12%">
+            <span class="marker-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="m15 22-2-7 3-3 3 4 3 1"/><path d="M9 11 5 9 4 5"/><path d="M11 13 7 9l-2 2-2-1"/><path d="m11 13-2 4-3 1"/></svg>
+            </span>
+            walk
+          </li>
+          <li class="marker" style="left: 49%">
+            <span class="marker-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6 2v3"/><path d="M10 2v3"/><path d="M14 2v3"/></svg>
+            </span>
+            lunch
+          </li>
+          <li class="marker" style="left: 88%">
+            <span class="marker-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
+            </span>
+            car ride
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <ol class="why-points">
+    <li class="why-point">
+      <span class="point-num">01</span>
+      <p>
+        <strong>Take a real walk in the middle of the day.</strong>
+        Your agents keep working while you're outside.
+      </p>
+    </li>
+    <li class="why-point">
+      <span class="point-num">02</span>
+      <p>
+        <strong>Stop feeling bad about stepping away.</strong>
+        Lunch, errands, the gym — none of it costs you progress.
+      </p>
+    </li>
+    <li class="why-point">
+      <span class="point-num">03</span>
+      <p>
+        <strong>Travel without a laptop.</strong>
+        Your phone is the controller — often faster than the IDE
+        itself, since the bridge cuts straight to the chat.
+      </p>
+    </li>
+  </ol>
+</section>
+
+<!-- USE CASES ----------------------------------------------------- -->
+<section id="use-cases" class="use-cases">
+  <header class="section-head">
+    <p class="section-eyebrow">Use cases</p>
+    <h2>Two halves. Use one or both.</h2>
+    <p class="section-lede">
+      The auto-clicker on its own already saves the day. Pair it with
+      the phone bridge and you're not at the desk for any of it.
+    </p>
+  </header>
+
+  <div class="use-case-grid">
+    <article class="use-case">
+      <span class="use-case-icon" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74"/>
+          <path d="M14 11h2.5a2.5 2.5 0 0 1 0 5H16"/>
+          <path d="M14 12.6V11h2"/>
+          <path d="M9 11h5"/>
+          <path d="M9 12.5V11"/>
+          <path d="M5 13a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4v3a4 4 0 0 1-4 4h0a4 4 0 0 1-4-4z"/>
+        </svg>
+      </span>
+      <p class="use-case-tag">01 · Automate the laptop</p>
+      <h3>Click the buttons you click a hundred times a day.</h3>
+      <p class="use-case-body">
+        Capture <em>Continue</em>, <em>Accept Change</em>, <em>Accept
+        Edit</em> once. CodeAway clicks them at the right moment, on the
+        right monitor, at any DPI. Page Down to start, Page Down to
+        stop.
+      </p>
+      <ul class="use-case-bullets">
+        <li>Pixel-perfect template matching, scale-aware</li>
+        <li>Per-rule action: click, click + Enter, click + send text</li>
+        <li>Tray icon stays green while it scans</li>
+      </ul>
+    </article>
+
+    <article class="use-case">
+      <span class="use-case-icon" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="2" width="12" height="20" rx="2"/>
+          <path d="M11 18h2"/>
+          <path d="M9 6h6"/>
+          <path d="M2 12h2"/>
+          <path d="M20 12h2"/>
+          <path d="M3.5 8.5 5 10"/>
+          <path d="M19 10l1.5-1.5"/>
+        </svg>
+      </span>
+      <p class="use-case-tag">02 · Remote control</p>
+      <h3>Drive the agent from your phone, anywhere on your tailnet.</h3>
+      <p class="use-case-body">
+        Install the PWA. See per-window status. Type your next reply,
+        send it now or queue it for the next idle. Scroll the chat,
+        snapshot the screen, all without opening the laptop.
+      </p>
+      <ul class="use-case-bullets">
+        <li>Live status over Server-Sent Events</li>
+        <li>Send-now, queue, edit, delete — from the lockscreen</li>
+        <li>Scroll-and-screenshot to read the agent's history</li>
+      </ul>
+    </article>
+  </div>
+</section>
+
+<!-- FEATURES ------------------------------------------------------ -->
+<section id="features" class="features">
+
+  <header class="section-head">
+    <p class="section-eyebrow">Features</p>
+    <h2>Everything you need to leave the keyboard.</h2>
+    <p class="section-lede">
+      A handful of small things, each polished. Nothing that asks for
+      your email. Nothing that calls home.
+    </p>
+  </header>
+
+  <div class="feature-grid">
+    <article class="feature">
+      <span class="feature-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+      </span>
+      <h3>Template-matching automation</h3>
+      <p>Screenshot the button once. CodeAway clicks it whenever it appears — at any DPI, on any monitor, in any chat.</p>
+    </article>
+
+    <article class="feature">
+      <span class="feature-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg>
+      </span>
+      <h3>Phone bridge over Tailscale</h3>
+      <p>Install the PWA on your phone. Status, send, scroll, screenshots — live, on your tailnet, no account.</p>
+    </article>
+
+    <article class="feature">
+      <span class="feature-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4 20-7Z"/></svg>
+      </span>
+      <h3>Send and queue from anywhere</h3>
+      <p>Type a reply on the phone. Sends now if the agent is idle, queues for the next idle if it's busy. Edit while it waits.</p>
+    </article>
+
+    <article class="feature">
+      <span class="feature-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="m16.24 7.76 2.83-2.83"/></svg>
+      </span>
+      <h3>Local-first, telemetry-free</h3>
+      <p>Everything runs on your machine. No cloud, no API keys, no analytics. Source is on GitHub — read the whole thing in 30 minutes.</p>
+    </article>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -------------------------------------------------- -->
+<section id="how" class="how">
+  <header class="section-head">
+    <p class="section-eyebrow">How it works</p>
+    <h2>Three steps.<br>Then walk away.</h2>
+  </header>
+
+  <ol class="steps">
+    <li class="step">
+      <span class="step-num">01</span>
+      <h3>Capture the button.</h3>
+      <p>Drag a rectangle around the button you want clicked. CodeAway saves it as a template — pixel-perfect, scale-aware, DPI-aware.</p>
+    </li>
+    <li class="step">
+      <span class="step-num">02</span>
+      <h3>Set a rule.</h3>
+      <p>Pick an action — click, click + Enter, click + send. Optionally type the text it should send. Save.</p>
+    </li>
+    <li class="step">
+      <span class="step-num">03</span>
+      <h3>Hit Page Down.</h3>
+      <p>The tray dot goes green. CodeAway watches your screen and fires the rule whenever the button appears. You can leave the room.</p>
+    </li>
+  </ol>
+</section>
+
+<!-- OPEN SOURCE BANNER ------------------------------------------- -->
+<section class="banner">
+  <div class="banner-glow" aria-hidden="true"></div>
+  <div class="banner-inner">
+    <p class="banner-eyebrow">100% free. 100% open source.</p>
+    <h2 class="banner-title">No accounts. No pricing. No customers.<br>Just code.</h2>
+    <p class="banner-sub">
+      MIT licensed. The whole codebase is on GitHub — fork it, read it,
+      break it, send it back better.
+    </p>
+  </div>
+</section>
+
+<!-- FEATURE REQUEST ----------------------------------------------- -->
+<section id="request" class="request">
+  <header class="section-head">
+    <p class="section-eyebrow">Tell me what's missing</p>
+    <h2>What would make CodeAway better for you?</h2>
+    <p class="section-lede">
+      Pick whichever channel fits — your text travels with you.
+    </p>
+  </header>
+
+  <div class="request-card">
+    <textarea
+      id="fr-text"
+      class="request-text"
+      rows="5"
+      placeholder="A feature you wish CodeAway had. A workflow it doesn't fit. A bug. A wild idea."
+      aria-label="Feature request"
+    ></textarea>
+
+    <div class="request-channels">
+      <a class="channel" id="channel-email" href="" rel="noopener">
+        <span class="channel-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+        </span>
+        <span class="channel-body">
+          <span class="channel-title">Send by email</span>
+          <span class="channel-sub">Opens in your default mail client.</span>
+        </span>
+      </a>
+
+      <a class="channel" id="channel-issue" href="" target="_blank" rel="noopener">
+        <span class="channel-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+        </span>
+        <span class="channel-body">
+          <span class="channel-title">Open a GitHub issue</span>
+          <span class="channel-sub">Best for bugs and tracked feature requests.</span>
+        </span>
+      </a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span class="footer-mark">CodeAway</span>
+    <span class="footer-meta">
+      Built by <a href="https://github.com/jmoraispk" target="_blank" rel="noopener">@jmoraispk</a>.
+      Free forever.
+      <a href="https://github.com/jmoraispk/codeaway" target="_blank" rel="noopener">Source</a>.
+    </span>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+
+</body>
+</html>

@@ -11,6 +11,8 @@ import ctypes
 import sys
 import threading
 import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +20,7 @@ from PySide6.QtCore import (
     QEventLoop,
     QObject,
     QRectF,
+    QSettings,
     QSize,
     Qt,
     QThread,
@@ -50,6 +53,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QSystemTrayIcon,
     QTableWidgetItem,
     QVBoxLayout,
@@ -79,6 +83,7 @@ with _contextlib.redirect_stdout(_io.StringIO()):
         SimpleCardWidget,
         StrongBodyLabel,
         SubtitleLabel,
+        SwitchButton,
         TableWidget,
         Theme,
         ToolButton,
@@ -113,6 +118,7 @@ from press_engine import (
     capture_screen_rgb,
     dominant_rgb,
     ensure_vision,
+    evaluate_bridge_windows,
     evaluate_rule_on_frame,
     evaluate_rules,
     execute_matches,
@@ -124,6 +130,7 @@ from press_store import (
     CONFIG_PATH,
     MATCHER_COLOR,
     MATCHER_TEMPLATE,
+    default_bridge_window,
     default_rule,
     list_template_files,
     load_config,
@@ -366,11 +373,81 @@ class HotkeyButton(PushButton):
 # ---- engine worker --------------------------------------------------
 
 
+def _bridge_urls(host: str, port: int) -> list[str]:
+    """URLs that should reach the bridge: localhost first, then LAN/Tailscale.
+
+    When host is 0.0.0.0 we enumerate IPv4 addresses on the box so the user
+    can copy whichever one matches the network they're testing from.
+    """
+    import socket
+
+    urls = [f"http://localhost:{port}/"]
+    if host in ("0.0.0.0", "::", ""):
+        try:
+            for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+                if ip.startswith("127.") or ip.startswith("169.254."):
+                    continue
+                urls.append(f"http://{ip}:{port}/")
+        except Exception:
+            pass
+    elif host not in ("127.0.0.1", "localhost"):
+        urls.insert(0, f"http://{host}:{port}/")
+    # Stable de-dupe.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
+def _encode_rgb_to_png(rgb) -> bytes | None:
+    """HxWx3 RGB ndarray → PNG bytes for the bridge snapshot ring buffer.
+
+    Returns None on encode failure rather than raising — the worker tick
+    must keep going even if a single frame can't be encoded.
+    """
+    try:
+        from io import BytesIO
+
+        from PIL import Image  # already a project dependency
+    except Exception:
+        return None
+    try:
+        img = Image.fromarray(rgb, mode="RGB")
+        buf = BytesIO()
+        img.save(buf, format="PNG", optimize=False)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _monitor_index_for_point(x: int, y: int) -> int:
+    """Best-effort 0-based monitor index containing (x, y); -1 if none."""
+    try:
+        for idx, (mx, my, mw, mh) in enumerate(enumerate_physical_monitors()):
+            if mx <= x < mx + mw and my <= y < my + mh:
+                return idx
+    except Exception:
+        return -1
+    return -1
+
+
 class EngineWorker(QObject):
     tick_done = Signal(list, list, float)
     tick_error = Signal(str)
     running_changed = Signal(bool)
     needs_rules = Signal()
+    # Bridge events: emitted whenever a rule action fires. Carries a JSON-
+    # ready dict; bridge consumers push it onto an SSE/event ring buffer.
+    rule_matched = Signal(dict)
+    # Per-window idle/busy snapshot. First arg is the list of state dicts
+    # (without the 'rgb' key); second is {window_id: png_bytes} so the
+    # bridge can push them into its ring buffer without a second capture.
+    bridge_window_states = Signal(list, dict)
+    # Fires only on busy↔idle transition. Payload: a window state dict.
+    bridge_window_transition = Signal(dict)
 
     def __init__(self, cfg_snapshot):
         super().__init__()
@@ -379,6 +456,8 @@ class EngineWorker(QObject):
         self._stop = False
         self._interval = 10.0
         self._lock = threading.Lock()
+        # Maps window id → last known idle bool, so we only emit transitions.
+        self._last_window_idle: dict[str, bool] = {}
 
     def set_interval(self, seconds: float) -> None:
         with self._lock:
@@ -396,6 +475,21 @@ class EngineWorker(QObject):
         with self._lock:
             return self._running
 
+    def reset_window_tracking(self) -> None:
+        """Forget every window's prior idle/busy observation.
+
+        Called when the bridge service is started (or restarted) so the
+        next tick treats each window as a first observation and
+        captures a fresh snapshot even if it's already idle. Without
+        this, a Reload that finds windows already idle would leave the
+        WindowStore empty until the next busy→idle transition because
+        the worker's tracking dict still says "prev=True" from before.
+
+        Atomic via reference replacement — the running tick reads its
+        own previous reference; this thread just rebinds the attribute.
+        """
+        self._last_window_idle = {}
+
     def run(self) -> None:
         # Pin PER_MONITOR_AWARE_V2 on this worker thread once. Sticky for the
         # thread's lifetime, so every capture + click iteration agrees on
@@ -406,36 +500,144 @@ class EngineWorker(QObject):
             except Exception:
                 pass
         while not self._stop:
-            if not self.is_running():
+            cfg = self._cfg_snapshot()
+            bridge_cfg = cfg.get("bridge") or {}
+            # Bridge ticks whenever the service is on AND has windows +
+            # an idle template configured — independent of the Start
+            # button, so flipping the bridge switch is enough to start
+            # populating the phone's view.
+            bridge_should_tick = bool(
+                cfg.get("bridge_active")
+                and bridge_cfg.get("windows")
+                and bridge_cfg.get("idle_template_path")
+            )
+            rules_should_tick = self.is_running()
+            if not rules_should_tick and not bridge_should_tick:
                 time.sleep(0.1)
                 continue
-            cfg = self._cfg_snapshot()
-            try:
-                runtime_rules = build_runtime_rules(cfg)
-            except Exception as exc:
-                self.tick_error.emit(f"runtime rules unavailable: {exc}")
-                self.set_running(False)
-                continue
-            if not runtime_rules:
-                self.needs_rules.emit()
-                self.set_running(False)
-                continue
-            try:
-                results, actions = evaluate_rules(runtime_rules)
-                if actions:
-                    execute_matches(actions)
-                self.tick_done.emit(results, actions, self._get_interval())
-            except Exception as exc:
-                self.tick_error.emit(f"tick failed: {exc}")
+
+            # ---- rules ----
+            results: list = []
+            actions: list = []
+            if rules_should_tick:
+                try:
+                    runtime_rules = build_runtime_rules(cfg)
+                except Exception as exc:
+                    self.tick_error.emit(f"runtime rules unavailable: {exc}")
+                    self.set_running(False)
+                    continue
+                if not runtime_rules:
+                    # No runnable rules — the user pressed Start but every
+                    # rule is either disabled or has a missing template.
+                    # Always log so the cause of the silent re-Stop is
+                    # visible (the handler is log-only, not a popup).
+                    self.needs_rules.emit()
+                    self.set_running(False)
+                    rules_should_tick = False
+                else:
+                    try:
+                        results, actions = evaluate_rules(runtime_rules)
+                        if actions:
+                            execute_matches(actions)
+                            for action in actions:
+                                center = action.get("center")
+                                if center is None:
+                                    continue
+                                cx, cy = int(center[0]), int(center[1])
+                                event = {
+                                    "event_id": uuid.uuid4().hex,
+                                    "rule_id": action.get("id"),
+                                    "rule_name": action.get("name"),
+                                    "monitor_index": _monitor_index_for_point(cx, cy),
+                                    "match_rect": None,
+                                    "match_center": [cx, cy],
+                                    "action_type": action.get("action"),
+                                    "timestamp_iso": datetime.now(timezone.utc).isoformat(),
+                                }
+                                self.rule_matched.emit(event)
+                    except Exception as exc:
+                        self.tick_error.emit(f"tick failed: {exc}")
+
+            # ---- bridge ----
+            if bridge_should_tick:
+                try:
+                    self._tick_bridge_windows(cfg)
+                except Exception as exc:
+                    self.tick_error.emit(f"bridge tick failed: {exc}")
+
+            self.tick_done.emit(results, actions, self._get_interval())
+
             end = time.monotonic() + self._get_interval()
             while time.monotonic() < end and not self._stop:
-                if not self.is_running():
-                    break
                 time.sleep(0.05)
 
     def _get_interval(self) -> float:
         with self._lock:
             return self._interval
+
+    def _tick_bridge_windows(self, cfg: dict) -> None:
+        """Run the per-window idle detector when the bridge service is
+        active and has windows + a template configured. Emits a snapshot
+        every tick and a transition only when a window flips between
+        idle and busy."""
+        if not cfg.get("bridge_active"):
+            return
+        bridge_cfg = cfg.get("bridge") or {}
+        if not bridge_cfg.get("windows") or not bridge_cfg.get("idle_template_path"):
+            return
+        try:
+            states = evaluate_bridge_windows(bridge_cfg, capture_rgb=True)
+        except Exception as exc:
+            # Surface detector failures instead of swallowing them — silent
+            # bail-outs were exactly why the user couldn't tell why the
+            # phone wasn't updating.
+            self.tick_error.emit(f"bridge detect failed: {exc}")
+            return
+        if not states:
+            return
+
+        # Decide which windows deserve a fresh snapshot this tick.
+        # Strategy:
+        #   - First observation (prev=None): always capture. Otherwise a
+        #     bridge restart that finds windows already idle would leave
+        #     the WindowStore empty until the next busy→idle transition.
+        #   - Subsequent ticks: capture only on busy→idle, so steady-
+        #     idle and steady-busy don't churn through duplicates.
+        images: dict[str, bytes] = {}
+        slim_states: list[dict] = []
+        for state in states:
+            rgb = state.pop("rgb", None)
+            slim_states.append(state)
+            wid = state.get("id")
+            if not wid or not state.get("configured"):
+                continue
+            is_idle = bool(state.get("idle"))
+            prev = self._last_window_idle.get(wid)
+            should_capture = prev is None or (is_idle and prev is False)
+            if should_capture and rgb is not None:
+                png = _encode_rgb_to_png(rgb)
+                if png is not None:
+                    images[wid] = png
+
+        self.bridge_window_states.emit(slim_states, images)
+
+        for state in slim_states:
+            if not state.get("configured"):
+                continue
+            wid = state.get("id")
+            if not wid:
+                continue
+            now_idle = bool(state.get("idle"))
+            prev = self._last_window_idle.get(wid)
+            if prev is None:
+                # First observation: record without emitting a transition,
+                # otherwise we'd announce every window the moment the
+                # worker starts.
+                self._last_window_idle[wid] = now_idle
+                continue
+            if prev != now_idle:
+                self._last_window_idle[wid] = now_idle
+                self.bridge_window_transition.emit(state)
 
 
 # ---- drag capture (per-monitor overlays, physical coords) -----------
@@ -659,12 +861,40 @@ class CollapsibleCard(HeaderCardWidget):
 
 class MainWindow(QMainWindow):
     hotkey_triggered = Signal()
+    # Fires when the bridge HTTP /api/admin/reload endpoint is hit. Goes
+    # through Qt so the actual reload runs on the main thread (the bridge
+    # request handler is on its own asyncio thread).
+    bridge_reload_requested = Signal()
+    # Fires when /api/admin/rules is POSTed from the phone. Marshals to
+    # the main thread so we touch the engine flag in the right context.
+    bridge_set_rules_requested = Signal(bool)
+    # Fires when a window is renamed via the phone's rename endpoint.
+    # The cfg mutation happens synchronously on the bridge thread (so
+    # the endpoint can return success/failure); this signal exists only
+    # to refresh the desktop's bridge windows table on the main thread.
+    bridge_window_renamed_remote = Signal(str, str)
 
     CHROME_HEIGHT = 120
 
-    def __init__(self, initial_seconds: float):
+    def __init__(
+        self,
+        initial_seconds: float,
+        bridge_enabled: bool = False,
+        bridge_host: str | None = None,
+        bridge_port: int | None = None,
+        auto_activate: bool = False,
+    ):
         super().__init__()
+        self._bridge_enabled = bool(bridge_enabled)
+        self._bridge_host_override = bridge_host
+        self._bridge_port_override = bridge_port
+        self._auto_activate = bool(auto_activate)
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
+        self.bridge_reload_requested.connect(self._reload_bridge_service, Qt.QueuedConnection)
+        self.bridge_set_rules_requested.connect(self._set_rules_running_remote, Qt.QueuedConnection)
+        self.bridge_window_renamed_remote.connect(
+            self._on_bridge_window_renamed_remote, Qt.QueuedConnection
+        )
 
         setTheme(Theme.DARK)
         setThemeColor(WINDOWS_ACCENT)
@@ -718,7 +948,17 @@ class MainWindow(QMainWindow):
         self._worker.tick_error.connect(self._on_worker_error)
         self._worker.running_changed.connect(self._on_running_changed)
         self._worker.needs_rules.connect(self._on_needs_rules)
+        self._worker.rule_matched.connect(self._on_rule_matched)
+        self._worker.bridge_window_transition.connect(self._on_bridge_window_transition)
+        self._worker.bridge_window_states.connect(self._on_bridge_window_states)
         self._worker_thread.start()
+
+        # Optional remote bridge — controlled at runtime by the Bridge
+        # tab's switch. When --bridge is passed we flip the switch on
+        # programmatically so behaviour matches the old "auto-start" mode.
+        self._bridge = None
+        if self._bridge_enabled:
+            self._bridge_switch.setChecked(True)
 
         # Countdown
         self._countdown_timer = QTimer(self)
@@ -738,8 +978,19 @@ class MainWindow(QMainWindow):
 
         self._refresh_template_choices()
         self._refresh_rule_list(0 if self._cfg.get("rules") else None)
+        self._refresh_bridge_template_view()
+        self._refresh_bridge_windows_table()
         self._set_running_status(False)
         self._log(f"[ready] loaded {CONFIG_PATH}")
+        # Restore window geometry + splitter sizes + collapse states from
+        # the previous session. Anything not in QSettings keeps the
+        # defaults set during the build phase above.
+        self._restore_window_state()
+        # --activate: same effect as clicking Start once the UI is up.
+        # Defer to the next event-loop iteration so widgets are fully
+        # constructed before the worker reads its config.
+        if self._auto_activate:
+            QTimer.singleShot(0, self._toggle_running)
 
     # ---------- layout ----------
 
@@ -749,16 +1000,45 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(12)
 
+        # Build the tab pages and stack first so the command bar can
+        # host the Rules/Bridge selector — that way the toolbar acts as
+        # the page chrome and the body is just the selected page.
+        rules_page = self._build_rules_page()
+        bridge_page = self._build_bridge_page()
+        self._tab_stack = QStackedWidget()
+        self._tab_stack.addWidget(rules_page)
+        self._tab_stack.addWidget(bridge_page)
+
         root.addWidget(self._build_command_bar(initial_seconds))
 
-        # Body: Horizontal split. Left column stacks Rules over Log.
+        self._body_container = QWidget()
+        body_layout = QVBoxLayout(self._body_container)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.addWidget(self._tab_stack, 1)
+        root.addWidget(self._body_container, 1)
+
+        self.setCentralWidget(central)
+
+    def _build_rules_page(self) -> QWidget:
+        """Original rules + log + editor body, factored out so it can be
+        a tab page rather than the central widget directly."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         self._body_splitter = QSplitter(Qt.Horizontal)
         self._body_splitter.setChildrenCollapsible(False)
         self._body_splitter.setHandleWidth(6)
+        # Expand vertically regardless of children's sizeHints — without
+        # this, collapsing the left-column log card shrinks the splitter
+        # and the right-side editor scrolls instead of using the full
+        # available height.
+        self._body_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self._left_splitter = QSplitter(Qt.Vertical)
         self._left_splitter.setChildrenCollapsible(False)
         self._left_splitter.setHandleWidth(6)
+        self._left_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         rules_card = self._build_rules_card()
         self._log_panel = self._build_log_panel()
         rules_card.setMinimumHeight(140)
@@ -775,8 +1055,8 @@ class MainWindow(QMainWindow):
         self._body_splitter.setStretchFactor(1, 2)
         self._body_splitter.setSizes([340, 740])
 
-        root.addWidget(self._body_splitter, 1)
-        self.setCentralWidget(central)
+        layout.addWidget(self._body_splitter, 1)
+        return page
 
     def _build_command_bar(self, initial_seconds: float) -> QWidget:
         bar = SimpleCardWidget()
@@ -833,6 +1113,27 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._action_status)
 
         lay.addStretch(1)
+
+        # Rules / Bridge selector: lives in the toolbar so the body has
+        # the full window height for actual content. Switches the
+        # QStackedWidget that _build_central wires up.
+        self._tab_strip = SegmentedWidget(self)
+        self._tab_strip.addItem(
+            routeKey="rules", text="Rules",
+            onClick=lambda: self._tab_stack.setCurrentIndex(0),
+        )
+        self._tab_strip.addItem(
+            routeKey="bridge", text="Bridge",
+            onClick=lambda: self._tab_stack.setCurrentIndex(1),
+        )
+        self._tab_strip.setCurrentItem("rules")
+        # SegmentedWidget defaults to a generous height that gets
+        # awkwardly stretched inside the fixed-height toolbar (gap below
+        # the buttons). Pin it to fit between the toolbar's vertical
+        # margins.
+        self._tab_strip.setFixedHeight(36)
+        self._tab_strip.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        lay.addWidget(self._tab_strip)
 
         self._collapse_btn = ToolButton(FIF.UP)
         self._collapse_btn.setToolTip("Collapse to toolbar only")
@@ -914,7 +1215,11 @@ class MainWindow(QMainWindow):
         content = QWidget()
         content.setMinimumWidth(340)
         stack = QVBoxLayout(content)
-        stack.setContentsMargins(2, 0, 6, 0)
+        # Symmetric margins so the editor cards line up with the bridge
+        # tab's right column on the right edge. Earlier this was 2/0/6/0
+        # which made the rules editor extend a few pixels past where the
+        # bridge log card would.
+        stack.setContentsMargins(2, 0, 2, 0)
         stack.setSpacing(12)
 
         stack.addWidget(self._build_basics_card())
@@ -929,6 +1234,7 @@ class MainWindow(QMainWindow):
 
     def _build_basics_card(self) -> QWidget:
         card = CollapsibleCard("Basics")
+        self._basics_card = card
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -950,6 +1256,13 @@ class MainWindow(QMainWindow):
         self._action_combo.currentTextChanged.connect(self._update_action_fields)
         self._text_edit = LineEdit()
         self._text_edit.setPlaceholderText("typed before Enter")
+        # Autosave: every input change writes back to the cfg under the
+        # cfg lock and persists. Loading a rule sets _suppress_autosave
+        # so we don't echo the just-loaded values back over the rule we
+        # navigated away from.
+        self._name_edit.editingFinished.connect(self._autosave_rule)
+        self._text_edit.editingFinished.connect(self._autosave_rule)
+        self._action_combo.currentTextChanged.connect(self._autosave_rule)
 
         grid.addWidget(self._name_edit, 1, 0)
         grid.addWidget(self._action_combo, 1, 1)
@@ -964,6 +1277,7 @@ class MainWindow(QMainWindow):
 
     def _build_template_card(self) -> QWidget:
         card = CollapsibleCard("Match")
+        self._match_card = card
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -1075,6 +1389,7 @@ class MainWindow(QMainWindow):
         self._threshold_spin.setValue(0.90)
         self._threshold_spin.setFixedWidth(130)
         self._threshold_spin.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._threshold_spin.valueChanged.connect(self._autosave_rule)
         self._threshold_row.addWidget(self._threshold_spin)
         self._threshold_row.addStretch(1)
         meta_lay.addLayout(self._threshold_row)
@@ -1106,6 +1421,7 @@ class MainWindow(QMainWindow):
 
     def _build_scope_card(self) -> QWidget:
         card = CollapsibleCard("Search scope", expanded=False)
+        self._scope_card = card
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -1134,13 +1450,13 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout(wrap)
         row.setContentsMargins(2, 0, 2, 0)
         row.setSpacing(8)
+        # Save is now automatic on every input change (see _autosave_rule).
+        # The button is gone; Test match is centred on the row.
         row.addStretch(1)
         test_btn = PushButton(FIF.PLAY, "Test match")
         test_btn.clicked.connect(self._test_selected_rule)
-        save_btn = PrimaryPushButton(FIF.SAVE, "Save rule")
-        save_btn.clicked.connect(self._save_selected_rule)
         row.addWidget(test_btn)
-        row.addWidget(save_btn)
+        row.addStretch(1)
         return wrap
 
     def _build_log_panel(self) -> QWidget:
@@ -1154,6 +1470,474 @@ class MainWindow(QMainWindow):
 
         card.viewLayout.addWidget(self._log_box)
         return card
+
+    # ---------- bridge tab ----------
+
+    def _build_bridge_page(self) -> QWidget:
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(12)
+
+        # Inline service toggle row. Centered horizontally with stretch
+        # spacers on both sides so the [label] [switch] [status] cluster
+        # sits in the middle of the page rather than hugging the left
+        # edge with a long status string trailing off to the right.
+        svc_row = QHBoxLayout()
+        svc_row.setContentsMargins(2, 4, 2, 4)
+        svc_row.setSpacing(10)
+        svc_row.setAlignment(Qt.AlignVCenter)
+        svc_row.addStretch(1)
+        svc_label = BodyLabel("Bridge service")
+        svc_row.addWidget(svc_label, 0, Qt.AlignVCenter)
+        self._bridge_switch = SwitchButton()
+        self._bridge_switch.setOnText("On")
+        self._bridge_switch.setOffText("Off")
+        self._bridge_switch.checkedChanged.connect(self._on_bridge_switch_toggled)
+        svc_row.addWidget(self._bridge_switch, 0, Qt.AlignVCenter)
+        self._bridge_switch_status = BodyLabel(
+            "Stopped — toggle on to start the FastAPI service."
+        )
+        self._bridge_switch_status.setTextFormat(Qt.RichText)
+        self._bridge_switch_status.setOpenExternalLinks(True)
+        svc_row.addWidget(self._bridge_switch_status, 0, Qt.AlignVCenter)
+        svc_row.addStretch(1)
+        outer.addLayout(svc_row)
+
+        # Idle template card.
+        tpl_card = CollapsibleCard("Idle indicator")
+        # Info button between the title (index 0) and CollapsibleCard's
+        # trailing stretch + chevron, so it sits next to the title rather
+        # than getting shoved past the collapse toggle.
+        tpl_info = ToolButton(FIF.INFO)
+        tpl_info.setToolTip(
+            "Capture the visual cue that means a Cursor window is idle "
+            "(Continue button, send icon, etc.). The same template is matched "
+            "inside every window region. Use Test to dry-run detection across "
+            "all configured windows."
+        )
+        tpl_info.setFixedSize(22, 22)
+        tpl_card.headerLayout.insertWidget(1, tpl_info)
+
+        tpl_body = QVBoxLayout()
+        tpl_body.setContentsMargins(2, 0, 2, 0)
+        tpl_body.setSpacing(8)
+
+        tpl_row = QHBoxLayout()
+        tpl_row.setSpacing(8)
+        # Thumbnail of the captured template — empty box until a capture
+        # exists, fluent dashed border so it reads as a placeholder.
+        self._bridge_template_thumb = QLabel()
+        self._bridge_template_thumb.setFixedSize(140, 60)
+        self._bridge_template_thumb.setAlignment(Qt.AlignCenter)
+        self._bridge_template_thumb.setStyleSheet(
+            "border: 1px dashed #555; border-radius: 6px; "
+            "background: #1f2129; color: #6f7180; font-size: 11px;"
+        )
+        self._bridge_template_thumb.setText("(no template)")
+        tpl_row.addWidget(self._bridge_template_thumb)
+        capture_tpl_btn = PrimaryPushButton(FIF.CAMERA, "Capture")
+        capture_tpl_btn.clicked.connect(self._capture_bridge_idle_template)
+        tpl_row.addWidget(capture_tpl_btn)
+        test_tpl_btn = PushButton(FIF.PLAY, "Test")
+        test_tpl_btn.setToolTip("Run idle detection across all configured windows now")
+        test_tpl_btn.clicked.connect(self._test_bridge_idle_match)
+        tpl_row.addWidget(test_tpl_btn)
+        tpl_row.addStretch(1)
+        tpl_body.addLayout(tpl_row)
+
+        thr_row = QHBoxLayout()
+        thr_row.setSpacing(8)
+        thr_row.addWidget(BodyLabel("Match threshold:"))
+        self._bridge_threshold_spin = DoubleSpinBox()
+        self._bridge_threshold_spin.setRange(0.50, 1.00)
+        self._bridge_threshold_spin.setSingleStep(0.05)
+        self._bridge_threshold_spin.setDecimals(2)
+        bridge_cfg = self._cfg.get("bridge", {})
+        self._bridge_threshold_spin.setValue(float(bridge_cfg.get("idle_threshold", 0.90)))
+        self._bridge_threshold_spin.valueChanged.connect(self._on_bridge_threshold_changed)
+        thr_row.addWidget(self._bridge_threshold_spin)
+        thr_row.addStretch(1)
+        tpl_body.addLayout(thr_row)
+
+        tpl_card.viewLayout.addLayout(tpl_body)
+        outer.addWidget(tpl_card)
+
+        # Cursor windows card.
+        win_card = CollapsibleCard("Cursor windows")
+        win_info = ToolButton(FIF.INFO)
+        win_info.setToolTip(
+            "Drag a box around each Cursor window. The bridge scans inside "
+            "that box for the idle template. Click a name to rename."
+        )
+        win_info.setFixedSize(22, 22)
+        win_card.headerLayout.insertWidget(1, win_info)
+
+        win_body = QVBoxLayout()
+        win_body.setContentsMargins(2, 0, 2, 0)
+        win_body.setSpacing(8)
+
+        self._bridge_windows_table = TableWidget()
+        self._bridge_windows_table.setColumnCount(3)
+        self._bridge_windows_table.setHorizontalHeaderLabels(["Name", "Region", ""])
+        self._bridge_windows_table.verticalHeader().setVisible(False)
+        self._bridge_windows_table.horizontalHeader().setHighlightSections(False)
+        self._bridge_windows_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._bridge_windows_table.setShowGrid(False)
+        self._bridge_windows_table.setBorderVisible(True)
+        self._bridge_windows_table.setBorderRadius(8)
+        self._bridge_windows_table.verticalHeader().setDefaultSectionSize(40)
+        header = self._bridge_windows_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        win_body.addWidget(self._bridge_windows_table)
+
+        add_row = QHBoxLayout()
+        add_btn = PushButton(FIF.ADD, "Add window")
+        add_btn.clicked.connect(self._add_bridge_window)
+        add_row.addWidget(add_btn)
+        add_row.addStretch(1)
+        win_body.addLayout(add_row)
+
+        win_card.viewLayout.addLayout(win_body)
+
+        # Bridge log card. Sized like the left-column cards: when
+        # collapsed the card clamps to header height (44 px); when
+        # expanded it stretches to fill the row. The Expanding vertical
+        # policy is what keeps it tracking the body_split's height as
+        # the user resizes the window — without it HeaderCardWidget
+        # sticks to a smaller sizeHint and the log card stops following
+        # the row height on resize. (No minHeight clamp — the toggle
+        # handler manages collapse via maxHeight.)
+        log_card = CollapsibleCard("Bridge log")
+        log_card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        log_body = QVBoxLayout()
+        log_body.setContentsMargins(2, 0, 2, 0)
+        log_body.setSpacing(6)
+        log_desc = CaptionLabel(
+            "Bridge events that the phone UI would also see — busy↔idle transitions, "
+            "captures, saves, errors."
+        )
+        log_desc.setWordWrap(True)
+        log_body.addWidget(log_desc)
+        self._bridge_log_view = FluentPlainTextEdit()
+        self._bridge_log_view.setReadOnly(True)
+        self._bridge_log_view.setMaximumBlockCount(500)
+        self._bridge_log_view.setMinimumHeight(140)
+        log_body.addWidget(self._bridge_log_view)
+        log_card.viewLayout.addLayout(log_body)
+
+        # Layout: left column [idle + windows] | right column [log].
+        # This lets the cards use vertical space without each card
+        # being a full-width letterbox; the log gets the right half.
+        left_col = QSplitter(Qt.Vertical)
+        left_col.setChildrenCollapsible(False)
+        left_col.setHandleWidth(6)
+        left_col.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        left_col.addWidget(tpl_card)
+        left_col.addWidget(win_card)
+        left_col.setStretchFactor(0, 0)
+        left_col.setStretchFactor(1, 1)
+        left_col.setSizes([260, 360])
+
+        body_split = QSplitter(Qt.Horizontal)
+        body_split.setChildrenCollapsible(False)
+        body_split.setHandleWidth(6)
+        # Same Expanding-on-both-axes treatment as the rules tab so
+        # collapsing children doesn't shrink the splitter itself.
+        body_split.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        body_split.addWidget(left_col)
+        body_split.addWidget(log_card)
+        body_split.setStretchFactor(0, 1)
+        body_split.setStretchFactor(1, 1)
+        body_split.setSizes([520, 460])
+
+        # Stash everything the collapse handlers need.
+        self._bridge_tpl_card = tpl_card
+        self._bridge_win_card = win_card
+        self._bridge_log_card = log_card
+        self._bridge_left_splitter = left_col
+        self._bridge_body_splitter = body_split
+        self._bridge_left_remembered = {"tpl": 260, "win": 360}
+        self._bridge_body_remembered = {"log": 460}
+        tpl_card.expanded_changed.connect(self._on_bridge_left_card_toggled)
+        win_card.expanded_changed.connect(self._on_bridge_left_card_toggled)
+        log_card.expanded_changed.connect(self._on_bridge_log_card_toggled)
+
+        outer.addWidget(body_split, 1)
+        return page
+
+    # ---- bridge collapse handlers ----
+
+    def _on_bridge_left_card_toggled(self, _expanded: bool) -> None:
+        """Match the rules-tab behaviour: when one of the two cards in
+        the left vertical splitter collapses, clamp its max-height so the
+        splitter actually shrinks the pane to the header bar instead of
+        leaving a useless empty box. Remember the prior expanded size so
+        a re-open restores it."""
+        HEADER_H = 44
+        sizes = self._bridge_left_splitter.sizes()
+        sender = self.sender()
+        if (
+            sender is self._bridge_tpl_card
+            and not self._bridge_tpl_card.isExpanded()
+            and sizes[0] > HEADER_H
+        ):
+            self._bridge_left_remembered["tpl"] = sizes[0]
+        elif (
+            sender is self._bridge_win_card
+            and not self._bridge_win_card.isExpanded()
+            and sizes[1] > HEADER_H
+        ):
+            self._bridge_left_remembered["win"] = sizes[1]
+
+        for card, min_open in (
+            (self._bridge_tpl_card, 140),
+            (self._bridge_win_card, 140),
+        ):
+            if card.isExpanded():
+                card.setMinimumHeight(min_open)
+                card.setMaximumHeight(16777215)
+            else:
+                card.setMinimumHeight(0)
+                card.setMaximumHeight(HEADER_H)
+
+        total = sum(sizes) or (self._bridge_left_splitter.height() or 600)
+        tpl_exp = self._bridge_tpl_card.isExpanded()
+        win_exp = self._bridge_win_card.isExpanded()
+        if tpl_exp and win_exp:
+            t = self._bridge_left_remembered.get("tpl", 260)
+            self._bridge_left_splitter.setSizes([t, max(HEADER_H, total - t)])
+        elif tpl_exp:
+            self._bridge_left_splitter.setSizes([total - HEADER_H, HEADER_H])
+        elif win_exp:
+            self._bridge_left_splitter.setSizes([HEADER_H, total - HEADER_H])
+        else:
+            self._bridge_left_splitter.setSizes([HEADER_H, HEADER_H])
+
+    def _on_bridge_log_card_toggled(self, _expanded: bool) -> None:
+        """Mirror the rules-tab pattern: clamp maxHeight to the header
+        bar (44 px) on collapse so the card actually shrinks instead of
+        sitting around its previous height; lift the clamp on expand so
+        the splitter is free to give it the full row height. We
+        deliberately don't touch splitter widths here — the left column
+        keeps its horizontal share of the row whatever the log is doing."""
+        HEADER_H = 44
+        if self._bridge_log_card.isExpanded():
+            self._bridge_log_card.setMinimumHeight(0)
+            self._bridge_log_card.setMaximumHeight(16777215)
+        else:
+            self._bridge_log_card.setMinimumHeight(0)
+            self._bridge_log_card.setMaximumHeight(HEADER_H)
+
+    # ---- bridge tab actions ----
+
+    def _bridge_log(self, msg: str) -> None:
+        from datetime import datetime as _dt
+
+        view = getattr(self, "_bridge_log_view", None)
+        if view is None:
+            return
+        view.appendPlainText(f"{_dt.now().strftime('%H:%M:%S')}  {msg}")
+
+    def _refresh_bridge_template_view(self) -> None:
+        thumb = getattr(self, "_bridge_template_thumb", None)
+        if thumb is None:
+            return
+        path = (self._cfg.get("bridge") or {}).get("idle_template_path")
+        if not path:
+            thumb.clear()
+            thumb.setText("(no template)")
+            return
+        full = resolve_template_path(path)
+        if not full or not full.exists():
+            thumb.clear()
+            thumb.setText("(missing)")
+            return
+        pix = QPixmap(str(full))
+        if pix.isNull():
+            thumb.clear()
+            thumb.setText("(unreadable)")
+            return
+        thumb.setPixmap(
+            pix.scaled(thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+
+    def _test_bridge_idle_match(self) -> None:
+        """Dry-run idle detection right now, regardless of whether the
+        worker is running, so the user can verify the template + window
+        regions without flipping the bridge service on."""
+        bridge_cfg = self._cfg.get("bridge", {})
+        if not bridge_cfg.get("idle_template_path"):
+            self._bridge_log("test: capture an idle template first")
+            return
+        if not bridge_cfg.get("windows"):
+            self._bridge_log("test: add at least one Cursor window first")
+            return
+        try:
+            states = evaluate_bridge_windows(bridge_cfg)
+        except Exception as exc:
+            self._bridge_log(f"test failed: {exc}")
+            return
+        if not states:
+            self._bridge_log("test: detector returned no states (template file missing?)")
+            return
+        self._bridge_log("test results:")
+        for state in states:
+            if not state.get("configured"):
+                self._bridge_log(f"  • {state['name']}: not configured (no region)")
+                continue
+            verdict = "idle" if state["idle"] else "busy"
+            self._bridge_log(
+                f"  • {state['name']}: {verdict} (score {state['score']:.3f})"
+            )
+
+    def _capture_bridge_idle_template(self) -> None:
+        try:
+            ensure_vision()
+        except Exception as exc:
+            self._bridge_log(f"capture failed: {exc}")
+            return
+        bbox = capture_drag_bbox(self)
+        if not bbox:
+            self._bridge_log("idle template capture cancelled")
+            return
+        try:
+            gray = capture_screen_gray(tuple(bbox))
+            path = template_asset_path("bridge_idle.png")
+            save_gray_image(str(path), gray)
+            stored = serialize_template_path(path)
+            with self._cfg_lock:
+                self._cfg["bridge"]["idle_template_path"] = stored
+            self._persist()
+            self._refresh_bridge_template_view()
+            self._bridge_log(
+                f"captured idle template → {stored} ({bbox[2]}×{bbox[3]} px)"
+            )
+        except Exception as exc:
+            self._bridge_log(f"capture failed: {exc}")
+
+    def _on_bridge_threshold_changed(self, value: float) -> None:
+        with self._cfg_lock:
+            self._cfg["bridge"]["idle_threshold"] = float(value)
+        self._persist()
+
+    def _add_bridge_window(self) -> None:
+        existing = self._cfg.get("bridge", {}).get("windows", [])
+        name = f"Cursor #{len(existing) + 1}"
+        self._bridge_log(f"add window: drag a box around the new {name}…")
+        bbox = capture_drag_bbox(self)
+        if not bbox:
+            self._bridge_log("add window cancelled")
+            return
+        win = default_bridge_window(name)
+        win["region"] = [int(b) for b in bbox]
+        with self._cfg_lock:
+            self._cfg["bridge"]["windows"].append(win)
+        self._persist()
+        self._refresh_bridge_windows_table()
+        self._bridge_log(
+            f"added '{name}' at ({bbox[0]},{bbox[1]}) {bbox[2]}×{bbox[3]}"
+        )
+
+    def _find_window_index(self, window_id: str) -> Optional[int]:
+        for idx, w in enumerate(self._cfg.get("bridge", {}).get("windows", [])):
+            if w.get("id") == window_id:
+                return idx
+        return None
+
+    def _recapture_bridge_window_region(self, window_id: str) -> None:
+        idx = self._find_window_index(window_id)
+        if idx is None:
+            return
+        name = self._cfg["bridge"]["windows"][idx].get("name", "Cursor")
+        self._bridge_log(f"re-capture region for '{name}': drag the new box…")
+        bbox = capture_drag_bbox(self)
+        if not bbox:
+            self._bridge_log("re-capture cancelled")
+            return
+        with self._cfg_lock:
+            self._cfg["bridge"]["windows"][idx]["region"] = [int(b) for b in bbox]
+        self._persist()
+        self._refresh_bridge_windows_table()
+        self._bridge_log(
+            f"updated '{name}' region → ({bbox[0]},{bbox[1]}) {bbox[2]}×{bbox[3]}"
+        )
+
+    def _delete_bridge_window(self, window_id: str) -> None:
+        idx = self._find_window_index(window_id)
+        if idx is None:
+            return
+        name = self._cfg["bridge"]["windows"][idx].get("name", "Cursor")
+        with self._cfg_lock:
+            del self._cfg["bridge"]["windows"][idx]
+        self._persist()
+        self._refresh_bridge_windows_table()
+        self._bridge_log(f"removed '{name}'")
+
+    def _refresh_bridge_windows_table(self) -> None:
+        table = getattr(self, "_bridge_windows_table", None)
+        if table is None:
+            return
+        windows = self._cfg.get("bridge", {}).get("windows", [])
+        table.setRowCount(0)
+        table.setRowCount(len(windows))
+        for row, w in enumerate(windows):
+            wid = w.get("id", "")
+
+            # Name is a LineEdit cell widget rather than an editable
+            # QTableWidgetItem — explicit input field, no double-click
+            # ambiguity, no edit-mode overlap with adjacent cells.
+            name_edit = LineEdit()
+            name_edit.setText(w.get("name", "Cursor"))
+            name_edit.setClearButtonEnabled(False)
+            name_edit.editingFinished.connect(
+                lambda _id=wid, _edit=name_edit: self._rename_bridge_window(
+                    _id, _edit.text()
+                )
+            )
+            table.setCellWidget(row, 0, name_edit)
+
+            region = w.get("region")
+            region_text = (
+                f"{region[0]},{region[1]} {region[2]}×{region[3]}" if region else "—"
+            )
+            region_item = QTableWidgetItem(region_text)
+            region_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            table.setItem(row, 1, region_item)
+
+            cell = QWidget()
+            cl = QHBoxLayout(cell)
+            cl.setContentsMargins(2, 2, 2, 2)
+            cl.setSpacing(4)
+            region_btn = ToolButton(FIF.CAMERA)
+            region_btn.setToolTip("Re-capture window region")
+            region_btn.clicked.connect(
+                lambda _checked=False, _id=wid: self._recapture_bridge_window_region(_id)
+            )
+            del_btn = ToolButton(FIF.DELETE)
+            del_btn.setToolTip("Remove this window")
+            del_btn.clicked.connect(
+                lambda _checked=False, _id=wid: self._delete_bridge_window(_id)
+            )
+            cl.addWidget(region_btn)
+            cl.addWidget(del_btn)
+            table.setCellWidget(row, 2, cell)
+
+    def _rename_bridge_window(self, window_id: str, new_text: str) -> None:
+        new_name = new_text.strip() or "Cursor"
+        with self._cfg_lock:
+            for w in self._cfg.get("bridge", {}).get("windows", []):
+                if w.get("id") == window_id:
+                    if w.get("name") == new_name:
+                        return
+                    w["name"] = new_name
+                    break
+            else:
+                return
+        self._persist()
+        self._bridge_log(f"renamed window → '{new_name}'")
 
     def _build_tray(self) -> None:
         self._tray = QSystemTrayIcon(self._icon_stopped, self)
@@ -1216,10 +2000,10 @@ class MainWindow(QMainWindow):
             self._left_splitter.setSizes([HEADER_H, HEADER_H])
 
     def _toggle_body_collapsed(self) -> None:
-        """Collapse the whole body (rules / log / editor) into toolbar-only mode."""
-        if self._body_splitter.isVisible():
-            self._remembered_body_h = self._body_splitter.height()
-            self._body_splitter.setVisible(False)
+        """Collapse the whole body (tabs + their contents) into toolbar-only mode."""
+        if self._body_container.isVisible():
+            self._remembered_body_h = self._body_container.height()
+            self._body_container.setVisible(False)
             # Drop the min height so the window can shrink tight to the toolbar;
             # content margins (14 top + 14 bottom) + toolbar card (62) + chrome
             # fit into roughly 110 px.
@@ -1230,7 +2014,7 @@ class MainWindow(QMainWindow):
             self._collapse_btn.setToolTip("Expand window")
         else:
             self.setMinimumHeight(getattr(self, "_default_min_height", 240))
-            self._body_splitter.setVisible(True)
+            self._body_container.setVisible(True)
             self.resize(self.width(), 110 + self._remembered_body_h)
             self._collapse_btn.setIcon(FIF.UP)
             self._collapse_btn.setToolTip("Collapse to toolbar only")
@@ -1242,6 +2026,11 @@ class MainWindow(QMainWindow):
             return {
                 "interval_seconds": float(self._cfg.get("interval_seconds", 10.0)),
                 "rules": [dict(rule) for rule in self._cfg.get("rules", [])],
+                "bridge": dict(self._cfg.get("bridge", {})),
+                # Worker reads this to decide whether to run idle detection.
+                # Same boolean drives the FastAPI service, so detection and
+                # service start/stop in lockstep.
+                "bridge_active": self._bridge is not None,
             }
 
     def _persist(self) -> None:
@@ -1321,28 +2110,39 @@ class MainWindow(QMainWindow):
         rule = self._current_rule()
         if rule is None:
             self._clear_editor(); return
-        self._name_edit.setText(rule.get("name", ""))
-        self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
-        self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
-        self._text_edit.setText(rule.get("text", "continue"))
-        # Block the combo's signal so the programmatic update doesn't fire
-        # _on_template_selected and overwrite a colour rule's matcher.
-        self._template_combo.blockSignals(True)
-        self._template_combo.setCurrentText(rule.get("template_path") or "")
-        self._template_combo.blockSignals(False)
-        region = rule.get("search_region")
-        self._region_label.setText(
-            f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
-        )
-        self._update_action_fields()
-        self._update_match_preview()
+        # Suppress autosave while we programmatically populate the editor
+        # — otherwise switching rules would write the previous rule's
+        # values into the newly-selected rule.
+        self._suppress_autosave = True
+        try:
+            self._name_edit.setText(rule.get("name", ""))
+            self._threshold_spin.setValue(float(rule.get("threshold", 0.90)))
+            self._action_combo.setCurrentText(rule.get("action", ACTION_CLICK))
+            self._text_edit.setText(rule.get("text", "continue"))
+            # Block the combo's signal so the programmatic update doesn't fire
+            # _on_template_selected and overwrite a colour rule's matcher.
+            self._template_combo.blockSignals(True)
+            self._template_combo.setCurrentText(rule.get("template_path") or "")
+            self._template_combo.blockSignals(False)
+            region = rule.get("search_region")
+            self._region_label.setText(
+                f"{region[2]} × {region[3]} @ ({region[0]}, {region[1]})" if region else "All monitors"
+            )
+            self._update_action_fields()
+            self._update_match_preview()
+        finally:
+            self._suppress_autosave = False
 
     def _clear_editor(self) -> None:
-        self._name_edit.clear()
-        self._threshold_spin.setValue(0.90)
-        self._action_combo.setCurrentText(ACTION_CLICK)
-        self._text_edit.setText("continue")
-        self._template_combo.setCurrentText("")
+        self._suppress_autosave = True
+        try:
+            self._name_edit.clear()
+            self._threshold_spin.setValue(0.90)
+            self._action_combo.setCurrentText(ACTION_CLICK)
+            self._text_edit.setText("continue")
+            self._template_combo.setCurrentText("")
+        finally:
+            self._suppress_autosave = False
         self._region_label.setText("All monitors")
         self._update_action_fields()
         self._update_match_preview()
@@ -1388,6 +2188,28 @@ class MainWindow(QMainWindow):
             for pos, item in enumerate(self._cfg["rules"], start=1):
                 item["priority"] = pos
         self._persist(); self._refresh_rule_list(new_idx)
+
+    def _autosave_rule(self, *_args) -> None:
+        """Quietly persist the editor inputs to the active rule. Connected
+        to every editor field's change signal so the user never has to
+        hit Save. Suppressed during _load_selected_rule / _clear_editor
+        so programmatic input updates don't echo back into cfg."""
+        if getattr(self, "_suppress_autosave", False):
+            return
+        idx = self._current_rule_index()
+        if idx is None:
+            return
+        with self._cfg_lock:
+            rule = self._cfg["rules"][idx]
+            rule["name"] = self._name_edit.text().strip() or f"Rule {idx + 1}"
+            rule["threshold"] = max(0.0, min(1.0, float(self._threshold_spin.value())))
+            rule["action"] = (
+                self._action_combo.currentText()
+                if self._action_combo.currentText() in ACTION_TYPES
+                else ACTION_CLICK
+            )
+            rule["text"] = self._text_edit.text().strip() or "continue"
+        self._persist()
 
     def _save_selected_rule(self) -> bool:
         idx = self._current_rule_index()
@@ -1981,20 +2803,51 @@ class MainWindow(QMainWindow):
             summary = ", ".join(f"{name} ×{c}" for name, c in summaries.items())
             self._action_status.setText(summary)
             self._log(f"[tick] {summary}")
-        else:
+        elif results:
+            # Rules ran but didn't match. Show actual correlations so it's
+            # obvious *why* — wrong threshold, dimmed Cursor, occluded
+            # button, etc. all look identical without scores.
+            scores = ", ".join(
+                f"{r.get('name', '?')}={float(r.get('score', 0.0)):.3f}"
+                for r in results
+            )
             self._action_status.setText("no match")
-            self._log("[tick] no match")
+            self._log(f"[tick] no match (scores: {scores})")
+        # If results is empty too, rules either weren't attempted (bridge-
+        # only tick) or runtime_rules was filtered to zero — needs_rules
+        # already logged the explanation in the latter case, so stay quiet.
         self._next_tick_at = time.monotonic() + interval
 
     def _on_worker_error(self, message: str) -> None:
         self._log(f"[error] {message}")
 
     def _update_countdown(self) -> None:
+        # Engine countdown lives in the toolbar and only counts when
+        # rules are running.
         if self._running and self._next_tick_at is not None:
             remaining = max(0.0, float(self._next_tick_at) - time.monotonic())
             self._countdown_label.setText(f"{remaining:.1f}s")
         else:
             self._countdown_label.setText("")
+        # Bridge countdown lives next to the bridge switch status. It
+        # updates whenever the bridge is on, regardless of whether the
+        # engine is running — bridge ticks fire either way.
+        if (
+            getattr(self, "_bridge", None) is not None
+            and hasattr(self, "_bridge_switch_status")
+        ):
+            primary = getattr(self, "_bridge_primary_url", "") or ""
+            if primary:
+                # HTML anchor — the label is already in RichText mode and
+                # opens external links via the OS, so a click on this URL
+                # launches the user's default browser to the bridge page.
+                head = f'Running — <a href="{primary}" style="color: #4f9eff; font-weight: 600;">{primary}</a>'
+            else:
+                head = "Running"
+            if self._next_tick_at is not None:
+                remaining = max(0.0, float(self._next_tick_at) - time.monotonic())
+                head += f"  ·  next tick in {remaining:.0f}s"
+            self._bridge_switch_status.setText(head)
 
     # ---------- tray / window ----------
 
@@ -2031,10 +2884,381 @@ class MainWindow(QMainWindow):
         self._hotkey_stop.set()
         if IS_WINDOWS:
             self._post_wm_quit()
+        if self._bridge is not None:
+            try:
+                self._bridge.stop()
+            except Exception:
+                pass
         with self._cfg_lock:
             self._cfg["interval_seconds"] = float(self._interval_spin.value())
             save_config(self._cfg)
+        self._save_window_state()
         self._tray.hide()
+
+    # ---------- window state persistence (QSettings) ----------
+
+    def _collapsible_cards(self) -> dict:
+        """Map of stable key → CollapsibleCard for the cards we persist.
+        Built lazily because some attributes don't exist until the bridge
+        page or rule editor is built."""
+        return {
+            "rules_card": getattr(self, "_rules_card", None),
+            "log_card": getattr(self, "_log_card", None),
+            "basics_card": getattr(self, "_basics_card", None),
+            "match_card": getattr(self, "_match_card", None),
+            "scope_card": getattr(self, "_scope_card", None),
+            "bridge_tpl": getattr(self, "_bridge_tpl_card", None),
+            "bridge_win": getattr(self, "_bridge_win_card", None),
+            "bridge_log": getattr(self, "_bridge_log_card", None),
+        }
+
+    def _save_window_state(self) -> None:
+        """Persist window geometry + splitter sizes + each CollapsibleCard's
+        expanded state + active tab so the next launch picks up where this
+        one left off. Stored in QSettings (HKCU\\Software\\auto-press\\Auto
+        Press on Windows)."""
+        s = QSettings()
+        s.setValue("ui/geometry", self.saveGeometry())
+        if hasattr(self, "_body_splitter"):
+            s.setValue("ui/body_splitter", self._body_splitter.saveState())
+        if hasattr(self, "_left_splitter"):
+            s.setValue("ui/left_splitter", self._left_splitter.saveState())
+        if hasattr(self, "_bridge_left_splitter"):
+            s.setValue("ui/bridge_left_splitter", self._bridge_left_splitter.saveState())
+        if hasattr(self, "_bridge_body_splitter"):
+            s.setValue("ui/bridge_body_splitter", self._bridge_body_splitter.saveState())
+        if hasattr(self, "_tab_stack"):
+            s.setValue("ui/tab_index", int(self._tab_stack.currentIndex()))
+        for key, card in self._collapsible_cards().items():
+            if card is not None:
+                s.setValue(f"ui/{key}_expanded", bool(card.isExpanded()))
+
+    def _restore_window_state(self) -> None:
+        """Inverse of _save_window_state. Order matters:
+          1. Geometry (window size + position).
+          2. Card expanded states. Setting these fires expanded_changed,
+             which the rules + bridge collapse handlers use to clamp
+             max-height/width — that has to happen *before* splitter
+             restore so the splitter state we restore wins, not the
+             defaults the handlers reach for.
+          3. Splitter states.
+          4. Active tab.
+        """
+        s = QSettings()
+        geo = s.value("ui/geometry")
+        if geo is not None:
+            self.restoreGeometry(geo)
+
+        for key, card in self._collapsible_cards().items():
+            if card is None:
+                continue
+            v = s.value(f"ui/{key}_expanded")
+            if v is None:
+                continue
+            # On the registry backend QSettings returns native bools;
+            # on .ini it returns "true"/"false" strings.
+            expanded = v if isinstance(v, bool) else str(v).lower() == "true"
+            if card.isExpanded() != expanded:
+                card.setExpanded(expanded)
+
+        for key, attr in (
+            ("body_splitter", "_body_splitter"),
+            ("left_splitter", "_left_splitter"),
+            ("bridge_left_splitter", "_bridge_left_splitter"),
+            ("bridge_body_splitter", "_bridge_body_splitter"),
+        ):
+            sp = getattr(self, attr, None)
+            if sp is None:
+                continue
+            st = s.value(f"ui/{key}")
+            if st is not None:
+                sp.restoreState(st)
+
+        if hasattr(self, "_tab_stack"):
+            try:
+                idx = int(s.value("ui/tab_index", 0))
+            except (TypeError, ValueError):
+                idx = 0
+            idx = max(0, min(self._tab_stack.count() - 1, idx))
+            self._tab_stack.setCurrentIndex(idx)
+            if hasattr(self, "_tab_strip"):
+                self._tab_strip.setCurrentItem("bridge" if idx == 1 else "rules")
+
+    # ---------- bridge ----------
+
+    def _on_bridge_switch_toggled(self, checked: bool) -> None:
+        if checked:
+            self._start_bridge_service()
+        else:
+            self._stop_bridge_service()
+
+    def _start_bridge_service(self) -> None:
+        if self._bridge is not None and self._bridge.is_running():
+            return
+        # Cache the primary URL so the countdown can append "next tick
+        # in Xs" without losing the URL part of the status text.
+        self._bridge_primary_url = ""
+        try:
+            from press_bridge import BridgeCallbacks, BridgeService
+        except Exception as exc:
+            self._bridge_switch_status.setText(
+                "Stopped — install: uv sync --extra bridge"
+            )
+            self._bridge_log(f"cannot start: {exc}")
+            self._log(f"[bridge] cannot start ({exc})")
+            self._bridge_switch.blockSignals(True)
+            self._bridge_switch.setChecked(False)
+            self._bridge_switch.blockSignals(False)
+            return
+        bridge_cfg = dict(self._cfg.get("bridge") or {})
+        if self._bridge_host_override:
+            bridge_cfg["host"] = self._bridge_host_override
+        if self._bridge_port_override:
+            bridge_cfg["port"] = int(self._bridge_port_override)
+        callbacks = BridgeCallbacks(
+            cfg_snapshot=self._snapshot_cfg,
+            re_match_rule=self._bridge_re_match_rule,
+            perform_send=self._bridge_perform_send,
+            perform_window_send=self._bridge_perform_window_send,
+            perform_window_scroll=self._bridge_perform_window_scroll,
+            perform_read=None,
+            request_reload=self._bridge_request_reload,
+            is_rules_running=self._bridge_is_rules_running,
+            set_rules_running=self._bridge_set_rules_running,
+            rename_window=self._bridge_rename_window,
+        )
+        self._bridge = BridgeService(callbacks)
+        self._bridge.start(bridge_cfg)
+        # Fresh service → fresh tracking. The next worker tick treats
+        # every window as first-observed so we capture a snapshot even
+        # for windows that are already idle.
+        self._worker.reset_window_tracking()
+
+        urls = _bridge_urls(
+            str(bridge_cfg.get("host", "0.0.0.0")), int(bridge_cfg.get("port", 8765))
+        )
+        primary_url = urls[0] if urls else f"http://localhost:{bridge_cfg.get('port', 8765)}/"
+        self._bridge_primary_url = primary_url
+        self._bridge_switch_status.setText(
+            f'Running — <a href="{primary_url}" style="color: #4f9eff; font-weight: 600;">{primary_url}</a>'
+        )
+        self._log("[bridge] listening — open one of:")
+        print("[bridge] listening — open one of:", flush=True)
+        for url in urls:
+            self._log(f"  {url}")
+            print(f"  {url}", flush=True)
+        self._bridge_log(f"service started → {primary_url}")
+
+    def _bridge_request_reload(self) -> None:
+        """Called from the bridge's request handler thread when the phone
+        hits POST /api/admin/reload. We just emit a Qt signal so the
+        actual restart runs on the main thread."""
+        self.bridge_reload_requested.emit()
+
+    def _reload_bridge_service(self) -> None:
+        """Hot-reload the press_bridge module and restart the listener.
+
+        Strategy: try to importlib.reload() *before* tearing the running
+        service down. If the new code has a syntax error or import fails,
+        the existing service stays up — the user can keep the connection
+        and ssh in to fix the breakage. Only after a successful re-import
+        do we stop+start.
+        """
+        self._log("[bridge] reload requested")
+        self._bridge_log("reload requested — re-importing press_bridge…")
+        import importlib
+        try:
+            import press_bridge as _pb
+            importlib.reload(_pb)
+        except Exception as exc:
+            msg = f"reload aborted (import failed): {exc}"
+            self._log(f"[bridge] {msg}")
+            self._bridge_log(msg)
+            return
+        self._bridge_log("module re-imported, restarting listener…")
+        self._stop_bridge_service()
+        # Brief pause so uvicorn fully unwinds before we bind again.
+        QTimer.singleShot(500, self._start_bridge_service)
+
+    def _stop_bridge_service(self) -> None:
+        if self._bridge is None:
+            self._bridge_switch_status.setText(
+                "Stopped — toggle on to start the FastAPI service."
+            )
+            return
+        try:
+            self._bridge.stop()
+        except Exception as exc:
+            self._log(f"[bridge] stop failed: {exc}")
+            self._bridge_log(f"stop failed: {exc}")
+        finally:
+            self._bridge = None
+            self._bridge_primary_url = ""
+        self._bridge_switch_status.setText(
+            "Stopped — toggle on to start the FastAPI service."
+        )
+        self._log("[bridge] service stopped")
+        self._bridge_log("service stopped")
+
+    def _on_rule_matched(self, event: dict) -> None:
+        if self._bridge is None:
+            return
+        try:
+            self._bridge.publish_event(event)
+        except Exception as exc:
+            self._log(f"[bridge] publish failed: {exc}")
+
+    def _on_bridge_window_transition(self, state: dict) -> None:
+        name = state.get("name", "Cursor")
+        is_idle = bool(state.get("idle"))
+        score = float(state.get("score", 0.0))
+        verb = "busy → idle" if is_idle else "idle → busy"
+        self._log(f"[bridge] {name}: {verb} (score {score:.3f})")
+        self._bridge_log(f"{name}: {verb} (score {score:.3f})")
+
+    def _on_bridge_window_states(self, states: list, images: dict) -> None:
+        if self._bridge is None:
+            return
+        try:
+            self._bridge.update_window_states(states, images)
+        except Exception as exc:
+            self._log(f"[bridge] state push failed: {exc}")
+        # Log a one-liner per tick so the user can see the bridge is alive
+        # and watch idle/busy land on the desktop side too. Also confirms
+        # the phone *should* be receiving an update right now.
+        self._bridge_tick_count = getattr(self, "_bridge_tick_count", 0) + 1
+        configured = [s for s in states if s.get("configured")]
+        idle = sum(1 for s in configured if s.get("idle"))
+        busy = len(configured) - idle
+        self._bridge_log(
+            f"tick #{self._bridge_tick_count} · "
+            f"{len(states)} window{'' if len(states) == 1 else 's'} · "
+            f"{idle} idle · {busy} busy · {len(images)} snap{'' if len(images) == 1 else 's'}"
+        )
+
+    def _bridge_re_match_rule(self, rule_id: str) -> list[tuple[float, tuple[int, int]]]:
+        """Worker-thread callable: re-evaluate one rule and return raw matches."""
+        from press_engine import find_rule_matches as _find
+
+        cfg = self._snapshot_cfg()
+        rule = next((r for r in cfg.get("rules", []) if r.get("id") == rule_id), None)
+        if rule is None:
+            return []
+        runtime_rules = build_runtime_rules({"rules": [rule]})
+        if not runtime_rules:
+            return []
+        return _find(None, runtime_rules[0])
+
+    def _bridge_perform_send(
+        self,
+        paste_point: tuple[int, int],
+        text: str,
+        bridge_cfg: dict,
+    ) -> None:
+        """Worker-thread callable: click target, paste text, press Enter."""
+        from press_core import click_point, paste_text_and_enter
+
+        click_point(paste_point)
+        paste_text_and_enter(
+            text,
+            pre_paste_delay_ms=int(bridge_cfg.get("pre_paste_delay_ms", 150)),
+            clipboard_restore_delay_ms=int(bridge_cfg.get("clipboard_restore_delay_ms", 500)),
+        )
+
+    def _bridge_perform_window_scroll(
+        self, window: dict, amount: int, bridge_cfg: dict
+    ) -> None:
+        """Focus Cursor's chat history with a slow double-click and press
+        the Up arrow ``amount`` times to scroll roughly one screen.
+
+        Click target is 5% in from the left edge, 50% down — sits hard
+        against the gutter, well outside the chat text where a double-
+        click can highlight a word or follow a hyperlink. (10% used to
+        catch text occasionally on narrow Cursor windows.) The bridge
+        endpoint then schedules a snapshot recapture so the phone
+        shows the scrolled view.
+        """
+        from press_core import focus_and_press_up
+
+        region = window.get("region")
+        if not region or len(region) != 4:
+            return
+        x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
+        target = (x + int(w * 0.05), y + h // 2)
+        focus_and_press_up(target, int(amount))
+
+    def _bridge_is_rules_running(self) -> bool:
+        """Read the engine running flag — called from the bridge's request
+        handler thread. self._running is updated on the main thread via
+        running_changed; reading a Python bool from another thread is
+        atomic, no lock needed."""
+        return bool(getattr(self, "_running", False))
+
+    def _bridge_set_rules_running(self, running: bool) -> None:
+        """Marshal the toggle request from the bridge thread to the main
+        thread. The actual flip happens in _set_rules_running_remote
+        because Qt UI mutations need to be on the GUI thread."""
+        self.bridge_set_rules_requested.emit(bool(running))
+
+    def _set_rules_running_remote(self, running: bool) -> None:
+        if running == bool(getattr(self, "_running", False)):
+            return  # already in the requested state — no-op
+        self._toggle_running()
+
+    def _bridge_rename_window(self, window_id: str, new_name: str) -> bool:
+        """Phone hit PUT /api/windows/{id}/name. Mutate the config under
+        the cfg lock, persist to disk, then queue a UI refresh on the
+        main thread. Returns True if the window was found."""
+        found = False
+        with self._cfg_lock:
+            for w in self._cfg.get("bridge", {}).get("windows", []):
+                if w.get("id") == window_id:
+                    w["name"] = new_name
+                    found = True
+                    break
+        if found:
+            self._persist()
+            self.bridge_window_renamed_remote.emit(window_id, new_name)
+        return found
+
+    def _on_bridge_window_renamed_remote(self, window_id: str, new_name: str) -> None:
+        self._refresh_bridge_windows_table()
+        self._bridge_log(f"renamed via web → '{new_name}'")
+
+    def _bridge_perform_window_send(
+        self, window: dict, text: str, bridge_cfg: dict
+    ) -> None:
+        """Click into a Cursor window's chat input, paste text, press Enter.
+
+        Click target is window['chat_target'] when set; otherwise we fall
+        back to the centre of the bottom 15% of the region — a reasonable
+        default for Cursor's chat input position.
+        """
+        from press_core import click_point, paste_text_and_enter
+
+        target = window.get("chat_target")
+        if not target:
+            region = window.get("region")
+            if not region or len(region) != 4:
+                self._log(
+                    f"[bridge] cannot send to '{window.get('name','?')}' — no region"
+                )
+                return
+            x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
+            target = (x + w // 2, y + int(h * 0.85))
+        click_point((int(target[0]), int(target[1])))
+        paste_text_and_enter(
+            text,
+            pre_paste_delay_ms=int(bridge_cfg.get("pre_paste_delay_ms", 150)),
+            clipboard_restore_delay_ms=int(bridge_cfg.get("clipboard_restore_delay_ms", 500)),
+        )
+        # Mirror to the bridge log so the user can confirm a send fired.
+        QTimer.singleShot(
+            0,
+            lambda: self._bridge_log(
+                f"sent to '{window.get('name','?')}': {text[:40]}{'…' if len(text) > 40 else ''}"
+            ),
+        )
 
     # ---------- global hotkey ----------
 

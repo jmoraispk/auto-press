@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=23">
+  <title>auto-press</title>
+</head>
+<body>
+  <header>
+    <h1>auto-press</h1>
+    <span id="freshness" class="freshness" aria-live="polite" title="Time since last bridge update">—</span>
+    <button id="settings-btn" class="ghost icon" aria-label="Settings" aria-expanded="false">⚙</button>
+  </header>
+
+  <section id="settings-panel" hidden>
+    <div class="setting">
+      <span class="setting-name">Rules automation</span>
+      <button id="rules-toggle" class="ghost">off</button>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Notifications</span>
+      <button id="notif-toggle" class="ghost">off</button>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Auto-refresh page</span>
+      <button id="autoreload-toggle" class="ghost">off</button>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Reload bridge service</span>
+      <button id="reload-btn" class="ghost">Reload</button>
+    </div>
+    <p class="muted setting-hint">
+      Rules automation toggles the desktop Start button — pause auto-clicking
+      while reading the agent's output, resume when done. Auto-refresh re-fetches
+      window state on the bridge tick cadence (no page flash; backup for when
+      SSE drops). Reload re-imports <code>press_bridge.py</code> and restarts
+      the listener.
+    </p>
+  </section>
+
+  <main>
+    <section id="windows-section">
+      <ul id="windows" aria-label="Cursor windows"></ul>
+      <p id="empty-hint" class="muted" hidden>
+        No windows yet. Open the desktop app, switch to the Bridge tab, capture
+        an idle template, add a window, and turn the Bridge service on.
+      </p>
+    </section>
+
+    <section id="snapshots-section" hidden>
+      <h2 id="snap-window-name"></h2>
+
+      <div id="composer">
+        <textarea id="send-text" rows="3" placeholder="Paste, type, or leave empty (just clicks + Enter)."></textarea>
+        <div class="row">
+          <button id="send-go" class="primary">Send</button>
+        </div>
+        <p id="send-status" class="status"></p>
+      </div>
+
+      <div id="queue-section" hidden>
+        <h3>Queued <span id="queue-count" class="muted"></span></h3>
+        <ul id="queue-list"></ul>
+        <button id="queue-clear" class="ghost">Clear queue</button>
+      </div>
+
+      <div id="scroll-controls">
+        <button class="primary scroll-btn" data-amount="15">
+          <span class="arrow" aria-hidden="true">↑</span>
+          <span>Scroll up &amp; screenshot</span>
+        </button>
+        <button id="recapture-btn" class="ghost scroll-btn" title="Capture a fresh screenshot without scrolling">
+          <span class="arrow" aria-hidden="true">↻</span>
+          <span>New screenshot</span>
+        </button>
+      </div>
+
+      <h3 class="section-h">Last snapshot</h3>
+      <p id="snap-empty" class="muted" hidden>
+        No snapshot yet — captured each time the window flips busy → idle.
+      </p>
+      <div id="snapshots"></div>
+    </section>
+  </main>
+
+  <div id="lightbox" hidden role="dialog" aria-modal="true">
+    <button id="lightbox-close" class="ghost" aria-label="Close">×</button>
+    <button id="lightbox-prev" class="ghost lightbox-nav" aria-label="Previous snapshot">‹</button>
+    <button id="lightbox-next" class="ghost lightbox-nav" aria-label="Next snapshot">›</button>
+    <span id="lightbox-counter" aria-live="polite"></span>
+    <img id="lightbox-img" alt="">
+  </div>
+
+  <script src="/static/app.js?v=23"></script>
+</body>
+</html>

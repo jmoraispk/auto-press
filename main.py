@@ -73,15 +73,47 @@ def main() -> None:
         default=10.0,
         help="Default scan interval in seconds. Default: 10",
     )
+    parser.add_argument(
+        "--bridge",
+        action="store_true",
+        help="Start the optional remote bridge (FastAPI + phone PWA). Off by default.",
+    )
+    parser.add_argument(
+        "--activate",
+        action="store_true",
+        help="Start scanning rules immediately at launch (same as clicking Start).",
+    )
+    parser.add_argument(
+        "--bridge-host",
+        default=None,
+        help="Override the bridge bind host (default from config: 0.0.0.0).",
+    )
+    parser.add_argument(
+        "--bridge-port",
+        type=int,
+        default=None,
+        help="Override the bridge port (default from config: 8765).",
+    )
     args = parser.parse_args()
     if args.seconds <= 0:
         raise SystemExit("seconds must be > 0")
 
     app = QApplication(sys.argv)
     app.setApplicationName("Auto Press")
+    # Organization name is required for QSettings to land in a stable
+    # location (HKCU\Software\auto-press\Auto Press on Windows). Without
+    # it, QSettings falls back to a "Unknown Organization" key per Qt
+    # version and our window-state persistence wouldn't survive upgrades.
+    app.setOrganizationName("auto-press")
     app.setQuitOnLastWindowClosed(False)
 
-    window = MainWindow(initial_seconds=float(args.seconds))
+    window = MainWindow(
+        initial_seconds=float(args.seconds),
+        bridge_enabled=args.bridge,
+        bridge_host=args.bridge_host,
+        bridge_port=args.bridge_port,
+        auto_activate=args.activate,
+    )
     window.show()
     _keepalive = _install_sigint(app, window)
     sys.exit(app.exec())
