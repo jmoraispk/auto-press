@@ -144,24 +144,23 @@ function renderInstallLines(entry) {
 
   if (requestBtn) {
     requestBtn.addEventListener("click", () => {
+      // Open a GitHub issue with the platform name pre-filled. The
+      // page no longer has a feedback textarea to fall back on, so
+      // this button now goes straight to the issue tracker — same
+      // outcome, fewer clicks.
       const label = PLATFORM_LABEL[term.dataset.platform] || term.dataset.platform;
-      const text = $("fr-text");
-      if (text) {
-        text.value =
-          `Please add tested support for ${label}.\n\n` +
-          `Today the engine relies on Win32 APIs (per-monitor DPI, ` +
-          `RegisterHotKey, EnumDisplayMonitors). Happy to help test if a ` +
-          `port lands.`;
-        // Trigger the input handler so the feedback channel hrefs pick
-        // up the new body without a manual key press.
-        text.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      const target = $("request");
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-      // Focus the textarea after the smooth scroll has had a moment to
-      // start — focusing immediately would jerk the page to the input
-      // and override the smooth scroll on some browsers.
-      setTimeout(() => text && text.focus(), 400);
+      const title = encodeURIComponent(`Add tested support for ${label}`);
+      const body = encodeURIComponent(
+        `Please add tested support for ${label}.\n\n` +
+        `Today the engine relies on Win32 APIs (per-monitor DPI, ` +
+        `RegisterHotKey, EnumDisplayMonitors). Happy to help test ` +
+        `if a port lands.`
+      );
+      window.open(
+        `https://github.com/${REPO}/issues/new?title=${title}&body=${body}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
     });
   }
 
@@ -210,35 +209,9 @@ function renderInstallLines(entry) {
 
 // ---- Feature-request channels ----------------------------------------
 //
-// Two real <a href> links instead of buttons-that-trigger-window.open —
-// popup blockers and "nothing happened" feedback go away because click
-// is just normal navigation. We keep the link hrefs in sync with the
-// textarea so whatever the user typed travels with them to GitHub or
-// their mail client. Empty textarea is fine: the link still works and
-// the destination form stays empty.
-
-(function wireFeatureRequest() {
-  const text = $("fr-text");
-  const emailLink = $("channel-email");
-  const issueLink = $("channel-issue");
-  if (!text || !emailLink || !issueLink) return;
-
-  const subject = encodeURIComponent("CodeAway — feature request");
-
-  function sync() {
-    const body = text.value;
-    const enc = body ? encodeURIComponent(body) : "";
-    emailLink.href = body
-      ? `mailto:${CONTACT_EMAIL}?subject=${subject}&body=${enc}`
-      : `mailto:${CONTACT_EMAIL}?subject=${subject}`;
-    issueLink.href = body
-      ? `https://github.com/${REPO}/issues/new?body=${enc}`
-      : `https://github.com/${REPO}/issues/new`;
-  }
-
-  text.addEventListener("input", sync);
-  sync();
-})();
+// Stripped down: the page now ships a single static <a> linking to
+// https://github.com/.../issues/new. No textarea, no email channel,
+// no JS wiring needed.
 
 // ---- Why-section timeline reveal -------------------------------------
 //
