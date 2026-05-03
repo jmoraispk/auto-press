@@ -142,7 +142,6 @@
     <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">install.ps1</a>
     ·
     <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.sh" target="_blank" rel="noopener">install.sh</a>.
-    No backend, no telemetry, no credentials.
   </p>
 </section>
 
@@ -159,6 +158,23 @@
   </header>
 
   <div class="timeline-card">
+    <!-- Time axis spans the track column only — six 3-hour ticks
+         from 6 am to 9 pm. The empty cells on either side keep the
+         tick marks aligned with the bars below regardless of the
+         row label width or the hours-total cell on the right. -->
+    <div class="timeline-axis-row" aria-hidden="true">
+      <span></span>
+      <div class="timeline-axis">
+        <span>6 am</span>
+        <span>9 am</span>
+        <span>12 pm</span>
+        <span>3 pm</span>
+        <span>6 pm</span>
+        <span>9 pm</span>
+      </div>
+      <span></span>
+    </div>
+
     <div class="timeline-row without">
       <div class="row-label">
         <span class="row-figure" aria-hidden="true">
@@ -182,17 +198,17 @@
         Tied to the desk
       </div>
       <div class="track" role="presentation">
-        <span class="bar-hours">~6 h</span>
-        <!-- Track represents a full day, ~7 am–7 pm. Blocks stay
-             confined to roughly 25–80% (a workday's 9-to-5 window),
-             summing to ~6 h of agent activity inside that band. The
-             empty edges visualise "you only worked while at the
-             desk". -->
-        <div class="block" style="--start: 26%; --end: 36%"></div>
-        <div class="block" style="--start: 39%; --end: 47%"></div>
-        <div class="block" style="--start: 51%; --end: 60%"></div>
-        <div class="block" style="--start: 63%; --end: 71%"></div>
-        <div class="block" style="--start: 73%; --end: 79%"></div>
+        <!-- Blocks stay inside ~22%–73% of the track — the 9 am to
+             5 pm window of a 6 am–9 pm day. Four ~10% blocks add up
+             to ~6 hours of agent activity inside that workday. -->
+        <div class="block" style="--start: 22%; --end: 32%"></div>
+        <div class="block" style="--start: 36%; --end: 46%"></div>
+        <div class="block" style="--start: 50%; --end: 60%"></div>
+        <div class="block" style="--start: 63%; --end: 73%"></div>
+      </div>
+      <div class="total-hours">
+        <span class="total-hours-num">6</span>
+        <span class="total-hours-unit">h</span>
       </div>
     </div>
 
@@ -226,34 +242,35 @@
         Walk while it works
       </div>
       <div class="track" role="presentation">
-        <span class="bar-hours">~12 h</span>
-        <div class="block" style="--start: 0%; --end: 100%"></div>
+        <!-- Bar covers ~7 am to ~7 pm of the 6 am–9 pm track (5–85% =
+             80% wide ≈ 12 hours). Markers fall inside that span, with
+             the walk just after 7 am, lunch around midday, and the
+             car ride near the 6 pm shoulder. -->
+        <div class="block" style="--start: 5%; --end: 85%"></div>
         <ul class="markers">
-          <!-- Markers spread across the full ~12 h track. Walk lands
-               in the morning shoulder (before the 9 am Without window),
-               lunch in the middle, Uber in the evening shoulder
-               (after the 5 pm Without window) — visualising that the
-               With timeline covers the parts of the day a desk-bound
-               developer can't. -->
-          <li class="marker" style="left: 12%">
+          <li class="marker" style="left: 8%">
             <span class="marker-icon" aria-hidden="true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="m15 22-2-7 3-3 3 4 3 1"/><path d="M9 11 5 9 4 5"/><path d="M11 13 7 9l-2 2-2-1"/><path d="m11 13-2 4-3 1"/></svg>
             </span>
             walk
           </li>
-          <li class="marker" style="left: 49%">
+          <li class="marker" style="left: 42%">
             <span class="marker-icon" aria-hidden="true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6 2v3"/><path d="M10 2v3"/><path d="M14 2v3"/></svg>
             </span>
             lunch
           </li>
-          <li class="marker" style="left: 88%">
+          <li class="marker" style="left: 80%">
             <span class="marker-icon" aria-hidden="true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
             </span>
             car ride
           </li>
         </ul>
+      </div>
+      <div class="total-hours">
+        <span class="total-hours-num">12</span>
+        <span class="total-hours-unit">h</span>
       </div>
     </div>
   </div>

@@ -678,19 +678,42 @@ code {
   margin-bottom: 56px;
 }
 
-.timeline-row {
+/* Axis row sits above the rows with the same column structure so
+   the tick marks line up with the start/end of the bars exactly. */
+.timeline-axis-row {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 200px 1fr 96px;
   align-items: center;
   gap: 22px;
-  /* Extra top padding leaves room for the absolute-positioned hours
-     label (~6 h / ~12 h) above each bar. */
-  padding: 30px 0 22px;
+  margin-bottom: 8px;
+}
+.timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
+}
+/* Tick labels sit centred on their position; tweak so 6 am hugs the
+   left edge and 9 pm hugs the right edge — otherwise the leftmost
+   label slides left of the bar's 0% and the rightmost slides past
+   100%. */
+.timeline-axis span:first-child { transform: translateX(0); }
+.timeline-axis span:last-child  { transform: translateX(0); }
+
+.timeline-row {
+  display: grid;
+  grid-template-columns: 200px 1fr 96px;
+  align-items: center;
+  gap: 22px;
+  padding: 22px 0;
   border-top: 1px solid var(--line);
 }
 .timeline-row:first-of-type { border-top: none; padding-top: 14px; }
 
 @media (max-width: 780px) {
+  .timeline-axis-row { display: none; }
   .timeline-row {
     grid-template-columns: 1fr;
     gap: 14px;
@@ -894,21 +917,32 @@ code {
 }
 .marker-icon { display: inline-flex; color: var(--accent); }
 
-/* Hours label hovering above the right edge of each bar — replaces
-   the third grid column from the previous design. Top-positioned so
-   it sits in the gap above the track without colliding with the bar
-   itself or the markers below. */
-.bar-hours {
-  position: absolute;
-  top: -22px;
-  right: 0;
+/* Total-hours stat in the third grid column — large numeric so the
+   contrast between 6 and 12 hits at a glance, the row's role tag
+   colour tints the unit so it's visually paired with its bar. */
+.total-hours {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
   font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
-.timeline-row.without .bar-hours { color: rgba(252, 165, 165, 0.95); }
-.timeline-row.with    .bar-hours { color: #86efac; }
+.total-hours-num {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+}
+.total-hours-unit {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-mute);
+}
+.timeline-row.without .total-hours-num { color: rgba(252, 165, 165, 0.95); }
+.timeline-row.with    .total-hours-num { color: #86efac; }
+@media (max-width: 780px) {
+  .total-hours { justify-content: flex-start; }
+}
 
 .why-points {
   display: grid;

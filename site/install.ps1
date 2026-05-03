@@ -4,7 +4,7 @@
 #   1. Installs uv (Astral's Python package manager) if missing.
 #   2. Clones https://github.com/jmoraispk/codeaway into ~\codeaway
 #      (or git pulls if the directory already exists).
-#   3. Runs `uv sync --extra bridge` to materialise dependencies into
+#   3. Runs `uv sync` to materialise dependencies into
 #      the local .venv. Nothing is installed system-wide.
 #   4. Prints how to launch the app — does NOT auto-launch, so you
 #      can read what's about to happen first.
@@ -63,10 +63,10 @@ if (Test-Path $InstallDir) {
 }
 
 # -- 3. dependencies ------------------------------------------------
-Write-Step "Syncing dependencies (uv sync --extra bridge)"
+Write-Step "Syncing dependencies (uv sync)"
 Push-Location $InstallDir
 try {
-    uv sync --extra bridge
+    uv sync
 } finally {
     Pop-Location
 }
@@ -78,7 +78,7 @@ Write-Ok " CodeAway installed."
 Write-Host ""
 Write-Host " Run it:"
 Write-Host "   cd $InstallDir"
-Write-Host "   uv run main.py --bridge --activate"
+Write-Host "   uv run main.py"
 Write-Host ""
 Write-Host " Update later: cd $InstallDir; git pull; uv sync"
 Write-Host " Source:       https://github.com/jmoraispk/codeaway"

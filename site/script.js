@@ -47,9 +47,9 @@ const INSTALL = {
       lines: [
         { type: "cmd", text: "git clone https://github.com/jmoraispk/codeaway.git" },
         { type: "cmd", text: "cd codeaway" },
-        { type: "cmd", text: "uv sync --extra bridge",
+        { type: "cmd", text: "uv sync",
           trail: '# install uv: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"' },
-        { type: "cmd", text: "uv run main.py --bridge --activate" },
+        { type: "cmd", text: "uv run main.py" },
       ],
     },
     unix: {
@@ -57,9 +57,9 @@ const INSTALL = {
       lines: [
         { type: "cmd", text: "git clone https://github.com/jmoraispk/codeaway.git" },
         { type: "cmd", text: "cd codeaway" },
-        { type: "cmd", text: "uv sync --extra bridge",
+        { type: "cmd", text: "uv sync",
           trail: "# install uv: curl -LsSf https://astral.sh/uv/install.sh | sh" },
-        { type: "cmd", text: "uv run main.py --bridge --activate" },
+        { type: "cmd", text: "uv run main.py" },
       ],
     },
   },

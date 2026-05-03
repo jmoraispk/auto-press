@@ -85,19 +85,22 @@ A tiny FastAPI server you can opt into so a phone over Tailscale becomes a remot
 - 🖼️ **Snapshot lightbox** — every busy → idle (and every scroll) saves a tile; tap to expand, swipe to step through.
 - 📲 **PWA install + push** — "Add to Home Screen" for a fullscreen app, optional ntfy notifications when a window flips idle.
 
-The bridge is **off by default** and adds no overhead until you pass `--bridge`.
+The bridge is **on by default**. Pass `--no-bridge` if you want a rules-only run.
 
 ### Enable it
 
 ```bash
-uv sync --extra bridge
-uv run main.py --bridge --activate
+uv sync
+uv run main.py
 ```
 
-`--bridge` starts the FastAPI listener and unlocks the **Bridge** tab in the desktop UI. `--activate` is a convenience: same as clicking Start at launch. Optional bind overrides:
+The Bridge tab in the desktop UI lets you capture the idle template and add windows; the FastAPI listener boots in the background. Optional flags:
 
 ```bash
-uv run main.py --bridge --bridge-host 127.0.0.1 --bridge-port 8765
+uv run main.py --no-bridge                    # rules-only, no FastAPI listener
+uv run main.py --no-activate                  # launch idle, click Start when ready
+uv run main.py --bridge-host 127.0.0.1        # bind to loopback only
+uv run main.py --bridge-port 8765             # override default port
 ```
 
 Once running, open `http://<windows-tailscale-name>:8765` from the phone. Use the browser's share/install icon to add the PWA to the home screen — it runs in standalone display mode.

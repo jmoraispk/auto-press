@@ -8,7 +8,8 @@
 #
 # What this script does:
 #   1. Finds python.exe processes whose command line contains
-#      `main.py --bridge`.
+#      `main.py` (the bridge is on by default now, so we don't grep
+#      for the flag).
 #   2. Stop-Process -Force on each (Qt subprocess dies with the parent).
 #   3. Waits for the bridge port to free (up to 10 s).
 #   4. Re-launches detached using the project's .venv\Scripts\python.exe
@@ -55,8 +56,7 @@ Step "Looking for running CodeAway"
 $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
     Where-Object {
         $_.CommandLine -and
-        $_.CommandLine -like "*main.py*" -and
-        $_.CommandLine -like "*--bridge*"
+        $_.CommandLine -like "*main.py*"
     }
 
 if ($procs) {
@@ -90,10 +90,10 @@ if ($procs) {
 #    uv's wrapper (no stray cmd window for `uv run`). -WindowStyle Hidden
 #    keeps the python console off-screen so the user only sees the Qt
 #    window come up.
-Step "Launching $python main.py --bridge --activate (hidden console)"
+Step "Launching $python main.py (hidden console)"
 Start-Process `
     -FilePath $python `
-    -ArgumentList "main.py", "--bridge", "--activate" `
+    -ArgumentList "main.py" `
     -WorkingDirectory $RepoDir `
     -WindowStyle Hidden | Out-Null
 

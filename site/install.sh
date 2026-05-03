@@ -62,8 +62,8 @@ else
 fi
 
 # -- 3. dependencies -------------------------------------------------
-step "Syncing dependencies (uv sync --extra bridge)"
-( cd "$INSTALL_DIR" && uv sync --extra bridge )
+step "Syncing dependencies (uv sync)"
+( cd "$INSTALL_DIR" && uv sync )
 
 # -- 4. done ---------------------------------------------------------
 echo
@@ -77,5 +77,5 @@ warn "   https://github.com/jmoraispk/codeaway/issues"
 echo
 echo " Run it (will likely fail today):"
 echo "   cd $INSTALL_DIR"
-echo "   uv run main.py --bridge --activate"
+echo "   uv run main.py"
 ok "================================================================"

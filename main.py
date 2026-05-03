@@ -73,15 +73,34 @@ def main() -> None:
         default=10.0,
         help="Default scan interval in seconds. Default: 10",
     )
+    # Bridge + auto-activate are on by default — they're the product.
+    # Use the --no-* flags below to opt out (headless rule-only use,
+    # or launching the UI without immediately scanning).
     parser.add_argument(
         "--bridge",
+        dest="bridge",
         action="store_true",
-        help="Start the optional remote bridge (FastAPI + phone PWA). Off by default.",
+        default=True,
+        help="Start the remote bridge (FastAPI + phone PWA). Default: on.",
+    )
+    parser.add_argument(
+        "--no-bridge",
+        dest="bridge",
+        action="store_false",
+        help="Skip the bridge service for this run.",
     )
     parser.add_argument(
         "--activate",
+        dest="activate",
         action="store_true",
-        help="Start scanning rules immediately at launch (same as clicking Start).",
+        default=True,
+        help="Start scanning rules immediately at launch. Default: on.",
+    )
+    parser.add_argument(
+        "--no-activate",
+        dest="activate",
+        action="store_false",
+        help="Launch the UI in stopped state — click Start when ready.",
     )
     parser.add_argument(
         "--bridge-host",

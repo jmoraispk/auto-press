@@ -12,14 +12,15 @@ dependencies = [
     "pyside6>=6.6.0",
     "pyside6-fluent-widgets>=1.11.2",
     "pytest>=8.0.0",
-]
-
-[project.optional-dependencies]
-bridge = [
+    # Phone-bridge stack — folded into the main dep list because the
+    # bridge is the headline feature, not an optional add-on. Adds
+    # ~10 MB of wheels; trivial at modern install scales.
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "httpx>=0.27",
 ]
+
+[project.optional-dependencies]
 ocr = [
     "pytesseract>=0.3.10",
 ]
