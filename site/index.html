@@ -14,8 +14,11 @@
   <meta property="og:url" content="https://codeaway.dev/">
   <meta property="og:title" content="CodeAway — Code away from your desk.">
   <meta property="og:description" content="Open-source automation for IDEs and AI agents. Walk away from your desk; your agents won't.">
-  <meta property="og:image" content="https://codeaway.dev/assets/auto-press-ui.jpg">
-  <meta property="og:image:alt" content="CodeAway desktop UI on Windows">
+  <meta property="og:image" content="https://codeaway.dev/assets/og.svg">
+  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="CodeAway — phone controlling laptop with the agent's Continue button">
   <!-- Twitter has its own card spec; setting summary_large_image asks
        for the big preview. og:* fields above already cover most of
        what Twitter needs, but it falls back to twitter:* when
@@ -23,7 +26,7 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="CodeAway — Code away from your desk.">
   <meta name="twitter:description" content="Open-source automation for IDEs and AI agents. Walk away from your desk; your agents won't.">
-  <meta name="twitter:image" content="https://codeaway.dev/assets/auto-press-ui.jpg">
+  <meta name="twitter:image" content="https://codeaway.dev/assets/og.svg">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="apple-touch-icon" href="favicon.svg">
   <link rel="mask-icon" href="favicon.svg" color="#7da7e8">
@@ -101,9 +104,68 @@
     <span class="compat-tail">— anything that pops a "Continue" button.</span>
   </p>
 
-  <div class="hero-shot">
-    <div class="hero-shot-glow" aria-hidden="true"></div>
-    <img src="assets/auto-press-ui.jpg" alt="CodeAway desktop UI on Windows" loading="lazy">
+  <!-- Hero scene: a synthetic "phone controls laptop" tableau that
+       replaces the static UI screenshot until real product shots
+       land. Pure CSS + a single inline SVG for the beam — no extra
+       assets, no JS. The only animation is the beam particle and a
+       matching glow on the laptop's Continue button + the phone's
+       send button; both UIs are otherwise static so the scene reads
+       as a frame, not a competing demo. -->
+  <div class="hero-scene" aria-hidden="true">
+    <div class="scene-glow"></div>
+
+    <div class="scene-laptop">
+      <div class="laptop-frame">
+        <div class="laptop-screen">
+          <div class="laptop-titlebar">
+            <i></i><i></i><i></i>
+            <span class="laptop-title">Cursor — main</span>
+          </div>
+          <div class="laptop-content">
+            <div class="laptop-msg laptop-msg-user">Refactor <code>press_engine.py</code> to use protocols.</div>
+            <div class="laptop-msg laptop-msg-agent">Updated <code>press_engine.py</code>. Apply this change?</div>
+            <button class="laptop-btn">Continue</button>
+          </div>
+        </div>
+      </div>
+      <div class="laptop-base"></div>
+    </div>
+
+    <svg class="scene-beam" viewBox="0 0 200 80" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="beam-grad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#7da7e8" stop-opacity="0"/>
+          <stop offset="50%" stop-color="#7da7e8" stop-opacity="1"/>
+          <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <line x1="6" y1="40" x2="194" y2="40" stroke="rgba(125, 167, 232, 0.18)" stroke-width="1.4"/>
+      <line x1="6" y1="40" x2="194" y2="40" stroke="url(#beam-grad)" stroke-width="2.4"
+            stroke-dasharray="34 200" class="beam-particle"/>
+    </svg>
+
+    <div class="scene-phone">
+      <div class="phone-bezel">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="phone-status">
+            <span>9:41</span>
+            <span class="phone-status-dots"><i></i><i></i><i></i></span>
+          </div>
+          <div class="phone-app">CodeAway</div>
+          <div class="phone-window">
+            <span class="phone-window-dot"></span>
+            <span class="phone-window-name">Cursor — main</span>
+          </div>
+          <div class="phone-composer">
+            <span class="phone-typed">Continue with the refactor</span>
+            <span class="phone-send">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 

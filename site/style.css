@@ -413,36 +413,308 @@ code {
   color: var(--fg-faint);
 }
 
-/* ---- Hero shot -------------------------------------------------- */
-.hero-shot {
+/* ---- Hero scene (laptop + beam + phone) ------------------------ */
+/* A synthetic "phone controls laptop" tableau replacing the previous
+   static screenshot. Pure CSS + one inline SVG. The laptop tilts
+   slightly on perspective for depth; the phone sits flat next to it.
+   On narrow viewports the beam and phone hide and the laptop scales
+   to full width, since the hero's job at that size is the headline,
+   not the picture. */
+.hero-scene {
   position: relative;
-  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
   max-width: 1080px;
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  background: #000;
-  box-shadow:
-    0 30px 80px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  margin: 0 auto;
+  padding: 20px 0 10px;
+}
+.scene-glow {
+  position: absolute;
+  inset: -25% -10%;
+  z-index: -1;
+  background:
+    radial-gradient(closest-side at 35% 50%, rgba(125, 167, 232, 0.28), transparent 70%),
+    radial-gradient(closest-side at 78% 50%, rgba(167, 139, 250, 0.20), transparent 70%);
+  filter: blur(50px);
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* Laptop ---------------------------------------------------------- */
+.scene-laptop {
+  flex: 1 1 auto;
+  position: relative;
+  /* Same subtle tilt the previous screenshot had — straightens on
+     hover so the chat reads naturally if the user inspects it. */
   transform: perspective(1800px) rotateX(2deg);
   transition: transform var(--t-med);
 }
-.hero-shot:hover { transform: perspective(1800px) rotateX(0deg); }
-.hero-shot img {
-  display: block;
-  width: 100%;
-  height: auto;
+.scene-laptop:hover { transform: perspective(1800px) rotateX(0deg); }
+.laptop-frame {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, #0e1118, #050608);
+  padding: 12px;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
-.hero-shot-glow {
+/* Tiny "hinge" line under the screen — sells it as a laptop without
+   committing to a full chassis illustration. */
+.laptop-base {
+  height: 6px;
+  width: 32%;
+  margin: 4px auto 0;
+  background: linear-gradient(180deg, var(--line-strong), transparent);
+  border-radius: 0 0 6px 6px;
+  opacity: 0.6;
+}
+
+.laptop-screen {
+  background: #0e1118;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  flex-direction: column;
+}
+.laptop-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.laptop-titlebar i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.laptop-titlebar i:nth-child(1) { background: rgba(255, 95, 87, 0.85); }
+.laptop-titlebar i:nth-child(2) { background: rgba(254, 188, 46, 0.85); }
+.laptop-titlebar i:nth-child(3) { background: rgba(40, 200, 64, 0.85); }
+.laptop-title {
+  margin-left: 12px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+
+.laptop-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: clamp(20px, 3vw, 36px);
+}
+.laptop-msg {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: clamp(11px, 1.05vw, 13px);
+  line-height: 1.45;
+  max-width: 78%;
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+.laptop-msg-user {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg-mute);
+  align-self: flex-end;
+}
+.laptop-msg-agent {
+  background: rgba(125, 167, 232, 0.08);
+  border: 1px solid rgba(125, 167, 232, 0.18);
+  color: var(--fg);
+  align-self: flex-start;
+}
+.laptop-msg code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.92em;
+}
+.laptop-btn {
+  align-self: flex-end;
+  margin-top: auto;
+  background: var(--accent);
+  color: #08080b;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: clamp(11px, 1.05vw, 13px);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: default;
+  /* Pulses on the same 3.2 s cadence as the beam, peaking just as the
+     particle reaches the laptop end of the line — visualises the
+     phone's "send" arriving and triggering the click. */
+  animation: laptopBtnPulse 3.2s linear infinite;
+}
+@keyframes laptopBtnPulse {
+  0%, 55%, 100% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
+  72% {
+    box-shadow:
+      0 0 0 8px rgba(125, 167, 232, 0.35),
+      0 0 18px 2px rgba(125, 167, 232, 0.5);
+    transform: translateY(0.5px);
+  }
+  84% { box-shadow: 0 0 0 4px rgba(125, 167, 232, 0); }
+}
+
+/* Beam ------------------------------------------------------------ */
+.scene-beam {
+  flex: 0 0 auto;
+  width: 90px;
+  height: 80px;
+}
+.beam-particle {
+  /* Single 34 px-long bright dash that travels along a 200 px-long
+     gap, looping. With a centred gradient stroke, the dash reads as a
+     glowing particle moving phone → laptop. */
+  animation: beamFlow 3.2s linear infinite;
+}
+@keyframes beamFlow {
+  0%   { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -234; }
+}
+
+/* Phone ----------------------------------------------------------- */
+.scene-phone {
+  flex: 0 0 158px;
+  position: relative;
+}
+.phone-bezel {
+  position: relative;
+  background: #08090d;
+  border: 1px solid #1c1e26;
+  border-radius: 24px;
+  padding: 8px;
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.phone-notch {
   position: absolute;
-  inset: -30%;
-  background:
-    radial-gradient(closest-side, rgba(125, 167, 232, 0.35), transparent 70%);
-  z-index: -1;
-  filter: blur(50px);
-  pointer-events: none;
-  opacity: 0.8;
+  top: 11px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 7px;
+  border-radius: 4px;
+  background: #050608;
+  z-index: 2;
+}
+.phone-screen {
+  background: #0e1118;
+  border-radius: 18px;
+  padding: 26px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  aspect-ratio: 9 / 18;
+  overflow: hidden;
+}
+.phone-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  color: var(--fg-mute);
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  padding: 0 6px;
+}
+.phone-status-dots { display: inline-flex; gap: 3px; }
+.phone-status-dots i {
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--fg-mute);
+}
+.phone-app {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 4px 0 2px;
+  padding: 0 4px;
+}
+.phone-window {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 9.5px;
+}
+.phone-window-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  flex-shrink: 0;
+}
+.phone-window-name {
+  flex: 1;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.phone-composer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.phone-typed {
+  flex: 1;
+  font-size: 9px;
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.phone-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #08080b;
+  flex-shrink: 0;
+  /* Pulses just before the beam particle leaves — visualises "send
+     pressed → particle launches → button on laptop lights up" as a
+     three-beat sequence inside the same loop. */
+  animation: phoneSendPulse 3.2s linear infinite;
+}
+@keyframes phoneSendPulse {
+  0%, 22%, 100% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
+  35% {
+    box-shadow:
+      0 0 0 4px rgba(125, 167, 232, 0.5),
+      0 0 12px 1px rgba(125, 167, 232, 0.6);
+  }
+  48% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
+}
+
+/* Below 720 px the phone + beam disappear so the laptop can scale to
+   the full hero width without crushing the screen content. */
+@media (max-width: 720px) {
+  .scene-beam, .scene-phone { display: none; }
+  .hero-scene { padding: 16px 0; }
 }
 
 /* ---- Quickstart terminal --------------------------------------- */
@@ -1858,5 +2130,5 @@ code {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-  .hero-shot { transform: none !important; }
+  .scene-laptop { transform: none !important; }
 }
