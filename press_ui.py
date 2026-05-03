@@ -458,6 +458,12 @@ class EngineWorker(QObject):
         self._lock = threading.Lock()
         # Maps window id → last known idle bool, so we only emit transitions.
         self._last_window_idle: dict[str, bool] = {}
+        # Wake signal — anything that should trigger an immediate tick
+        # (Start button, hotkey, bridge toggle, reset_window_tracking)
+        # calls .set() on this; the post-tick sleep loop watches it and
+        # breaks out early so the next observation happens within
+        # ~50 ms instead of waiting up to a full interval.
+        self._wake = threading.Event()
 
     def set_interval(self, seconds: float) -> None:
         with self._lock:
@@ -466,10 +472,22 @@ class EngineWorker(QObject):
     def set_running(self, on: bool) -> None:
         with self._lock:
             self._running = bool(on)
+        # Trip the wake event so the worker doesn't sit out the rest
+        # of its current sleep before noticing the user pressed Start.
+        # Stop also benefits — the loop drops back to the idle-sleep
+        # branch within 50 ms instead of finishing a stale tick.
+        self._wake.set()
         self.running_changed.emit(bool(on))
 
     def request_stop(self) -> None:
         self._stop = True
+        self._wake.set()
+
+    def wake(self) -> None:
+        """External hook to break the worker out of its post-tick sleep.
+        Call after toggling bridge state, after rule edits that should
+        take effect immediately, etc."""
+        self._wake.set()
 
     def is_running(self) -> bool:
         with self._lock:
@@ -489,6 +507,9 @@ class EngineWorker(QObject):
         own previous reference; this thread just rebinds the attribute.
         """
         self._last_window_idle = {}
+        # Bridge just (re)started → don't make the user wait out a stale
+        # post-tick sleep before the first capture lands on the phone.
+        self._wake.set()
 
     def run(self) -> None:
         # Pin PER_MONITOR_AWARE_V2 on this worker thread once. Sticky for the
@@ -513,7 +534,13 @@ class EngineWorker(QObject):
             )
             rules_should_tick = self.is_running()
             if not rules_should_tick and not bridge_should_tick:
-                time.sleep(0.1)
+                # Idle: wait on the event so toggling Start or the
+                # bridge wakes us within ~50 ms instead of after a
+                # 100 ms poll. The 0.5 s ceiling keeps cfg-snapshot
+                # changes (e.g. bridge_active flipping) responsive
+                # even if nobody calls .wake().
+                if self._wake.wait(timeout=0.5):
+                    self._wake.clear()
                 continue
 
             # ---- rules ----
@@ -567,9 +594,21 @@ class EngineWorker(QObject):
 
             self.tick_done.emit(results, actions, self._get_interval())
 
+            # Post-tick wait. The Event lets Start / Stop / bridge-
+            # toggle break the wait so the first tick under the new
+            # state happens immediately. We don't pre-clear: if the
+            # user pressed Stop while the tick was running, the set()
+            # arrived mid-tick and would be consumed by a pre-clear.
+            # A sticky wake makes the very first wait() return True
+            # so Stop is responsive within one tick boundary.
             end = time.monotonic() + self._get_interval()
-            while time.monotonic() < end and not self._stop:
-                time.sleep(0.05)
+            while not self._stop:
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    break
+                if self._wake.wait(timeout=remaining):
+                    self._wake.clear()
+                    break
 
     def _get_interval(self) -> float:
         with self._lock:
