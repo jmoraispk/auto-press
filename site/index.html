@@ -93,6 +93,14 @@
     </a>
   </div>
 
+  <p class="compat-row">
+    <span class="compat-label">Works with</span>
+    <span class="compat-chip">Claude Code</span>
+    <span class="compat-chip">Cursor</span>
+    <span class="compat-chip">Codex</span>
+    <span class="compat-tail">— anything that pops a "Continue" button.</span>
+  </p>
+
   <div class="hero-shot">
     <div class="hero-shot-glow" aria-hidden="true"></div>
     <img src="assets/auto-press-ui.jpg" alt="CodeAway desktop UI on Windows" loading="lazy">
@@ -307,11 +315,28 @@
         <li>Per-rule action: click, click + Enter, click + send text</li>
         <li>Tray icon stays green while it scans</li>
       </ul>
-      <div class="use-case-video" data-video="automate" aria-label="Auto-click demo — coming soon">
-        <span class="video-play" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        </span>
-        <span class="video-caption">Demo · coming soon</span>
+      <!-- Looping CSS demo until a real screencast lands. The mockup is
+           a faux IDE chat panel: an "Apply this change?" message, a
+           Continue button, and a system cursor that flies in from the
+           top-right, clicks the button (which flashes), and resets.
+           One full cycle every 5s; aria-hidden because the surrounding
+           bullets already explain what it does. -->
+      <div class="use-case-video demo-autoclick" data-video="automate" aria-hidden="true">
+        <div class="demo-window">
+          <div class="demo-header">
+            <i></i><i></i><i></i>
+            <span class="demo-titlebar">Cursor — chat</span>
+          </div>
+          <div class="demo-body">
+            <div class="demo-msg">Apply this change to <code>press_engine.py</code>?</div>
+            <button class="demo-btn">Continue</button>
+            <span class="demo-cursor">
+              <svg width="16" height="20" viewBox="0 0 16 20" fill="currentColor">
+                <path d="M0 0 L0 14 L4 11 L7 18 L10 17 L7 10 L12 10 Z"/>
+              </svg>
+            </span>
+          </div>
+        </div>
       </div>
     </article>
 
