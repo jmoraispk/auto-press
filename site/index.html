@@ -364,11 +364,32 @@
         <li>Send-now, queue, edit, delete — from the lockscreen</li>
         <li>Scroll-and-screenshot to read the agent's history</li>
       </ul>
-      <div class="use-case-video" data-video="remote" aria-label="Phone bridge demo — coming soon">
-        <span class="video-play" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        </span>
-        <span class="video-caption">Demo · coming soon</span>
+      <!-- Looping CSS demo: a phone PWA showing a window flipping
+           busy → idle, the user typing a reply (typewriter), and the
+           send button flashing. 6 s loop, no JS or video file —
+           swap the inner mockup for a <video> when a real recording
+           lands and remove the .demo-bridge class. -->
+      <div class="use-case-video demo-bridge" data-video="remote" aria-hidden="true">
+        <div class="demo-phone">
+          <div class="demo-phone-notch"></div>
+          <div class="demo-phone-screen">
+            <div class="demo-phone-status">
+              <span>9:41</span>
+              <span class="demo-phone-dots"><i></i><i></i><i></i></span>
+            </div>
+            <div class="demo-phone-app">CodeAway</div>
+            <div class="demo-window-card">
+              <span class="demo-window-dot"></span>
+              <span class="demo-window-name">Cursor — main</span>
+            </div>
+            <div class="demo-phone-composer">
+              <span class="demo-phone-typed">Continue with the refactor</span>
+              <span class="demo-phone-send" aria-hidden="true">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </article>
   </div>

@@ -246,20 +246,56 @@ function renderInstallLines(entry) {
 // First trip past the threshold flips an `is-visible` class that the CSS
 // listens for; the observer disconnects after that so the bars don't
 // re-animate on every subsequent scroll past.
+//
+// Same trigger also kicks off the number-ticker animation on the
+// total-hours stats — they count up from 0 to their target (6 / 12)
+// in sync with the bar fills.
+
+function tickerAnimate(el, durationMs) {
+  const target = parseInt(el.textContent, 10);
+  if (Number.isNaN(target)) return;
+  // Stash the target so a re-trigger doesn't compound from the wrong
+  // base value (we set textContent to '0' immediately below).
+  el.textContent = "0";
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min(1, (now - start) / durationMs);
+    // Ease-out cubic: starts fast, settles into the target. Matches the
+    // bar-fill curve below (cubic-bezier(0.2, 0.8, 0.2, 1)).
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(eased * target);
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
 
 (function wireWhyReveal() {
   const why = $("why");
   if (!why) return;
-  if (typeof IntersectionObserver === "undefined") {
-    // Old browsers or test runners — just show the final state.
+
+  function reveal() {
     why.classList.add("is-visible");
+    // Timing matches the staggered bar fills:
+    //   Without bar starts at 0.05s, fills over 1.4s
+    //   With bar starts at 0.65s, fills over 1.6s
+    // Number tickers run a hair shorter than the fill so they finish
+    // before the markers fade in (1.8s onwards) and the eye lands on
+    // the totals as a punctuation, not as a competing animation.
+    const nums = why.querySelectorAll(".total-hours-num");
+    if (nums[0]) setTimeout(() => tickerAnimate(nums[0], 1100), 120);
+    if (nums[1]) setTimeout(() => tickerAnimate(nums[1], 1300), 700);
+  }
+
+  if (typeof IntersectionObserver === "undefined") {
+    // Old browsers or test runners — show the final state immediately.
+    reveal();
     return;
   }
   const obs = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) {
-          why.classList.add("is-visible");
+          reveal();
           obs.disconnect();
           break;
         }

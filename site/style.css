@@ -1323,6 +1323,239 @@ code {
    the same single message reads fine since the click is the visual
    anchor of the loop. */
 
+/* ---- Phone bridge loop demo (use case 02) --------------------- */
+/* A small phone with a single window card that flips busy → idle, a
+   typewriter input that fills the composer, and a send button that
+   flashes when the typing completes. 6 s cycle. The phone uses no
+   real product chrome (no notch carve, no app-icon assets) so it
+   reads as "any phone" rather than a specific OS. */
+.use-case-video.demo-bridge {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, #0a0c12, #050608);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.demo-phone {
+  position: relative;
+  width: 130px;
+  height: 92%;
+  background: #08090d;
+  border: 1px solid #1c1e26;
+  border-radius: 18px;
+  padding: 6px;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.demo-phone-notch {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: #050608;
+  z-index: 2;
+}
+.demo-phone-screen {
+  width: 100%;
+  height: 100%;
+  background: #0e1118;
+  border-radius: 12px;
+  padding: 14px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.demo-phone-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 8px;
+  color: var(--fg-mute);
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  padding: 0 4px;
+}
+.demo-phone-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.demo-phone-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--fg-mute);
+}
+.demo-phone-app {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  margin-top: 2px;
+  padding: 0 4px;
+}
+.demo-window-card {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 8.5px;
+  color: var(--fg);
+}
+.demo-window-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  /* Cycles red (busy) → green (idle) on the same 6 s timeline as the
+     typing animation; aligns with the moment the user can actually
+     send. */
+  animation: demoDotFlip 6s steps(1, end) infinite;
+}
+@keyframes demoDotFlip {
+  0%, 18%   { background: #ef4444; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  20%       { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
+  100%      { background: #22c55e; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.demo-window-name {
+  flex: 1;
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  font-size: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.demo-phone-composer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.demo-phone-typed {
+  flex: 1;
+  font-size: 8px;
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SF Mono", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  /* Typewriter: width grows in steps from 0 to ~110px while the dot
+     is green; resets when the cycle restarts. */
+  width: 0;
+  animation: demoTypeOut 6s steps(28, end) infinite;
+}
+@keyframes demoTypeOut {
+  0%, 22%    { width: 0; }
+  62%        { width: 105px; }
+  85%        { width: 105px; }
+  90%, 100%  { width: 0; }
+}
+.demo-phone-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #08080b;
+  flex-shrink: 0;
+  animation: demoSendFlash 6s steps(1, end) infinite;
+}
+@keyframes demoSendFlash {
+  0%, 60%, 100% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
+  62%, 70%      { box-shadow: 0 0 0 4px rgba(125, 167, 232, 0.45); }
+}
+
+/* ---- Animated border beam (shadcn-pattern) -------------------- */
+/* Glowing arc that travels around the perimeter of a card. Stays
+   invisible until hover so the cards feel quiet at rest and respond
+   when the user reaches for them. Uses @property to interpolate the
+   conic-gradient angle smoothly — Chrome / Edge / Safari 16+. Older
+   browsers see a static gradient ring instead of a rotating one,
+   which is fine. */
+@property --beam-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.use-case {
+  isolation: isolate;
+}
+.use-case::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--r-lg) + 1px);
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--beam-angle),
+    transparent 0deg,
+    var(--accent) 25deg,
+    var(--accent-2) 45deg,
+    transparent 80deg,
+    transparent 360deg
+  );
+  /* Mask out the inner area so only the border ring is visible. */
+  -webkit-mask: linear-gradient(#fff 0 0) content-box,
+                linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  animation: rotateBeam 5s linear infinite;
+  transition: opacity 0.45s ease;
+}
+.use-case:hover::before { opacity: 1; }
+@keyframes rotateBeam {
+  to { --beam-angle: 360deg; }
+}
+
+/* ---- Shine border on the Quickstart terminal ------------------ */
+/* Same trick, but always-on at low opacity and slower. Sits on the
+   terminal card; gives the install card a subtle "alive" feel
+   without being distracting once it's read. */
+.terminal {
+  position: relative;
+  isolation: isolate;
+}
+.terminal::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--r-md) + 1px);
+  padding: 1px;
+  background: conic-gradient(
+    from var(--beam-angle),
+    transparent 0deg,
+    rgba(125, 167, 232, 0.6) 30deg,
+    rgba(167, 139, 250, 0.4) 60deg,
+    transparent 120deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box,
+                linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  opacity: 0.55;
+  pointer-events: none;
+  animation: rotateBeam 12s linear infinite;
+  z-index: 0;
+}
+
 /* ---- Features grid --------------------------------------------- */
 .features {
   max-width: var(--max);
