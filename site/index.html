@@ -32,9 +32,9 @@
   </a>
   <nav class="nav-links">
     <a href="#why">Why</a>
-    <a href="#use-cases">Use cases</a>
-    <a href="#features">Features</a>
     <a href="#how">How it works</a>
+    <a href="#features">Features</a>
+    <a href="#quickstart">Install</a>
     <a class="nav-github" href="https://github.com/jmoraispk/codeaway" target="_blank" rel="noopener">
       <span class="star-icon" aria-hidden="true">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>
@@ -83,68 +83,6 @@
   </div>
 </section>
 
-<!-- QUICKSTART ---------------------------------------------------- -->
-<section id="quickstart" class="quickstart">
-  <header class="section-head">
-    <p class="section-eyebrow">Quick start</p>
-    <h2>One command. Then you're in.</h2>
-    <p class="section-lede">
-      The installer drops <code>uv</code>, the source, and the deps into
-      <code>~/codeaway</code>. Nothing leaves your machine — read
-      <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">the script</a>
-      first if you'd like.
-    </p>
-  </header>
-
-  <div class="terminal" data-method="one-liner" data-platform="windows">
-    <div class="terminal-head">
-      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-
-      <div class="method-tabs" role="tablist" aria-label="Install method">
-        <button class="method-tab is-active" data-method="one-liner" role="tab" aria-selected="true">One-liner</button>
-        <button class="method-tab" data-method="hackable" role="tab" aria-selected="false">Hackable</button>
-      </div>
-
-      <div class="platform-tabs" role="tablist" aria-label="Platform">
-        <button class="platform-tab is-active" data-platform="windows" role="tab" aria-selected="true">Windows</button>
-        <button class="platform-tab" data-platform="unix" role="tab" aria-selected="false">macOS / Linux<span class="beta">β</span></button>
-      </div>
-    </div>
-
-    <div class="terminal-body">
-      <pre class="code" id="install-pre"></pre>
-      <button class="copy" id="copy-cmd" aria-label="Copy command" title="Copy">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-      </button>
-
-      <div class="warning" id="untested-warn" hidden>
-        <span class="warning-icon" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-        </span>
-        <div class="warning-body">
-          <p><strong>Untested platform.</strong> The install script
-          fetches and syncs fine, but the engine relies on Win32 APIs
-          and won't run as-is on macOS / Linux today.</p>
-          <button type="button" class="btn btn-ghost btn-sm" id="request-port">
-            Request a macOS / Linux port
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <p class="quickstart-note">
-    Sources for the installers:
-    <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">install.ps1</a>
-    ·
-    <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.sh" target="_blank" rel="noopener">install.sh</a>.
-  </p>
-</section>
-
 <!-- WHY ----------------------------------------------------------- -->
 <section id="why" class="why">
   <header class="section-head">
@@ -158,23 +96,6 @@
   </header>
 
   <div class="timeline-card">
-    <!-- Time axis spans the track column only — six 3-hour ticks
-         from 6 am to 9 pm. The empty cells on either side keep the
-         tick marks aligned with the bars below regardless of the
-         row label width or the hours-total cell on the right. -->
-    <div class="timeline-axis-row" aria-hidden="true">
-      <span></span>
-      <div class="timeline-axis">
-        <span>6 am</span>
-        <span>9 am</span>
-        <span>12 pm</span>
-        <span>3 pm</span>
-        <span>6 pm</span>
-        <span>9 pm</span>
-      </div>
-      <span></span>
-    </div>
-
     <div class="timeline-row without">
       <div class="row-label">
         <span class="row-figure" aria-hidden="true">
@@ -243,9 +164,10 @@
       </div>
       <div class="track" role="presentation">
         <!-- Bar covers ~7 am to ~7 pm of the 6 am–9 pm track (5–85% =
-             80% wide ≈ 12 hours). Markers fall inside that span, with
-             the walk just after 7 am, lunch around midday, and the
-             car ride near the 6 pm shoulder. -->
+             80% wide ≈ 12 hours). Four markers spread across the day:
+             early walk, mid-morning gym, midday lunch, evening car
+             ride — the things a desk-bound dev can't do without
+             losing agent time. -->
         <div class="block" style="--start: 5%; --end: 85%"></div>
         <ul class="markers">
           <li class="marker" style="left: 8%">
@@ -254,7 +176,22 @@
             </span>
             walk
           </li>
-          <li class="marker" style="left: 42%">
+          <li class="marker" style="left: 22%">
+            <span class="marker-icon" aria-hidden="true">
+              <!-- Simple dumbbell: two end weights + connecting bar.
+                   Custom rather than the lucide path because the
+                   stylised version reads cleanly at 14 px. -->
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="9" width="3" height="6" rx="1"/>
+                <rect x="19" y="9" width="3" height="6" rx="1"/>
+                <line x1="5" y1="12" x2="19" y2="12" stroke-width="2.6"/>
+                <line x1="7" y1="9.5" x2="7" y2="14.5"/>
+                <line x1="17" y1="9.5" x2="17" y2="14.5"/>
+              </svg>
+            </span>
+            gym
+          </li>
+          <li class="marker" style="left: 50%">
             <span class="marker-icon" aria-hidden="true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6 2v3"/><path d="M10 2v3"/><path d="M14 2v3"/></svg>
             </span>
@@ -272,6 +209,23 @@
         <span class="total-hours-num">12</span>
         <span class="total-hours-unit">h</span>
       </div>
+    </div>
+
+    <!-- Time axis sits under both rows now. 24-hour notation per the
+         user's brief; six 3-hour ticks from 06:00 to 21:00. The
+         spacers in cols 1 and 3 keep ticks aligned with the bar's
+         start (0%) and end (100%). -->
+    <div class="timeline-axis-row" aria-hidden="true">
+      <span></span>
+      <div class="timeline-axis">
+        <span>06:00</span>
+        <span>09:00</span>
+        <span>12:00</span>
+        <span>15:00</span>
+        <span>18:00</span>
+        <span>21:00</span>
+      </div>
+      <span></span>
     </div>
   </div>
 
@@ -301,10 +255,10 @@
   </ol>
 </section>
 
-<!-- USE CASES ----------------------------------------------------- -->
-<section id="use-cases" class="use-cases">
+<!-- HOW IT WORKS -------------------------------------------------- -->
+<section id="how" class="use-cases">
   <header class="section-head">
-    <p class="section-eyebrow">Use cases</p>
+    <p class="section-eyebrow">How it works</p>
     <h2>Two halves. Use one or both.</h2>
     <p class="section-lede">
       The auto-clicker on its own already saves the day. Pair it with
@@ -337,6 +291,12 @@
         <li>Per-rule action: click, click + Enter, click + send text</li>
         <li>Tray icon stays green while it scans</li>
       </ul>
+      <div class="use-case-video" data-video="automate" aria-label="Auto-click demo — coming soon">
+        <span class="video-play" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </span>
+        <span class="video-caption">Demo · coming soon</span>
+      </div>
     </article>
 
     <article class="use-case">
@@ -363,6 +323,12 @@
         <li>Send-now, queue, edit, delete — from the lockscreen</li>
         <li>Scroll-and-screenshot to read the agent's history</li>
       </ul>
+      <div class="use-case-video" data-video="remote" aria-label="Phone bridge demo — coming soon">
+        <span class="video-play" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </span>
+        <span class="video-caption">Demo · coming soon</span>
+      </div>
     </article>
   </div>
 </section>
@@ -414,30 +380,67 @@
   </div>
 </section>
 
-<!-- HOW IT WORKS -------------------------------------------------- -->
-<section id="how" class="how">
+
+<!-- QUICKSTART ---------------------------------------------------- -->
+<section id="quickstart" class="quickstart">
   <header class="section-head">
-    <p class="section-eyebrow">How it works</p>
-    <h2>Three steps.<br>Then walk away.</h2>
+    <p class="section-eyebrow">Quick start</p>
+    <h2>One command. Then you're in.</h2>
+    <p class="section-lede">
+      The installer drops <code>uv</code>, the source, and the deps into
+      <code>~/codeaway</code>. Nothing leaves your machine — read
+      <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">the script</a>
+      first if you'd like.
+    </p>
   </header>
 
-  <ol class="steps">
-    <li class="step">
-      <span class="step-num">01</span>
-      <h3>Capture the button.</h3>
-      <p>Drag a rectangle around the button you want clicked. CodeAway saves it as a template — pixel-perfect, scale-aware, DPI-aware.</p>
-    </li>
-    <li class="step">
-      <span class="step-num">02</span>
-      <h3>Set a rule.</h3>
-      <p>Pick an action — click, click + Enter, click + send. Optionally type the text it should send. Save.</p>
-    </li>
-    <li class="step">
-      <span class="step-num">03</span>
-      <h3>Hit Page Down.</h3>
-      <p>The tray dot goes green. CodeAway watches your screen and fires the rule whenever the button appears. You can leave the room.</p>
-    </li>
-  </ol>
+  <div class="terminal" data-method="one-liner" data-platform="windows">
+    <div class="terminal-head">
+      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+
+      <div class="method-tabs" role="tablist" aria-label="Install method">
+        <button class="method-tab is-active" data-method="one-liner" role="tab" aria-selected="true">One-liner</button>
+        <button class="method-tab" data-method="hackable" role="tab" aria-selected="false">Hackable</button>
+      </div>
+
+      <div class="platform-tabs" role="tablist" aria-label="Platform">
+        <button class="platform-tab is-active" data-platform="windows" role="tab" aria-selected="true">Windows</button>
+        <button class="platform-tab" data-platform="unix" role="tab" aria-selected="false">macOS / Linux<span class="beta">β</span></button>
+      </div>
+    </div>
+
+    <div class="terminal-body">
+      <pre class="code" id="install-pre"></pre>
+      <button class="copy" id="copy-cmd" aria-label="Copy command" title="Copy">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
+
+      <div class="warning" id="untested-warn" hidden>
+        <span class="warning-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        </span>
+        <div class="warning-body">
+          <p><strong>Untested platform.</strong> The install script
+          fetches and syncs fine, but the engine relies on Win32 APIs
+          and won't run as-is on macOS / Linux today.</p>
+          <button type="button" class="btn btn-ghost btn-sm" id="request-port">
+            Request a macOS / Linux port
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 5 7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="quickstart-note">
+    Sources for the installers:
+    <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.ps1" target="_blank" rel="noopener">install.ps1</a>
+    ·
+    <a href="https://github.com/jmoraispk/codeaway/blob/main/site/install.sh" target="_blank" rel="noopener">install.sh</a>.
+  </p>
 </section>
 
 <!-- OPEN SOURCE BANNER ------------------------------------------- -->
@@ -450,6 +453,15 @@
       MIT licensed. The whole codebase is on GitHub — fork it, read it,
       break it, send it back better.
     </p>
+    <div class="banner-actions">
+      <a class="btn btn-primary" href="https://github.com/jmoraispk/codeaway" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.35.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.38s1.95.13 2.86.38c2.18-1.49 3.14-1.18 3.14-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+        View source
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/jmoraispk/codeaway/blob/main/LICENSE" target="_blank" rel="noopener">
+        MIT license
+      </a>
+    </div>
   </div>
 </section>
 

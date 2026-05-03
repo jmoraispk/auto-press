@@ -678,14 +678,16 @@ code {
   margin-bottom: 56px;
 }
 
-/* Axis row sits above the rows with the same column structure so
+/* Axis row sits below the rows with the same column structure so
    the tick marks line up with the start/end of the bars exactly. */
 .timeline-axis-row {
   display: grid;
   grid-template-columns: 200px 1fr 96px;
   align-items: center;
   gap: 22px;
-  margin-bottom: 8px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .timeline-axis {
   display: flex;
@@ -909,8 +911,9 @@ code {
   transition: opacity 0.4s ease, transform 0.4s ease;
   transition-delay: 1.8s;
 }
-.marker:nth-child(2) { transition-delay: 2.0s; }
-.marker:nth-child(3) { transition-delay: 2.2s; }
+.marker:nth-child(2) { transition-delay: 1.95s; }
+.marker:nth-child(3) { transition-delay: 2.10s; }
+.marker:nth-child(4) { transition-delay: 2.25s; }
 #why.is-visible .marker {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
@@ -1087,6 +1090,53 @@ code {
   border-radius: 50%;
   background: var(--accent);
   opacity: 0.7;
+}
+
+/* Video placeholder — fills the bottom of each use-case card with a
+   16:9 box that visually communicates "demo here". Once a real video
+   ships, swap the contents for <video src="…" poster="…" controls>
+   and the layout doesn't change. */
+.use-case-video {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px dashed rgba(125, 167, 232, 0.28);
+  border-radius: var(--r-md);
+  background:
+    radial-gradient(closest-side at 50% 50%, rgba(125, 167, 232, 0.08), transparent 70%),
+    rgba(255, 255, 255, 0.015);
+  transition: border-color var(--t-med), background var(--t-med);
+}
+.use-case-video:hover {
+  border-color: rgba(125, 167, 232, 0.5);
+  background:
+    radial-gradient(closest-side at 50% 50%, rgba(125, 167, 232, 0.14), transparent 70%),
+    rgba(255, 255, 255, 0.03);
+}
+.video-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(125, 167, 232, 0.14);
+  color: var(--accent);
+  border: 1px solid rgba(125, 167, 232, 0.35);
+  /* Slight lift the play triangle right inside the circle — looks
+     centred to the eye even though it isn't pixel-centred. */
+  padding-left: 4px;
+}
+.video-caption {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
 }
 
 /* ---- Features grid --------------------------------------------- */
