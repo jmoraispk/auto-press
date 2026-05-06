@@ -33,7 +33,7 @@ A normal workday has a few hours of dead time — agents thinking, tests running
 
 ## 🚀 Quickstart
 
-<a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener"><img align="right" width="380" src="https://img.youtube.com/vi/V4NTQVTd4Rs/maxresdefault.jpg" alt="Watch the CodeAway demo on YouTube"></a>
+<a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener"><img align="right" width="380" src="imgs/demo-thumbnail.png" alt="Watch the CodeAway demo on YouTube"></a>
 
 Install [uv](https://github.com/astral-sh/uv), then:
 
