@@ -1539,17 +1539,22 @@ code {
   gap: 5px;
 }
 .demo-w-preview {
-  font-size: 7px;
+  /* Bumped from 7 → 8 px and dropped the nowrap/ellipsis treatment
+     so the message can wrap to a second line in the narrow window
+     instead of getting truncated. line-height 1.35 keeps the two
+     lines readable without crowding. */
+  font-size: 8px;
+  line-height: 1.35;
   color: var(--fg);
   font-style: italic;
-  /* Indent so the preview lines up with the agent's name, not under
-     the dot. */
   padding-left: 11px;
-  white-space: nowrap;
+  /* Indent above lines up the preview with the agent's name, not
+     under the dot. */
+  word-break: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
   /* Collapsed by default — the active-slice animation expands and
-     fades it in. */
+     fades it in. max-height in the keyframes is sized for two lines
+     (~22 px) plus a little breathing room. */
   max-height: 0;
   opacity: 0;
   margin-top: 0;
@@ -1613,14 +1618,14 @@ code {
    together so the preview reads as "the row just sprouted a quote
    underneath itself" rather than fading in over fixed empty space. */
 @keyframes demoPreview1 {
-  0%, 11%   { max-height: 0; margin-top: 0; opacity: 0; }
-  14%, 43%  { max-height: 14px; margin-top: 4px; opacity: 1; }
-  46%, 100% { max-height: 0; margin-top: 0; opacity: 0; }
+  0%, 11%   { max-height: 0;  margin-top: 0; opacity: 0; }
+  14%, 43%  { max-height: 28px; margin-top: 4px; opacity: 1; }
+  46%, 100% { max-height: 0;  margin-top: 0; opacity: 0; }
 }
 @keyframes demoPreview2 {
-  0%, 57%   { max-height: 0; margin-top: 0; opacity: 0; }
-  60%, 84%  { max-height: 14px; margin-top: 4px; opacity: 1; }
-  87%, 100% { max-height: 0; margin-top: 0; opacity: 0; }
+  0%, 57%   { max-height: 0;  margin-top: 0; opacity: 0; }
+  60%, 84%  { max-height: 28px; margin-top: 4px; opacity: 1; }
+  87%, 100% { max-height: 0;  margin-top: 0; opacity: 0; }
 }
 
 .demo-phone-composer {
