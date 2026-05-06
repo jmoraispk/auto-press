@@ -1517,9 +1517,12 @@ code {
   gap: 4px;
 }
 .demo-w {
+  /* Column so the preview line can sit underneath the dot+name row
+     when its agent is active. The preview is hidden by default
+     (max-height 0) — the active animation slides it open just below
+     its own row, so the message visually belongs to that agent. */
   display: flex;
-  align-items: center;
-  gap: 5px;
+  flex-direction: column;
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
@@ -1530,6 +1533,29 @@ code {
   animation-iteration-count: infinite;
   animation-timing-function: linear;
 }
+.demo-w-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.demo-w-preview {
+  font-size: 7px;
+  color: var(--fg);
+  font-style: italic;
+  /* Indent so the preview lines up with the agent's name, not under
+     the dot. */
+  padding-left: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Collapsed by default — the active-slice animation expands and
+     fades it in. */
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+}
+.demo-w-1 .demo-w-preview { animation: demoPreview1 12s linear infinite; }
+.demo-w-2 .demo-w-preview { animation: demoPreview2 12s linear infinite; }
 .demo-w-1 { animation-name: demoW1Active; }
 .demo-w-2 { animation-name: demoW2Active; }
 /* w-3 has no active-state animation — Codex stays red the whole
@@ -1581,49 +1607,20 @@ code {
   87%, 100% { background: #ef4444; box-shadow: none; }
 }
 
-/* Preview chip — quoted snippet of what the agent said when its
-   window goes idle. Sits between the windows list and the composer,
-   reserves a fixed 14 px height so it doesn't reflow other rows.
-   Two stacked spans (one per agent), each fading in and out in
-   sync with its agent's active slice on the 12 s loop. */
-.demo-preview {
-  position: relative;
-  height: 14px;
-  margin-top: 2px;
-}
-.demo-preview > span {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  background: rgba(125, 167, 232, 0.10);
-  border-left: 2px solid var(--accent);
-  border-radius: 0 4px 4px 0;
-  font-size: 7px;
-  color: var(--fg);
-  font-style: italic;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0;
-}
-.demo-preview-1 { animation: demoPreview1 12s linear infinite; }
-.demo-preview-2 { animation: demoPreview2 12s linear infinite; }
-
-/* Cursor's preview: comes in just after the dot turns green (12 %),
-   stays visible through the user's reply, fades out a beat before
-   the dot returns to red (46 %). Same shape for Claude's preview
-   on its slice. */
+/* Each agent's preview animation expands the line under its row
+   when the dot is green and collapses it again before the dot
+   returns to red. max-height + margin-top + opacity all tween
+   together so the preview reads as "the row just sprouted a quote
+   underneath itself" rather than fading in over fixed empty space. */
 @keyframes demoPreview1 {
-  0%, 11%   { opacity: 0; }
-  14%, 43%  { opacity: 1; }
-  45%, 100% { opacity: 0; }
+  0%, 11%   { max-height: 0; margin-top: 0; opacity: 0; }
+  14%, 43%  { max-height: 14px; margin-top: 4px; opacity: 1; }
+  46%, 100% { max-height: 0; margin-top: 0; opacity: 0; }
 }
 @keyframes demoPreview2 {
-  0%, 57%   { opacity: 0; }
-  60%, 84%  { opacity: 1; }
-  86%, 100% { opacity: 0; }
+  0%, 57%   { max-height: 0; margin-top: 0; opacity: 0; }
+  60%, 84%  { max-height: 14px; margin-top: 4px; opacity: 1; }
+  87%, 100% { max-height: 0; margin-top: 0; opacity: 0; }
 }
 
 .demo-phone-composer {
