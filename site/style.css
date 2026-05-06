@@ -1298,83 +1298,124 @@ code {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  padding: 16px;
+  gap: 6px;
+  padding: 12px 14px;
   /* Take up all remaining space so the cursor's translate values
      can be in fixed-ish pixels and still hit the button. */
   height: calc(100% - 32px);
 }
+/* Common message styling. User messages right-align with a neutral
+   background; agent messages left-align with the accent tint. Each
+   message starts hidden (opacity 0) and gets revealed on the shared
+   10 s loop by its individual keyframe schedule. */
 .demo-msg {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  max-width: 78%;
+  opacity: 0;
+}
+.demo-msg-user {
+  align-self: flex-end;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg-mute);
+}
+.demo-msg-agent {
+  align-self: flex-start;
   background: rgba(125, 167, 232, 0.08);
   border: 1px solid rgba(125, 167, 232, 0.18);
-  color: var(--fg-mute);
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 11.5px;
-  line-height: 1.4;
-  max-width: 80%;
-  /* Each loop a new message lands; cycle in two lines via a
-     content-swap keyframe driven by the same 5s loop. */
-  animation: demoMsgSwap 5s steps(1, end) infinite;
+  color: var(--fg);
 }
 .demo-msg code {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 10.5px;
+  font-size: 9.5px;
 }
+
+/* Each message's fade-in is offset along the shared 10 s loop. The
+   pattern: msg appears, stays for the rest of the cycle, fades out
+   just before the loop reset so the panel goes blank for a beat
+   before everything starts again. */
+.demo-msg-1 { animation: demoMsg1 10s linear infinite; }
+.demo-msg-2 { animation: demoMsg2 10s linear infinite; }
+.demo-msg-3 { animation: demoMsg3 10s linear infinite; }
+.demo-msg-4 { animation: demoMsg4 10s linear infinite; }
+
+@keyframes demoMsg1 {
+  0%, 4% { opacity: 0; transform: translateY(6px); }
+  6%, 84% { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0; }
+}
+@keyframes demoMsg2 {
+  0%, 19% { opacity: 0; transform: translateY(6px); }
+  21%, 84% { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0; }
+}
+@keyframes demoMsg3 {
+  0%, 39% { opacity: 0; transform: translateY(6px); }
+  41%, 84% { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0; }
+}
+@keyframes demoMsg4 {
+  0%, 54% { opacity: 0; transform: translateY(6px); }
+  56%, 84% { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0; }
+}
+
 .demo-btn {
-  align-self: flex-end;
-  margin-top: auto;
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
   background: var(--accent);
   color: #08080b;
   border: none;
-  padding: 6px 14px;
+  padding: 5px 12px;
   border-radius: 6px;
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 600;
   font-family: inherit;
   letter-spacing: -0.005em;
   cursor: default;
-  animation: demoBtnFlash 5s linear infinite;
+  animation: demoBtnFlash 10s linear infinite;
 }
 .demo-cursor {
+  /* Anchor at the Continue button (bottom-right corner, same coords
+     as the button). Default transform offsets it up-and-left so the
+     "rest" position floats above the chat. The animation translates
+     back to (0,0) — straight onto the button — for the click, then
+     returns. Anchoring here makes the click visually accurate
+     regardless of the card's exact width. */
   position: absolute;
-  top: 18%;
-  right: 14%;
+  bottom: 18px;
+  right: 16px;
   color: var(--fg);
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
-  /* The cursor walks from its rest spot (top-right of the chat area)
-     down to the Continue button, clicks, then drifts back up. The
-     transform values are tuned for the 16:9 placeholder at typical
-     card widths (~340px) — they look right at smaller widths too
-     because the cursor still ends up over the button area. */
-  animation: demoCursorFly 5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform: translate(-70px, -56px);
+  animation: demoCursor 10s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
-@keyframes demoCursorFly {
-  0%   { transform: translate(0, 0) scale(1); }
-  35%  { transform: translate(-22px, 60px) scale(1); }      /* over button */
-  43%  { transform: translate(-22px, 60px) scale(0.78); }   /* click */
-  50%  { transform: translate(-22px, 60px) scale(1); }
-  90%  { transform: translate(0, 0) scale(1); }             /* drift back */
-  100% { transform: translate(0, 0) scale(1); }
+@keyframes demoCursor {
+  0%, 24%  { transform: translate(-70px, -56px) scale(1); }   /* rest */
+  28%      { transform: translate(0, 0) scale(1); }           /* over button */
+  30%      { transform: translate(0, 0) scale(0.82); }        /* click */
+  33%      { transform: translate(0, 0) scale(1); }
+  38%      { transform: translate(-70px, -56px) scale(1); }   /* return */
+  60%      { transform: translate(-70px, -56px) scale(1); }
+  64%      { transform: translate(0, 0) scale(1); }           /* second click */
+  66%      { transform: translate(0, 0) scale(0.82); }
+  69%      { transform: translate(0, 0) scale(1); }
+  74%      { transform: translate(-70px, -56px) scale(1); }
+  100%     { transform: translate(-70px, -56px) scale(1); }
 }
 @keyframes demoBtnFlash {
-  0%, 38%, 50%, 100% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
-  43% {
-    box-shadow: 0 0 0 6px rgba(125, 167, 232, 0.4);
-    transform: scale(0.97);
+  0%, 28%, 35%, 64%, 71%, 100% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
+  30%, 66% {
+    box-shadow:
+      0 0 0 6px rgba(125, 167, 232, 0.4),
+      0 0 14px 1px rgba(125, 167, 232, 0.55);
   }
 }
-@keyframes demoMsgSwap {
-  0%, 100% { content: "Apply this change to press_engine.py?"; }
-}
-/* The content-swap trick above only works on ::before/::after; switch
-   to a real CSS technique: two stacked messages, each fading at
-   different points of the cycle. Done with a slight workaround using
-   two demo-msg variants in the markup would be cleaner, but for now
-   the same single message reads fine since the click is the visual
-   anchor of the loop. */
 
 /* ---- Phone bridge loop demo (use case 02) --------------------- */
 /* A small phone with a single window card that flips busy → idle, a
@@ -1452,7 +1493,19 @@ code {
   margin-top: 2px;
   padding: 0 4px;
 }
-.demo-window-card {
+/* Three-window list. All rows start in the red/busy state. Each
+   row's animation lights it up (dot flips green + accent border)
+   for ~33% of a 9 s cycle, in sequence, simulating "this window
+   just went idle, you tapped it, you sent a reply". */
+.demo-windows-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.demo-w {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1462,29 +1515,69 @@ code {
   border-radius: 5px;
   font-size: 8.5px;
   color: var(--fg);
+  /* Each window subscribes to its own keyframe; all share the 9 s
+     loop so the typewriter / send button below stay in sync. */
+  animation-duration: 9s;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
 }
-.demo-window-dot {
+.demo-w-1 { animation-name: demoW1Active; }
+.demo-w-2 { animation-name: demoW2Active; }
+.demo-w-3 { animation-name: demoW3Active; }
+
+.demo-w-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: #ef4444;
-  /* Cycles red (busy) → green (idle) on the same 6 s timeline as the
-     typing animation; aligns with the moment the user can actually
-     send. */
-  animation: demoDotFlip 6s steps(1, end) infinite;
+  flex-shrink: 0;
+  animation-duration: 9s;
+  animation-iteration-count: infinite;
+  animation-timing-function: steps(1, end);
 }
-@keyframes demoDotFlip {
-  0%, 18%   { background: #ef4444; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-  20%       { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
-  100%      { background: #22c55e; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-}
-.demo-window-name {
+.demo-w-1 .demo-w-dot { animation-name: demoW1Dot; }
+.demo-w-2 .demo-w-dot { animation-name: demoW2Dot; }
+.demo-w-3 .demo-w-dot { animation-name: demoW3Dot; }
+
+.demo-w-name {
   flex: 1;
   font-family: "JetBrains Mono", "SF Mono", monospace;
   font-size: 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Window 1's turn: 0–33% of the cycle. */
+@keyframes demoW1Active {
+  0%, 32%   { background: rgba(125, 167, 232, 0.10); border-color: rgba(125, 167, 232, 0.45); }
+  33%, 100% { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+}
+@keyframes demoW1Dot {
+  0%, 32%   { background: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.28); }
+  33%, 100% { background: #ef4444; box-shadow: none; }
+}
+/* Window 2's turn: 33–66%. */
+@keyframes demoW2Active {
+  0%, 32%   { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+  33%, 65%  { background: rgba(125, 167, 232, 0.10); border-color: rgba(125, 167, 232, 0.45); }
+  66%, 100% { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+}
+@keyframes demoW2Dot {
+  0%, 32%   { background: #ef4444; box-shadow: none; }
+  33%, 65%  { background: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.28); }
+  66%, 100% { background: #ef4444; box-shadow: none; }
+}
+/* Window 3's turn: 66–99%. */
+@keyframes demoW3Active {
+  0%, 65%   { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+  66%, 98%  { background: rgba(125, 167, 232, 0.10); border-color: rgba(125, 167, 232, 0.45); }
+  99%, 100% { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+}
+@keyframes demoW3Dot {
+  0%, 65%   { background: #ef4444; box-shadow: none; }
+  66%, 98%  { background: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.28); }
+  99%, 100% { background: #ef4444; box-shadow: none; }
 }
 
 .demo-phone-composer {
@@ -1504,16 +1597,31 @@ code {
   font-family: "JetBrains Mono", "SF Mono", monospace;
   white-space: nowrap;
   overflow: hidden;
-  /* Typewriter: width grows in steps from 0 to ~110px while the dot
-     is green; resets when the cycle restarts. */
+  /* Typewriter cycles 3 times in the 9 s loop — once per window
+     turn. Width pops back to 0 between turns so each window gets
+     its own type-out beat. */
   width: 0;
-  animation: demoTypeOut 6s steps(28, end) infinite;
+  animation: demoTypeOut 9s linear infinite;
 }
 @keyframes demoTypeOut {
-  0%, 22%    { width: 0; }
-  62%        { width: 105px; }
-  85%        { width: 105px; }
-  90%, 100%  { width: 0; }
+  /* w1 turn */
+  0%       { width: 0; }
+  4%       { width: 0; }
+  26%      { width: 100%; }
+  31%      { width: 100%; }
+  /* w2 turn */
+  33%      { width: 0; }
+  37%      { width: 0; }
+  59%      { width: 100%; }
+  64%      { width: 100%; }
+  /* w3 turn */
+  66%      { width: 0; }
+  70%      { width: 0; }
+  92%      { width: 100%; }
+  97%      { width: 100%; }
+  /* settle */
+  99%      { width: 0; }
+  100%     { width: 0; }
 }
 .demo-phone-send {
   display: inline-flex;
@@ -1525,11 +1633,19 @@ code {
   background: var(--accent);
   color: #08080b;
   flex-shrink: 0;
-  animation: demoSendFlash 6s steps(1, end) infinite;
+  /* Send button flashes at the end of each typewriter pass — three
+     beats per cycle, one per window. */
+  animation: demoSendFlash 9s steps(1, end) infinite;
 }
 @keyframes demoSendFlash {
-  0%, 60%, 100% { box-shadow: 0 0 0 0 rgba(125, 167, 232, 0); }
-  62%, 70%      { box-shadow: 0 0 0 4px rgba(125, 167, 232, 0.45); }
+  0%, 28%, 31%, 61%, 64%, 94%, 97%, 100% {
+    box-shadow: 0 0 0 0 rgba(125, 167, 232, 0);
+  }
+  29%, 62%, 95% {
+    box-shadow:
+      0 0 0 4px rgba(125, 167, 232, 0.5),
+      0 0 10px 1px rgba(125, 167, 232, 0.5);
+  }
 }
 
 /* ---- Animated border beam (shadcn-pattern) -------------------- */
