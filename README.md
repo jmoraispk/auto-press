@@ -33,6 +33,10 @@ A normal workday has a few hours of dead time — agents thinking, tests running
 
 ## 🚀 Quickstart
 
+<table>
+<tr>
+<td valign="top">
+
 Install [uv](https://github.com/astral-sh/uv), then:
 
 ```bash
@@ -40,7 +44,18 @@ uv sync
 uv run main.py
 ```
 
-That's it — the UI opens and you're ready to add your first rule.
+That's it — the UI opens and you're ready to add your first rule. The video on the right walks through the full setup.
+
+</td>
+<td valign="top" width="400">
+
+<a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener">
+  <img src="https://img.youtube.com/vi/V4NTQVTd4Rs/maxresdefault.jpg" alt="Watch the CodeAway demo on YouTube" width="380">
+</a>
+
+</td>
+</tr>
+</table>
 
 ## 🧭 The workflow
 
@@ -75,12 +90,6 @@ A tiny FastAPI server that turns your phone over Tailscale into a remote control
 - 📲 **PWA install** — full-screen app on your home screen, no browser chrome.
 
 The bridge is **on by default**. Pass `--no-bridge` if you want a rules-only run.
-
-<p align="center">
-  <a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener">
-    <img src="https://img.youtube.com/vi/V4NTQVTd4Rs/maxresdefault.jpg" alt="Watch the CodeAway demo on YouTube" width="360">
-  </a>
-</p>
 
 ### Flags
 
