@@ -82,7 +82,7 @@ The bridge is **on by default**. Pass `--no-bridge` if you want a rules-only run
 
 ```bash
 uv run main.py --no-bridge              # rules-only, no FastAPI listener
-uv run main.py --no-activate            # launch idle, click Start when ready
+uv run main.py --no-rules               # bridge-only, toggle rules on later
 uv run main.py --bridge-host 127.0.0.1  # bind to loopback only
 uv run main.py --bridge-port 8765       # override default port
 ```

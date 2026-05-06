@@ -73,9 +73,11 @@ def main() -> None:
         default=10.0,
         help="Default scan interval in seconds. Default: 10",
     )
-    # Bridge + auto-activate are on by default — they're the product.
-    # Use the --no-* flags below to opt out (headless rule-only use,
-    # or launching the UI without immediately scanning).
+    # Both the bridge service and the rules engine are on by default —
+    # they're the product. The --no-* flags are the launch-time
+    # equivalents of toggling each tab off in the UI; the underlying
+    # feature still exists, it just isn't running until you toggle
+    # it back on.
     parser.add_argument(
         "--bridge",
         dest="bridge",
@@ -90,17 +92,17 @@ def main() -> None:
         help="Skip the bridge service for this run.",
     )
     parser.add_argument(
-        "--activate",
-        dest="activate",
+        "--rules",
+        dest="rules",
         action="store_true",
         default=True,
-        help="Start scanning rules immediately at launch. Default: on.",
+        help="Start the rules engine running on launch. Default: on.",
     )
     parser.add_argument(
-        "--no-activate",
-        dest="activate",
+        "--no-rules",
+        dest="rules",
         action="store_false",
-        help="Launch the UI in stopped state — click Start when ready.",
+        help="Launch with the rules engine paused — toggle it on later from the UI or the phone.",
     )
     parser.add_argument(
         "--bridge-host",
@@ -131,7 +133,7 @@ def main() -> None:
         bridge_enabled=args.bridge,
         bridge_host=args.bridge_host,
         bridge_port=args.bridge_port,
-        auto_activate=args.activate,
+        auto_activate=args.rules,
     )
     window.show()
     _keepalive = _install_sigint(app, window)
