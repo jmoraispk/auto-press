@@ -42,7 +42,7 @@ uv sync
 uv run main.py
 ```
 
-That's it — the UI opens and you're ready to add your first rule. The video on the right walks through the full setup.
+That's it — the UI opens and you're ready to add your first rule. Watch the video walkthrough 👉
 
 ## 🧭 The workflow
 
