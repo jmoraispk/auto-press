@@ -33,9 +33,7 @@ A normal workday has a few hours of dead time — agents thinking, tests running
 
 ## 🚀 Quickstart
 
-<table>
-<tr>
-<td valign="top">
+<a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener"><img align="right" width="380" src="https://img.youtube.com/vi/V4NTQVTd4Rs/maxresdefault.jpg" alt="Watch the CodeAway demo on YouTube"></a>
 
 Install [uv](https://github.com/astral-sh/uv), then:
 
@@ -45,17 +43,6 @@ uv run main.py
 ```
 
 That's it — the UI opens and you're ready to add your first rule. The video on the right walks through the full setup.
-
-</td>
-<td valign="top" width="400">
-
-<a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener">
-  <img src="https://img.youtube.com/vi/V4NTQVTd4Rs/maxresdefault.jpg" alt="Watch the CodeAway demo on YouTube" width="380">
-</a>
-
-</td>
-</tr>
-</table>
 
 ## 🧭 The workflow
 
