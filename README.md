@@ -50,7 +50,7 @@ Each rule is a few clicks:
 2. **Pick an action.** Click, click + Enter, or click + send (send = type a word, then Enter).
 3. **Capture the target.** A crop of the button — triggers the rule; the cursor clicks its center.
 4. **Test & Save.** Run a single match to confirm, then save.
-5. **Press Page Down** to start / stop. Prefer a different key? Click the **Hotkey** button in the toolbar, press any key (with modifiers if you like), and it's saved. The window can stay in the background or hide to the tray.
+5. **Press Page Down** to start / stop — rebind via the **Hotkey** button. The window can hide to the tray.
 
 ## 🟢🔴 Tray indicator
 
