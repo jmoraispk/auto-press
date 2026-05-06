@@ -209,35 +209,76 @@ function renderInstallLines(entry) {
 
 // ---- Watch-this-part deep-links --------------------------------------
 //
-// Each use-case card has an <a class="watch-link" data-start data-end>
-// pointing at #video. Clicking swaps the iframe's src so YouTube
-// seeks to the right segment and autoplays, then smooth-scrolls the
-// video into view. The href="#video" stays as a no-JS fallback —
-// without this handler the page just jumps to the iframe, which is
-// fine, just doesn't auto-seek.
+// Each use-case card has an <a class="watch-link" data-start> pointing
+// at #video. Clicking calls the YouTube IFrame API to seekTo() + play
+// the video at the right timestamp.
+//
+// Why the API instead of swapping iframe.src like the previous version:
+//   1. The src-swap approach didn't reliably reload the YouTube embed
+//      — the player was retaining state, the new query string was
+//      being ignored, and even manual play started from the top.
+//   2. Autoplay via ?autoplay=1 is blocked by browsers unless the
+//      video is muted. Autoplay via the API in a click handler is
+//      treated as user-initiated and isn't blocked.
+//
+// API loads asynchronously. If the user clicks before the API is
+// ready, we stash the start time and replay the seek+play from
+// onReady. The href="#video" remains a graceful fallback if JS fails
+// to load entirely.
 
 (function wireWatchLinks() {
   const links = document.querySelectorAll(".watch-link");
   if (!links.length) return;
   const wrap = $("video");
-  const iframe = wrap && wrap.querySelector("iframe");
-  if (!iframe) return;
+  if (!wrap || !$("codeaway-video")) return;
 
-  // Pull the bare embed URL once so we can rebuild it with start/end.
-  // Strip any existing query so repeat clicks don't compound params.
-  const baseSrc = iframe.src.split("?")[0];
+  let player = null;
+  let pendingStart = null;
+
+  function jumpAndPlay(start) {
+    if (player && typeof player.seekTo === "function") {
+      player.seekTo(start, true);
+      player.playVideo();
+    } else {
+      // API still loading — onReady will service this click.
+      pendingStart = start;
+    }
+  }
+
+  // YouTube calls this global on iframe_api script load. Defining it
+  // before injecting the script avoids the race where the API loads
+  // faster than this IIFE finishes registering listeners.
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player("codeaway-video", {
+      events: {
+        onReady: () => {
+          if (pendingStart !== null) {
+            player.seekTo(pendingStart, true);
+            player.playVideo();
+            pendingStart = null;
+          }
+        },
+      },
+    });
+  };
+
+  // Inject the API script once. async so it doesn't block paint.
+  if (!document.querySelector('script[src*="iframe_api"]')) {
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    tag.async = true;
+    document.head.appendChild(tag);
+  }
 
   for (const link of links) {
     link.addEventListener("click", (e) => {
-      const start = link.dataset.start;
-      const end = link.dataset.end;
-      if (!start) return; // fall through to anchor jump
+      const start = parseInt(link.dataset.start, 10);
+      if (Number.isNaN(start)) return;
       e.preventDefault();
-      iframe.src = `${baseSrc}?start=${start}&end=${end}&autoplay=1&rel=0`;
-      // requestAnimationFrame gives the iframe a tick to start
-      // reloading before the scroll begins — keeps the visual order
-      // of "video swaps → scroll lands on it" rather than "scroll
-      // arrives, then a second later the video flickers".
+      jumpAndPlay(start);
+      // requestAnimationFrame gives YouTube a tick to acknowledge
+      // the seek before the page scrolls — order reads as "video
+      // jumps → page lands on it", not the other way around.
       requestAnimationFrame(() => {
         wrap.scrollIntoView({ behavior: "smooth", block: "center" });
       });
