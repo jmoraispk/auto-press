@@ -16,8 +16,7 @@
 
 CodeAway keeps [Cursor](https://cursor.com/) agents moving without babysitting. Sandboxes take time to spin up and don't work for every workflow; if you already have a Cursor window open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's simple, fast and local.
 
-> **Free forever. MIT licensed. No accounts, no telemetry, no pricing.**
->
+> **Free forever. MIT licensed. No accounts, no telemetry, no pricing.**<br>
 > Landing page lives in [`site/`](site/) and is deployed at [codeaway.dev](https://codeaway.dev).
 
 ## ☕ Why this exists
@@ -31,14 +30,6 @@ Coding is supposed to be a calm activity, not a chained-to-the-desk one. CodeAwa
 3. **Travel without a laptop.** Long meetings, doctor's appointments, the in-between hours — your phone is enough, and often faster than the IDE itself, since the bridge cuts straight to the chat without IDE chrome.
 
 A normal workday has a few hours of dead time — agents thinking, tests running, you waiting. CodeAway turns those hours into ground covered.
-
-## ✨ Why
-
-- 🖥️ **No sandbox required** — if you can see it, auto-press can click it.
-- ⚡ **Fast** — configurable scan interval and search region.
-- 🎯 **Template-matching rules** — screenshot the button once, forget about it.
-- 🌙 **Runs overnight** — types `continue` whenever the agent stalls so it works while you sleep.
-- 🔕 **Stays out of the way** — lives in the system tray with a red/green status dot.
 
 ## 🚀 Quickstart
 
