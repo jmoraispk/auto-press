@@ -288,22 +288,24 @@
 
   <div class="use-case-grid">
     <article class="use-case">
-      <span class="use-case-icon" aria-hidden="true">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 11.24V7.5a2.5 2.5 0 0 1 5 0v3.74"/>
-          <path d="M14 11h2.5a2.5 2.5 0 0 1 0 5H16"/>
-          <path d="M14 12.6V11h2"/>
-          <path d="M9 11h5"/>
-          <path d="M9 12.5V11"/>
-          <path d="M5 13a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4v3a4 4 0 0 1-4 4h0a4 4 0 0 1-4-4z"/>
-        </svg>
-      </span>
-      <p class="use-case-tag">01 · Automate the laptop</p>
-      <h3>Click the buttons you click a hundred times a day.</h3>
-      <p class="use-case-body">
-        <em>Continue</em>, <em>Accept Change</em>, <em>Accept Edit</em> —
-        CodeAway clicks them as they appear.
-      </p>
+      <header class="use-case-head">
+        <span class="use-case-icon" aria-hidden="true">
+          <!-- Lucide mouse-pointer-click — the cursor + click ripples
+               read as "automated click" much more clearly than the
+               literal-mouse icon did. -->
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9 9 5 12 1.774-5.226L21 14 9 9z"/>
+            <path d="m16.071 16.071 4.243 4.243"/>
+            <path d="m7.188 2.239.777 2.897"/>
+            <path d="M5.136 7.965l-2.898-.777"/>
+            <path d="M13.95 4.05l-2.122 2.122"/>
+            <path d="m6.293 11.829-2.122 2.122"/>
+          </svg>
+        </span>
+        <p class="use-case-tag">01 · Automate the laptop</p>
+      </header>
+      <h3>Click the buttons.</h3>
+      <p class="use-case-body">CodeAway clicks them as they appear.</p>
       <ul class="use-case-bullets">
         <li>Pixel-perfect template matching at any DPI</li>
         <li>Click, click + Enter, or click + send text</li>
@@ -315,12 +317,12 @@
            top-right, clicks the button (which flashes), and resets.
            One full cycle every 5s; aria-hidden because the surrounding
            bullets already explain what it does. -->
-      <a class="watch-link" href="#video" data-start="60" data-end="270" aria-label="Play the auto-click portion of the demo, 1:00 to 4:30">
+      <a class="watch-link" href="#video" data-start="0" data-end="0" aria-label="Play the auto-click portion of the demo">
         <span class="watch-icon" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </span>
         <span class="watch-text">Watch this part</span>
-        <span class="watch-time">1:00 → 4:30</span>
+        <span class="watch-time">00:00 → 00:00</span>
       </a>
       <div class="use-case-video demo-autoclick" data-video="automate" aria-hidden="true">
         <div class="demo-window">
@@ -350,46 +352,47 @@
     </article>
 
     <article class="use-case">
-      <span class="use-case-icon" aria-hidden="true">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="6" y="2" width="12" height="20" rx="2"/>
-          <path d="M11 18h2"/>
-          <path d="M9 6h6"/>
-          <path d="M2 12h2"/>
-          <path d="M20 12h2"/>
-          <path d="M3.5 8.5 5 10"/>
-          <path d="M19 10l1.5-1.5"/>
-        </svg>
-      </span>
-      <p class="use-case-tag">02 · Remote control</p>
+      <header class="use-case-head">
+        <span class="use-case-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="2" width="12" height="20" rx="2"/>
+            <path d="M11 18h2"/>
+            <path d="M9 6h6"/>
+            <path d="M2 12h2"/>
+            <path d="M20 12h2"/>
+            <path d="M3.5 8.5 5 10"/>
+            <path d="M19 10l1.5-1.5"/>
+          </svg>
+        </span>
+        <p class="use-case-tag">02 · Remote control</p>
+      </header>
       <h3>Drive the agent from your phone.</h3>
       <p class="use-case-body">
-        Your laptop and phone share a private <em>Tailscale</em> network —
-        no public IP, no third-party server, no account.
+        Your laptop and phone share a private <em>Tailscale</em> network.
       </p>
       <ul class="use-case-bullets">
         <li>Install the PWA on your home screen</li>
         <li>Live per-window status, send / queue / edit replies</li>
-        <li>Scroll the chat, snapshot the screen, all from the lockscreen</li>
+        <li>Read the chat and reply without opening the laptop</li>
       </ul>
       <!-- Looping CSS demo: a phone PWA showing a window flipping
            busy → idle, the user typing a reply (typewriter), and the
            send button flashing. 6 s loop, no JS or video file —
            swap the inner mockup for a <video> when a real recording
            lands and remove the .demo-bridge class. -->
-      <a class="watch-link" href="#video" data-start="270" data-end="510" aria-label="Play the remote-control portion of the demo, 4:30 to 8:30">
+      <a class="watch-link" href="#video" data-start="0" data-end="0" aria-label="Play the remote-control portion of the demo">
         <span class="watch-icon" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </span>
         <span class="watch-text">Watch this part</span>
-        <span class="watch-time">4:30 → 8:30</span>
+        <span class="watch-time">00:00 → 00:00</span>
       </a>
-      <!-- Three-window phone PWA loop: the three rows start red
-           (busy). On a 9 s cycle each window takes a 3 s turn —
-           dot flips green, the row gets an accent halo (as if the
-           user just tapped it), the composer typewriter-types a
-           reply, the send button flashes, then the dot returns to
-           red and the next window's turn begins. -->
+      <!-- Phone PWA loop with three windows. Two of them — Cursor
+           and Claude — alternate finishing on a 12 s cycle: one goes
+           idle, the user reads + types a custom reply, the agent
+           goes back to busy, the other agent finishes next. Codex
+           stays red the whole time as a third bystander, so the
+           "you have multiple agents going" idea reads. -->
       <div class="use-case-video demo-bridge" data-video="remote" aria-hidden="true">
         <div class="demo-phone">
           <div class="demo-phone-notch"></div>
@@ -414,7 +417,10 @@
               </li>
             </ul>
             <div class="demo-phone-composer">
-              <span class="demo-phone-typed">Continue</span>
+              <span class="demo-typed-stack">
+                <span class="demo-typed demo-typed-1">Run the e2e suite</span>
+                <span class="demo-typed demo-typed-2">Add error handling</span>
+              </span>
               <span class="demo-phone-send" aria-hidden="true">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
               </span>
