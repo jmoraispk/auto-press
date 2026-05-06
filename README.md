@@ -70,7 +70,7 @@ Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit
 A tiny FastAPI server that turns your phone over Tailscale into a remote control for your Cursor windows:
 
 - 🟢🔴 **Live status per window** — idle / busy dots over Server-Sent Events; no polling, no flicker.
-- ✍️ **Send (or queue) replies** — type on the phone; sends immediately when the window is idle, queues otherwise and auto-drains on the next busy → idle.
+- ✍️ **Send / queue replies** — type on the phone; sends if window is idle, else queues until available.
 - 📜 **Tap to scroll + screenshot** — read all the context without touching the laptop.
 - 📲 **PWA install** — full-screen app on your home screen, no browser chrome.
 
