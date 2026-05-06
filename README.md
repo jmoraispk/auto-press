@@ -76,7 +76,11 @@ A tiny FastAPI server that turns your phone over Tailscale into a remote control
 
 The bridge is **on by default**. Pass `--no-bridge` if you want a rules-only run.
 
-📺 **Demo:** https://youtu.be/V4NTQVTd4Rs
+<p align="center">
+  <a href="https://youtu.be/V4NTQVTd4Rs" target="_blank" rel="noopener">
+    <img src="https://img.youtube.com/vi/V4NTQVTd4Rs/maxresdefault.jpg" alt="Watch the CodeAway demo on YouTube" width="360">
+  </a>
+</p>
 
 ### Flags
 
