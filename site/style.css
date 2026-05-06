@@ -1468,10 +1468,10 @@ code {
   height: 100%;
   background: #0e1118;
   border-radius: 12px;
-  padding: 14px 8px 8px;
+  padding: 12px 8px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   overflow: hidden;
 }
 .demo-phone-status {
@@ -1579,6 +1579,51 @@ code {
   0%, 57%   { background: #ef4444; box-shadow: none; }
   58%, 86%  { background: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.32); }
   87%, 100% { background: #ef4444; box-shadow: none; }
+}
+
+/* Preview chip — quoted snippet of what the agent said when its
+   window goes idle. Sits between the windows list and the composer,
+   reserves a fixed 14 px height so it doesn't reflow other rows.
+   Two stacked spans (one per agent), each fading in and out in
+   sync with its agent's active slice on the 12 s loop. */
+.demo-preview {
+  position: relative;
+  height: 14px;
+  margin-top: 2px;
+}
+.demo-preview > span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: rgba(125, 167, 232, 0.10);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  font-size: 7px;
+  color: var(--fg);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+}
+.demo-preview-1 { animation: demoPreview1 12s linear infinite; }
+.demo-preview-2 { animation: demoPreview2 12s linear infinite; }
+
+/* Cursor's preview: comes in just after the dot turns green (12 %),
+   stays visible through the user's reply, fades out a beat before
+   the dot returns to red (46 %). Same shape for Claude's preview
+   on its slice. */
+@keyframes demoPreview1 {
+  0%, 11%   { opacity: 0; }
+  14%, 43%  { opacity: 1; }
+  45%, 100% { opacity: 0; }
+}
+@keyframes demoPreview2 {
+  0%, 57%   { opacity: 0; }
+  60%, 84%  { opacity: 1; }
+  86%, 100% { opacity: 0; }
 }
 
 .demo-phone-composer {
@@ -1834,19 +1879,6 @@ code {
   color: var(--fg-mute);
   font-size: 14.5px;
   line-height: 1.6;
-}
-
-/* ---- Feature request ------------------------------------------- */
-.request {
-  max-width: var(--max);
-  margin: 0 auto;
-  padding: clamp(60px, 8vw, 120px) var(--gutter);
-  text-align: center;
-}
-.request .section-head { margin-bottom: 32px; }
-.request-cta {
-  display: flex;
-  justify-content: center;
 }
 
 /* ---- Footer ---------------------------------------------------- */
