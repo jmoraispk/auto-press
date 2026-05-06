@@ -207,6 +207,44 @@ function renderInstallLines(entry) {
   });
 })();
 
+// ---- Watch-this-part deep-links --------------------------------------
+//
+// Each use-case card has an <a class="watch-link" data-start data-end>
+// pointing at #video. Clicking swaps the iframe's src so YouTube
+// seeks to the right segment and autoplays, then smooth-scrolls the
+// video into view. The href="#video" stays as a no-JS fallback —
+// without this handler the page just jumps to the iframe, which is
+// fine, just doesn't auto-seek.
+
+(function wireWatchLinks() {
+  const links = document.querySelectorAll(".watch-link");
+  if (!links.length) return;
+  const wrap = $("video");
+  const iframe = wrap && wrap.querySelector("iframe");
+  if (!iframe) return;
+
+  // Pull the bare embed URL once so we can rebuild it with start/end.
+  // Strip any existing query so repeat clicks don't compound params.
+  const baseSrc = iframe.src.split("?")[0];
+
+  for (const link of links) {
+    link.addEventListener("click", (e) => {
+      const start = link.dataset.start;
+      const end = link.dataset.end;
+      if (!start) return; // fall through to anchor jump
+      e.preventDefault();
+      iframe.src = `${baseSrc}?start=${start}&end=${end}&autoplay=1&rel=0`;
+      // requestAnimationFrame gives the iframe a tick to start
+      // reloading before the scroll begins — keeps the visual order
+      // of "video swaps → scroll lands on it" rather than "scroll
+      // arrives, then a second later the video flickers".
+      requestAnimationFrame(() => {
+        wrap.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
+  }
+})();
+
 // ---- Feature-request channels ----------------------------------------
 //
 // Stripped down: the page now ships a single static <a> linking to

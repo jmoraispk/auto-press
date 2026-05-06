@@ -1124,6 +1124,54 @@ code {
   opacity: 0.7;
 }
 
+/* ---- "Watch this part" deep-link inside each card ------------- */
+/* Pill-shaped link that sits between the bullets and the demo
+   placeholder. JS wires the click to swap the iframe's src to the
+   right ?start=&end= range and smooth-scroll to the video. As a
+   no-JS fallback the href="#video" still scrolls there. */
+.watch-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+  padding: 8px 14px 8px 12px;
+  border: 1px solid rgba(125, 167, 232, 0.32);
+  border-radius: var(--r-pill);
+  background: rgba(125, 167, 232, 0.07);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  align-self: flex-start;
+  transition: border-color var(--t-fast), background var(--t-fast),
+              transform var(--t-fast);
+}
+.watch-link:hover {
+  border-color: rgba(125, 167, 232, 0.6);
+  background: rgba(125, 167, 232, 0.14);
+}
+.watch-link:active { transform: scale(0.985); }
+.watch-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(125, 167, 232, 0.18);
+  /* Optical centre — the play triangle is right-weighted, so a
+     2 px shove makes it feel anchored in the circle. */
+  padding-left: 2px;
+}
+.watch-time {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+  color: var(--fg-mute);
+  margin-left: auto;
+  padding-left: 4px;
+}
+
 /* ---- Embedded demo video -------------------------------------- */
 /* 16:9 frame that sits below the two use-case cards. Caps at
    960 px so on wide screens the video doesn't dwarf the cards
