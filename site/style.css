@@ -1124,6 +1124,31 @@ code {
   opacity: 0.7;
 }
 
+/* ---- Embedded demo video -------------------------------------- */
+/* 16:9 frame that sits below the two use-case cards. Caps at
+   960 px so on wide screens the video doesn't dwarf the cards
+   above it. Border + shadow + dark background match the rest of
+   the cards on the page so it feels native, not iframe-y. */
+.video-embed {
+  position: relative;
+  max-width: 960px;
+  margin: 44px auto 4px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: #000;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+.video-embed iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
 /* Video placeholder — fills the bottom of each use-case card with a
    16:9 box that visually communicates "demo here". Once a real video
    ships, swap the contents for <video src="…" poster="…" controls>

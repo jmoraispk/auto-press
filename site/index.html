@@ -390,6 +390,21 @@
     </article>
   </div>
 
+  <!-- Embedded demo video. youtube-nocookie.com is YouTube's
+       privacy-enhanced domain — no tracking cookies until the user
+       hits play. lazy loading keeps the iframe off the critical
+       path so the page paints quickly even if the video API is
+       slow to respond. -->
+  <div class="video-embed">
+    <iframe
+      src="https://www.youtube-nocookie.com/embed/V4NTQVTd4Rs"
+      title="CodeAway demo"
+      loading="lazy"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen></iframe>
+  </div>
+
   <p class="compat-row">
     <span class="compat-label">Works with</span>
     <span class="compat-chip">Claude Code</span>
