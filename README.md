@@ -16,7 +16,9 @@
 
 CodeAway keeps [Cursor](https://cursor.com/) agents moving without babysitting. Sandboxes take time to spin up and don't work for every workflow; if you already have a Cursor window open, this tool watches it, clicks the right button, and keeps the agent running on its own. It's simple, fast and local.
 
-> **Free forever. MIT licensed. No accounts, no telemetry, no pricing.** Landing page lives in [`site/`](site/) and is deployed at [codeaway.dev](https://codeaway.dev).
+> **Free forever. MIT licensed. No accounts, no telemetry, no pricing.**
+>
+> Landing page lives in [`site/`](site/) and is deployed at [codeaway.dev](https://codeaway.dev).
 
 ## ☕ Why this exists
 
@@ -32,7 +34,6 @@ A normal workday has a few hours of dead time — agents thinking, tests running
 
 ## ✨ Why
 
-- 🧠 **Built for LLM agents** — keeps Cursor loops unblocked while you do other work.
 - 🖥️ **No sandbox required** — if you can see it, auto-press can click it.
 - ⚡ **Fast** — configurable scan interval and search region.
 - 🎯 **Template-matching rules** — screenshot the button once, forget about it.
@@ -49,8 +50,6 @@ uv run main.py
 ```
 
 That's it — the UI opens and you're ready to add your first rule.
-
-Python 3.14 is pinned via `.python-version`; the code works on 3.10+ so `uv python pin 3.11` (or any newer) is fine too.
 
 ## 🧭 The workflow
 
@@ -75,97 +74,29 @@ auto-press sits in the Windows system tray. The dot color tells you what it's do
 
 Left-click the icon to show/hide the window. Right-click for Start/Stop and Quit.
 
-## 📱 Remote Bridge (optional)
+## 📱 Remote Bridge
 
-A tiny FastAPI server you can opt into so a phone over Tailscale becomes a remote control for your Cursor windows:
+A tiny FastAPI server that turns your phone over Tailscale into a remote control for your Cursor windows:
 
 - 🟢🔴 **Live status per window** — idle / busy dots over Server-Sent Events; no polling, no flicker.
 - ✍️ **Send (or queue) replies** — type on the phone; sends immediately when the window is idle, queues otherwise and auto-drains on the next busy → idle.
-- 📜 **Scroll the chat history** — one-tap "scroll up & screenshot" so you can read older context without touching the laptop.
-- 🖼️ **Snapshot lightbox** — every busy → idle (and every scroll) saves a tile; tap to expand, swipe to step through.
-- 📲 **PWA install + push** — "Add to Home Screen" for a fullscreen app, optional ntfy notifications when a window flips idle.
+- 📜 **Tap to scroll + screenshot** — read all the context without touching the laptop.
+- 📲 **PWA install** — full-screen app on your home screen, no browser chrome.
 
 The bridge is **on by default**. Pass `--no-bridge` if you want a rules-only run.
 
-### Enable it
+📺 **Demo:** https://youtu.be/V4NTQVTd4Rs
+
+### Flags
 
 ```bash
-uv sync
-uv run main.py
+uv run main.py --no-bridge              # rules-only, no FastAPI listener
+uv run main.py --no-activate            # launch idle, click Start when ready
+uv run main.py --bridge-host 127.0.0.1  # bind to loopback only
+uv run main.py --bridge-port 8765       # override default port
 ```
 
-The Bridge tab in the desktop UI lets you capture the idle template and add windows; the FastAPI listener boots in the background. Optional flags:
-
-```bash
-uv run main.py --no-bridge                    # rules-only, no FastAPI listener
-uv run main.py --no-activate                  # launch idle, click Start when ready
-uv run main.py --bridge-host 127.0.0.1        # bind to loopback only
-uv run main.py --bridge-port 8765             # override default port
-```
-
-Once running, open `http://<windows-tailscale-name>:8765` from the phone. Use the browser's share/install icon to add the PWA to the home screen — it runs in standalone display mode.
-
-### One-time setup (Bridge tab)
-
-1. **Capture the idle template.** Snip the on-screen marker that means "Cursor is waiting for input" (e.g. the white-on-blue Send arrow). Re-used for every window.
-2. **Add a window.** Drag a rectangle around the Cursor window you want to monitor. Optionally set a `chat_target` click-point (defaults to centre-bottom of the region) — that's where pastes land.
-3. **Turn the bridge service on.** The toggle in the Bridge tab starts the per-window scanner. The phone immediately sees the windows and their idle/busy status.
-
-Window geometries, splitter sizes, and section collapse states persist via `QSettings` between launches.
-
-### Phone UI in 30 seconds
-
-| Tap | What happens |
-| --- | --- |
-| A window card | Opens the detail view: composer, queue, scroll button, snapshots. |
-| **Send** with idle window | Pastes the textarea content into `chat_target` and presses Enter. Empty textarea = just clicks + Enter (useful when you already typed in the laptop). |
-| **Send** with busy window | Queues the message; sent on the next busy → idle. |
-| Queued message text (double-tap) | Inline edit — Save / Cancel right under the textarea. |
-| **Scroll up & screenshot** | Double-clicks the gutter, presses ↑ a few times, captures a fresh snapshot. |
-| Snapshot tile | Lightbox with prev / next arrows, swipe, keyboard, and counter. |
-| ⚙ Settings | Toggle rules automation (Start/Stop), notifications, soft auto-refresh, reload bridge. |
-
-### Configuration
-
-`templates/config.json`'s `bridge` block stores all bridge settings; the desktop UI writes it for you:
-
-```json
-{
-  "bridge": {
-    "host": "0.0.0.0",
-    "port": 8765,
-    "idle_threshold": 0.90,
-    "idle_template_path": "templates/idle.png",
-    "windows": [
-      { "id": "main", "name": "Main", "region": [100, 200, 800, 1200], "chat_target": [500, 1300] }
-    ],
-    "ntfy_topic": "your-secret-topic",
-    "ntfy_server": "https://ntfy.sh"
-  }
-}
-```
-
-### Notifications
-
-Two channels, both optional:
-
-- **Browser** — flip *Notifications* on in the phone's settings drawer; the PWA fires a native notification on each busy → idle.
-- **ntfy** — set `ntfy_topic` and every busy → idle POSTs to `<ntfy_server>/<topic>`. Subscribe in the [ntfy app](https://ntfy.sh/) (no account required). Tapping a notification deep-links into the matching window.
-
-### Security
-
-There is no auth on the bridge **by design** — Tailscale is the access boundary. The default `0.0.0.0` bind only matters if the host is on a hostile network; on a Tailscale-only laptop, the tailnet ACL is the firewall. Don't expose port 8765 to the public internet.
-
-### Troubleshooting
-
-| Symptom | Likely cause |
-| --- | --- |
-| **No windows on the phone** | Bridge service is off, or no windows configured yet — open the Bridge tab and add at least one. |
-| **All windows stuck on "busy"** | The captured idle template doesn't match — recapture against the actual on-screen state. Lower `match_threshold` if needed. |
-| **Send → 4xx error** | Window region moved off-screen or was minimised; bring Cursor back into view and retry. |
-| **Snapshots never refresh** | The window never flipped busy → idle since startup. Trigger any agent reply in Cursor and the next idle transition captures a snapshot. |
-| **No notifications** | Browser denied permission, or wrong `ntfy_topic`; verify by opening `<ntfy_server>/<topic>` in a browser. |
-| **PWA won't install** | Some browsers require HTTPS for install; use Chrome / Safari "Add to Home Screen" directly. |
+Once running, open `http://<laptop-tailscale-id>:8765` from the phone.
 
 ## ❓ FAQ
 
@@ -213,7 +144,7 @@ Click the **Hotkey** button in the toolbar (next to Start), then press the key c
 - [press_engine.py](press_engine.py) — screen capture + template matching + action dispatch.
 - [press_store.py](press_store.py) — config persistence (rules + hotkey + interval) and template-file helpers.
 - [press_core.py](press_core.py) — click / type / vision primitives used by the engine.
-- [press_bridge.py](press_bridge.py) — optional FastAPI server, SSE event hub, send pipeline, ntfy publisher.
+- [press_bridge.py](press_bridge.py) — FastAPI server, SSE event hub, send pipeline.
 - [bridge_phone/](bridge_phone/) — vanilla HTML/CSS/JS PWA served by the bridge.
 - [templates/](templates/) — captured template images and `config.json`. User-local; gitignored.
 </details>
