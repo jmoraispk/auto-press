@@ -47,6 +47,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QPushButton,
@@ -919,6 +921,10 @@ class MainWindow(QMainWindow):
     # the endpoint can return success/failure); this signal exists only
     # to refresh the desktop's bridge windows table on the main thread.
     bridge_window_renamed_remote = Signal(str, str)
+    # Fires after a phone-triggered auto-detect mutates bridge.windows.
+    # The slot redraws the windows table and resets worker tracking on
+    # the Qt main thread.
+    bridge_windows_auto_detected = Signal(int)
 
     CHROME_HEIGHT = 120
 
@@ -938,6 +944,9 @@ class MainWindow(QMainWindow):
         self.hotkey_triggered.connect(self._toggle_running, Qt.QueuedConnection)
         self.bridge_reload_requested.connect(self._reload_bridge_service, Qt.QueuedConnection)
         self.bridge_set_rules_requested.connect(self._set_rules_running_remote, Qt.QueuedConnection)
+        self.bridge_windows_auto_detected.connect(
+            self._on_bridge_windows_auto_detected, Qt.QueuedConnection,
+        )
         self.bridge_window_renamed_remote.connect(
             self._on_bridge_window_renamed_remote, Qt.QueuedConnection
         )
@@ -1671,6 +1680,13 @@ class MainWindow(QMainWindow):
         add_btn = PushButton(FIF.ADD, "Add window")
         add_btn.clicked.connect(self._add_bridge_window)
         add_row.addWidget(add_btn)
+        auto_btn = PushButton(FIF.SEARCH, "Auto-detect")
+        auto_btn.setToolTip(
+            "Scan visible Cursor windows on this desktop via Win32 and "
+            "preview the result before adding them here."
+        )
+        auto_btn.clicked.connect(self._auto_detect_bridge_windows)
+        add_row.addWidget(auto_btn)
         add_row.addStretch(1)
         win_body.addLayout(add_row)
 
@@ -1960,6 +1976,130 @@ class MainWindow(QMainWindow):
         self._refresh_bridge_windows_table()
         self._bridge_log(
             f"added '{name}' at ({bbox[0]},{bbox[1]}) {bbox[2]}×{bbox[3]}"
+        )
+
+    def _auto_detect_bridge_windows(self) -> None:
+        """Run Win32 EnumWindows to find visible Cursor windows, show a
+        small picker dialog, and either replace the current windows
+        list or append to it based on the user's choice. The dialog
+        is the safety net — never overwrites without a confirm-style
+        button click."""
+        from press_windows import list_cursor_windows
+
+        try:
+            detected = list_cursor_windows()
+        except Exception as exc:
+            self._bridge_log(f"auto-detect failed: {exc}")
+            return
+        if not detected:
+            self._bridge_log(
+                "auto-detect: no visible Cursor windows found "
+                "(minimised / hidden / no 'Cursor' in title)"
+            )
+            return
+
+        mode = self._auto_detect_dialog(detected)
+        if mode is None:
+            self._bridge_log("auto-detect: cancelled")
+            return
+
+        picked = mode["picked"]
+        if not picked:
+            self._bridge_log("auto-detect: nothing checked, nothing changed")
+            return
+        self._apply_auto_detected(picked, replace=mode["replace"])
+
+    def _auto_detect_dialog(self, detected: list[dict]) -> Optional[dict]:
+        """Modal dialog listing detected windows with checkboxes and
+        Add / Replace / Cancel buttons. Returns
+        ``{picked: list[dict], replace: bool}`` on accept, None on
+        cancel."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Auto-detect Cursor windows")
+        dlg.setMinimumWidth(420)
+        layout = QVBoxLayout(dlg)
+
+        intro = BodyLabel(
+            f"Found {len(detected)} visible Cursor window"
+            f"{'s' if len(detected) != 1 else ''} on this desktop."
+        )
+        layout.addWidget(intro)
+
+        listw = QListWidget()
+        listw.setSelectionMode(QListWidget.NoSelection)
+        for d in detected:
+            item = QListWidgetItem(
+                f"{d['name']}   —   "
+                f"{d['region'][2]}×{d['region'][3]} px at "
+                f"({d['region'][0]}, {d['region'][1]})"
+            )
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            item.setData(Qt.UserRole, d)
+            listw.addItem(item)
+        layout.addWidget(listw)
+
+        hint = CaptionLabel(
+            "Add appends checked windows to your current setup.\n"
+            "Replace wipes existing windows first, then adds checked."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        btn_row = QHBoxLayout()
+        cancel_btn = PushButton("Cancel")
+        add_btn = PrimaryPushButton(FIF.ADD, "Add")
+        replace_btn = PushButton("Replace all")
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(replace_btn)
+        btn_row.addWidget(add_btn)
+        layout.addLayout(btn_row)
+
+        result = {"replace": False, "accepted": False}
+        cancel_btn.clicked.connect(dlg.reject)
+        add_btn.clicked.connect(
+            lambda: (result.update(accepted=True, replace=False), dlg.accept())
+        )
+        replace_btn.clicked.connect(
+            lambda: (result.update(accepted=True, replace=True), dlg.accept())
+        )
+
+        if dlg.exec() != QDialog.Accepted:
+            return None
+        if not result["accepted"]:
+            return None
+        picked: list[dict] = []
+        for i in range(listw.count()):
+            item = listw.item(i)
+            if item.checkState() == Qt.Checked:
+                picked.append(item.data(Qt.UserRole))
+        return {"picked": picked, "replace": result["replace"]}
+
+    def _apply_auto_detected(self, detected: list[dict], replace: bool) -> None:
+        """Persist the detected windows into the bridge config. If
+        ``replace`` is True the existing list is wiped first; otherwise
+        the detected entries are appended (new uuid-based ids so they
+        never collide with the existing ones)."""
+        with self._cfg_lock:
+            if replace:
+                self._cfg["bridge"]["windows"] = []
+            existing = self._cfg["bridge"]["windows"]
+            for d in detected:
+                win = default_bridge_window(d.get("name", "Cursor"))
+                win["region"] = [int(v) for v in d["region"]]
+                existing.append(win)
+        self._persist()
+        self._refresh_bridge_windows_table()
+        # Tracking dict is keyed by window id — replace mode invalidates
+        # all prior keys, append mode adds new ones the worker hasn't
+        # seen yet. Either way, the safe move is a full reset so the
+        # next tick captures fresh snapshots for everything.
+        self._worker.reset_window_tracking()
+        verb = "replaced with" if replace else "added"
+        self._bridge_log(
+            f"auto-detect: {verb} {len(detected)} window"
+            f"{'s' if len(detected) != 1 else ''}"
         )
 
     def _find_window_index(self, window_id: str) -> Optional[int]:
@@ -3188,6 +3328,7 @@ class MainWindow(QMainWindow):
             is_rules_running=self._bridge_is_rules_running,
             set_rules_running=self._bridge_set_rules_running,
             rename_window=self._bridge_rename_window,
+            auto_detect_windows=self._bridge_auto_detect_windows,
         )
         self._bridge = BridgeService(callbacks)
         self._bridge.start(bridge_cfg)
@@ -3389,6 +3530,43 @@ class MainWindow(QMainWindow):
     def _on_bridge_window_renamed_remote(self, window_id: str, new_name: str) -> None:
         self._refresh_bridge_windows_table()
         self._bridge_log(f"renamed via web → '{new_name}'")
+
+    def _bridge_auto_detect_windows(self, mode: str) -> int:
+        """Phone POSTed /api/admin/auto_detect. Runs the Win32
+        enumeration here on the desktop side, mutates bridge.windows
+        under the cfg lock, and returns the new window count. Returns
+        -1 when nothing was detected (the endpoint maps that to a 400).
+        Qt widget refreshes are deferred to the Qt main thread via the
+        bridge_windows_auto_detected signal."""
+        from press_windows import list_cursor_windows
+
+        try:
+            detected = list_cursor_windows()
+        except Exception:
+            return -1
+        if not detected:
+            return -1
+        if mode not in ("add", "replace"):
+            mode = "add"
+        with self._cfg_lock:
+            if mode == "replace":
+                self._cfg["bridge"]["windows"] = []
+            for d in detected:
+                win = default_bridge_window(d.get("name", "Cursor"))
+                win["region"] = [int(v) for v in d["region"]]
+                self._cfg["bridge"]["windows"].append(win)
+            new_count = len(self._cfg["bridge"]["windows"])
+        self._persist()
+        self.bridge_windows_auto_detected.emit(len(detected))
+        return new_count
+
+    def _on_bridge_windows_auto_detected(self, count: int) -> None:
+        self._refresh_bridge_windows_table()
+        self._worker.reset_window_tracking()
+        self._bridge_log(
+            f"auto-detect via web → added {count} window"
+            f"{'s' if count != 1 else ''}"
+        )
 
     def _bridge_perform_window_send(
         self, window: dict, text: str, bridge_cfg: dict

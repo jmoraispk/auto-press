@@ -72,6 +72,11 @@ class BridgeCallbacks:
     # the window was found + persisted, False otherwise. The desktop
     # side mutates templates/config.json so the name survives restarts.
     rename_window: Optional[Callable[[str, str], bool]] = None
+    # Phone-triggered auto-detect. Takes a mode ("add" | "replace") and
+    # runs the Win32 enumeration on the desktop side, then mutates
+    # bridge.windows in config. Returns the number of windows now in
+    # the bridge config (or -1 on platform unsupported / no callback).
+    auto_detect_windows: Optional[Callable[[str], int]] = None
 
 
 # ---- per-window state + snapshot ring buffer ----------------------------
@@ -830,6 +835,35 @@ def build_app(service: BridgeService):
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return JSONResponse({"reload_scheduled": True})
+
+    @app.post("/api/admin/auto_detect")
+    async def admin_auto_detect(payload: dict) -> JSONResponse:
+        """Phone-triggered auto-detect of visible Cursor windows on the
+        host. ``payload['mode']`` is "add" (append to existing windows)
+        or "replace" (wipe the windows list first). Default: "add" —
+        safer choice for a remote tap. Returns the new window count."""
+        mode = "add"
+        if isinstance(payload, dict):
+            requested = payload.get("mode")
+            if requested in ("add", "replace"):
+                mode = requested
+        if service.callbacks.auto_detect_windows is None:
+            raise HTTPException(status_code=501, detail="auto-detect not wired")
+        try:
+            count = int(service.callbacks.auto_detect_windows(mode))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if count < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="auto-detect found no Cursor windows on the desktop",
+            )
+        # Fan an SSE event so any connected phone re-reads the window
+        # list immediately; otherwise the cards stay stale until the
+        # next worker tick.
+        for s in service.windows.summaries():
+            service.hub.publish_typed("window_state", s)
+        return JSONResponse({"mode": mode, "window_count": count})
 
     @app.get("/api/state")
     async def state() -> JSONResponse:

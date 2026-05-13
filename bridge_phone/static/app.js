@@ -677,6 +677,45 @@ async function toggleNotifications() {
   renderNotifToggle();
 }
 
+async function autoDetectWindows() {
+  // Two confirms to make the destructive path opt-in: the first runs
+  // an "add" pass (safe — appends to existing) on yes. We don't expose
+  // "replace" from the phone yet; if the user wants the wipe-and-rebuild
+  // they should do it from the desktop where they can see the dialog.
+  const ok = confirm(
+    "Scan the desktop for Cursor windows and add them to your setup?"
+  );
+  if (!ok) return;
+  const btn = $("auto-detect-btn");
+  btn.disabled = true;
+  btn.textContent = "Scanning…";
+  try {
+    const res = await fetch("/api/admin/auto_detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "add" }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const n = data.window_count || 0;
+      // No alert spam — the windows list refreshes via SSE and the
+      // user can see the new entries appear within a second.
+      btn.textContent = `Added (${n})`;
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = "Detect";
+      }, 1800);
+      return;
+    }
+    const detail = await res.text();
+    alert(`Auto-detect failed: ${res.status} ${detail}`);
+  } catch (e) {
+    alert(`Auto-detect network error: ${e.message}`);
+  }
+  btn.disabled = false;
+  btn.textContent = "Detect";
+}
+
 async function reloadBridge() {
   const ok = confirm(
     "Reload the bridge service? The connection will drop for ~1 second " +
@@ -864,6 +903,7 @@ $("settings-btn").addEventListener("click", () => {
 $("notif-toggle").addEventListener("click", toggleNotifications);
 $("autoreload-toggle").addEventListener("click", toggleAutoReload);
 $("reload-btn").addEventListener("click", reloadBridge);
+$("auto-detect-btn").addEventListener("click", autoDetectWindows);
 $("rules-toggle").addEventListener("click", toggleRules);
 for (const btn of document.querySelectorAll(".scroll-btn[data-amount]")) {
   const amount = Number(btn.dataset.amount || "1");
