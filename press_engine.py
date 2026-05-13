@@ -320,31 +320,53 @@ def execute_matches(matches: list[dict], delay_seconds: float = ACTION_SETTLE_DE
 
 
 def evaluate_bridge_windows(bridge_cfg: dict, capture_rgb: bool = False) -> list[dict]:
-    """Scan each configured Cursor window for the bridge's idle template.
+    """Scan each configured Cursor window for the bridge's idle template
+    and (optionally) the askuser template.
 
-    Returns one dict per window: ``{id, name, idle, score, configured}``.
+    Returns one dict per window:
+        {id, name, idle, asking, score, configured}
+
     When ``capture_rgb`` is True an extra ``rgb`` key carries the captured
     HxWx3 numpy array for that window's region — the worker uses this to
     feed the bridge's snapshot ring buffer without a second screen grab.
 
-    A window is **idle** when the template appears anywhere inside its
-    region above ``idle_threshold``. ``configured`` is False if the window
-    has no region set yet — useful so the UI can show "set me up" rather
-    than treat the missing region as "not idle".
+    Semantics:
+      - **idle**   = idle_template found in the region above idle_threshold.
+      - **asking** = askuser_template found in the region above
+                     idle_threshold (re-using the same threshold for now —
+                     they're effectively the same kind of UI marker).
+      - The two can coexist (the idle "ready for input" indicator may
+        still be visible while a multiple-choice card is showing). Callers
+        decide precedence — typically asking > idle.
+
+    ``configured`` is False if the window has no region set yet.
     """
-    template_ref = bridge_cfg.get("idle_template_path")
+    idle_ref = bridge_cfg.get("idle_template_path")
+    askuser_ref = bridge_cfg.get("askuser_template_path")
     threshold = float(bridge_cfg.get("idle_threshold", 0.90))
     windows = bridge_cfg.get("windows") or []
-    if not template_ref or not windows:
+    if not idle_ref or not windows:
         return []
 
-    template_path = resolve_template_path(template_ref)
-    if template_path is None or not template_path.exists():
+    idle_path = resolve_template_path(idle_ref)
+    if idle_path is None or not idle_path.exists():
         return []
     try:
-        template_gray = load_template_gray(str(template_path))
+        idle_gray = load_template_gray(str(idle_path))
     except Exception:
         return []
+
+    # Askuser template is optional — if it's missing or unloadable, the
+    # detector silently degrades to "asking is always False" and the
+    # idle / busy behaviour is unchanged.
+    askuser_gray = None
+    if isinstance(askuser_ref, str) and askuser_ref.strip():
+        askuser_path = resolve_template_path(askuser_ref)
+        if askuser_path is not None and askuser_path.exists():
+            try:
+                askuser_gray = load_template_gray(str(askuser_path))
+            except Exception:
+                askuser_gray = None
 
     cv2, _np = ensure_vision()
     results: list[dict] = []
@@ -356,6 +378,7 @@ def evaluate_bridge_windows(bridge_cfg: dict, capture_rgb: bool = False) -> list
                     "id": window.get("id"),
                     "name": window.get("name", "Cursor"),
                     "idle": False,
+                    "asking": False,
                     "score": 0.0,
                     "configured": False,
                 }
@@ -373,20 +396,29 @@ def evaluate_bridge_windows(bridge_cfg: dict, capture_rgb: bool = False) -> list
                     "id": window.get("id"),
                     "name": window.get("name", "Cursor"),
                     "idle": False,
+                    "asking": False,
                     "score": 0.0,
                     "configured": True,
                 }
             )
             continue
-        matches = _find_matches_in(
-            search_gray, template_gray, threshold, region_tuple[0], region_tuple[1]
+        idle_matches = _find_matches_in(
+            search_gray, idle_gray, threshold, region_tuple[0], region_tuple[1]
         )
-        best_score = matches[0][0] if matches else 0.0
+        best_idle_score = idle_matches[0][0] if idle_matches else 0.0
+        is_asking = False
+        if askuser_gray is not None:
+            askuser_matches = _find_matches_in(
+                search_gray, askuser_gray, threshold,
+                region_tuple[0], region_tuple[1],
+            )
+            is_asking = bool(askuser_matches)
         entry = {
             "id": window.get("id"),
             "name": window.get("name", "Cursor"),
-            "idle": bool(matches),
-            "score": float(best_score),
+            "idle": bool(idle_matches),
+            "asking": is_asking,
+            "score": float(best_idle_score),
             "configured": True,
         }
         if capture_rgb:

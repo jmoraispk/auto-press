@@ -140,7 +140,14 @@ def test_evaluate_bridge_windows_skips_windows_without_region(idle_template, mon
     }
     states = press_engine.evaluate_bridge_windows(bridge_cfg)
     assert states == [
-        {"id": "w1", "name": "Cursor #1", "idle": False, "score": 0.0, "configured": False}
+        {
+            "id": "w1",
+            "name": "Cursor #1",
+            "idle": False,
+            "asking": False,
+            "score": 0.0,
+            "configured": False,
+        }
     ]
 
 
@@ -307,6 +314,52 @@ def test_window_store_clears_snapshots_on_busy_to_idle():
     summary = store.summaries()[0]
     assert summary["snapshot_count"] == 1
     assert store.snapshot("w1", 0)[1] == b"png-idle-2"
+
+
+def test_window_store_propagates_asking_state():
+    """The detector's 'asking' flag round-trips through the store and
+    lands in summaries() so the phone can render the yellow indicator."""
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=4)
+    base = {"id": "w1", "name": "X", "configured": True, "score": 0.9}
+    # First observation: busy. No image; defaults populated.
+    store.update([{**base, "idle": False, "asking": False}], {})
+    [s] = store.summaries()
+    assert s["idle"] is False
+    assert s["asking"] is False
+    # Transition straight into asking — same shape as busy→idle.
+    store.update([{**base, "idle": False, "asking": True}], {"w1": b"png-ask"})
+    [s] = store.summaries()
+    assert s["idle"] is False
+    assert s["asking"] is True
+    assert s["snapshot_count"] == 1
+
+
+def test_window_store_clears_snapshots_on_busy_to_asking():
+    """Same lifecycle as busy→idle: entering 'asking' from busy should
+    wipe the deque so the user sees a fresh capture of the question
+    card, not the agent's previous chat scroll."""
+    from press_bridge import WindowStore
+
+    store = WindowStore(snapshots_per_window=10)
+    base = {"id": "w1", "name": "X", "configured": True, "score": 0.5}
+    # Go idle, accumulate a few snapshots.
+    store.update([{**base, "idle": True, "asking": False}], {"w1": b"png-idle"})
+    assert store.set_snapshot("w1", b"png-scroll") is True
+    assert store.summaries()[0]["snapshot_count"] == 2
+    # Drop back to busy.
+    store.update([{**base, "idle": False, "asking": False}], {})
+    assert store.summaries()[0]["snapshot_count"] == 2
+    # busy → asking should wipe and write the fresh capture only.
+    store.update(
+        [{**base, "idle": False, "asking": True}],
+        {"w1": b"png-question"},
+    )
+    summary = store.summaries()[0]
+    assert summary["asking"] is True
+    assert summary["snapshot_count"] == 1
+    assert store.snapshot("w1", 0)[1] == b"png-question"
 
 
 def test_window_store_summary_carries_latest_snapshot_timestamp():

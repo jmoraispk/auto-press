@@ -78,6 +78,12 @@ def default_bridge_config() -> dict:
         # means that window is idle and ready for input.
         "idle_template_path": None,
         "idle_threshold": 0.90,
+        # Optional second template: a marker for Cursor's AskUserQuestion
+        # multiple-choice prompt (e.g. the "Submit answers" pill at the
+        # bottom of the question card). When this matches the window is
+        # in "asking" state — a third option alongside idle / busy.
+        # Captured the same way as the idle template via the Bridge tab.
+        "askuser_template_path": None,
         # Cursor windows the bridge watches; empty list = bridge has nothing
         # useful to do. Each entry is a default_bridge_window() dict.
         "windows": [],
@@ -237,6 +243,11 @@ def _normalize_bridge(bridge: dict | None) -> dict:
     else:
         base["idle_template_path"] = None
     base["idle_threshold"] = _clamp_float(bridge.get("idle_threshold"), 0.90, 0.0, 1.0)
+    ask = bridge.get("askuser_template_path")
+    if isinstance(ask, str) and ask.strip():
+        base["askuser_template_path"] = ask.strip()
+    else:
+        base["askuser_template_path"] = None
 
     raw_windows = bridge.get("windows")
     if isinstance(raw_windows, list):

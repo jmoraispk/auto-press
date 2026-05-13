@@ -131,19 +131,26 @@ class WindowStore:
                 entry = self._windows.setdefault(
                     wid, {"state": {}, "snapshots": deque(maxlen=self._max)}
                 )
-                prev_idle = entry["state"].get("idle") if entry["state"] else None
+                prev = entry["state"] or None
+                prev_idle = bool(prev["idle"]) if prev else None
+                prev_asking = bool(prev.get("asking")) if prev else None
                 stored = {
                     "id": wid,
                     "name": state.get("name", "Cursor"),
                     "idle": bool(state.get("idle")),
+                    "asking": bool(state.get("asking")),
                     "score": float(state.get("score", 0.0)),
                     "configured": bool(state.get("configured", False)),
                     "last_update": now,
                 }
                 entry["state"] = stored
-                # busy → idle? wipe so the new fresh capture isn't mixed
-                # with stale scroll snapshots from the previous session.
-                if prev_idle is False and stored["idle"] is True:
+                # Treat idle and asking as the "user can act now" states.
+                # Any transition INTO that family (from busy) gets a
+                # fresh snapshot session so the new visuals aren't mixed
+                # with stale scroll captures from the previous one.
+                prev_actionable = (prev_idle is True) or (prev_asking is True)
+                curr_actionable = stored["idle"] or stored["asking"]
+                if prev_actionable is False and curr_actionable:
                     entry["snapshots"].clear()
                 png = images.get(wid)
                 if png is not None:
@@ -152,7 +159,11 @@ class WindowStore:
                     # matters for scroll captures where the user can
                     # accidentally fire the same view twice.
                     entry["snapshots"].append((now, png, None))
-                if prev_idle is not None and prev_idle != stored["idle"]:
+                # Any change in idle OR asking counts as a transition for
+                # SSE / ntfy fan-out — the phone needs to redraw on both.
+                if prev is not None and (
+                    prev_idle != stored["idle"] or prev_asking != stored["asking"]
+                ):
                     transitions.append(stored)
             if prune:
                 # Drop windows that disappeared from config (e.g. user removed).

@@ -457,7 +457,9 @@ class EngineWorker(QObject):
         self._interval = 10.0
         self._lock = threading.Lock()
         # Maps window id → last known idle bool, so we only emit transitions.
-        self._last_window_idle: dict[str, bool] = {}
+        # Maps window id → last (idle, asking) tuple, so we only emit
+        # transitions when either flag flips.
+        self._last_window_idle: dict[str, tuple[bool, bool]] = {}
         # Wake signal — anything that should trigger an immediate tick
         # (Start button, hotkey, bridge toggle, reset_window_tracking)
         # calls .set() on this; the post-tick sleep loop watches it and
@@ -651,8 +653,11 @@ class EngineWorker(QObject):
             if not wid or not state.get("configured"):
                 continue
             is_idle = bool(state.get("idle"))
+            is_asking = bool(state.get("asking"))
+            actionable = is_idle or is_asking
             prev = self._last_window_idle.get(wid)
-            should_capture = prev is None or (is_idle and prev is False)
+            prev_actionable = bool(prev[0] or prev[1]) if prev else None
+            should_capture = prev is None or (actionable and prev_actionable is False)
             if should_capture and rgb is not None:
                 png = _encode_rgb_to_png(rgb)
                 if png is not None:
@@ -667,15 +672,17 @@ class EngineWorker(QObject):
             if not wid:
                 continue
             now_idle = bool(state.get("idle"))
+            now_asking = bool(state.get("asking"))
+            curr = (now_idle, now_asking)
             prev = self._last_window_idle.get(wid)
             if prev is None:
                 # First observation: record without emitting a transition,
                 # otherwise we'd announce every window the moment the
                 # worker starts.
-                self._last_window_idle[wid] = now_idle
+                self._last_window_idle[wid] = curr
                 continue
-            if prev != now_idle:
-                self._last_window_idle[wid] = now_idle
+            if prev != curr:
+                self._last_window_idle[wid] = curr
                 self.bridge_window_transition.emit(state)
 
 
@@ -1543,17 +1550,18 @@ class MainWindow(QMainWindow):
         svc_row.addStretch(1)
         outer.addLayout(svc_row)
 
-        # Idle template card.
-        tpl_card = CollapsibleCard("Idle indicator")
-        # Info button between the title (index 0) and CollapsibleCard's
-        # trailing stretch + chevron, so it sits next to the title rather
-        # than getting shoved past the collapse toggle.
+        # Templates card — idle marker + optional askuser (multi-choice)
+        # marker. The detector matches both inside each window region
+        # and reports back a (idle, asking) pair for each window.
+        tpl_card = CollapsibleCard("Detection templates")
         tpl_info = ToolButton(FIF.INFO)
         tpl_info.setToolTip(
-            "Capture the visual cue that means a Cursor window is idle "
-            "(Continue button, send icon, etc.). The same template is matched "
-            "inside every window region. Use Test to dry-run detection across "
-            "all configured windows."
+            "Idle: a visual cue that means a Cursor window is ready for "
+            "input (Continue button, send icon, etc.).\n"
+            "Question: optional second template for Cursor's "
+            "AskUserQuestion multi-choice prompt (e.g. the Submit answers "
+            "pill at the bottom of the question card). Leave blank to "
+            "skip asking-state detection."
         )
         tpl_info.setFixedSize(22, 22)
         tpl_card.headerLayout.insertWidget(1, tpl_info)
@@ -1562,12 +1570,14 @@ class MainWindow(QMainWindow):
         tpl_body.setContentsMargins(2, 0, 2, 0)
         tpl_body.setSpacing(8)
 
+        # Idle template row.
         tpl_row = QHBoxLayout()
         tpl_row.setSpacing(8)
-        # Thumbnail of the captured template — empty box until a capture
-        # exists, fluent dashed border so it reads as a placeholder.
+        idle_lbl = BodyLabel("Idle")
+        idle_lbl.setMinimumWidth(56)
+        tpl_row.addWidget(idle_lbl)
         self._bridge_template_thumb = QLabel()
-        self._bridge_template_thumb.setFixedSize(140, 60)
+        self._bridge_template_thumb.setFixedSize(120, 50)
         self._bridge_template_thumb.setAlignment(Qt.AlignCenter)
         self._bridge_template_thumb.setStyleSheet(
             "border: 1px dashed #555; border-radius: 6px; "
@@ -1584,6 +1594,31 @@ class MainWindow(QMainWindow):
         tpl_row.addWidget(test_tpl_btn)
         tpl_row.addStretch(1)
         tpl_body.addLayout(tpl_row)
+
+        # Askuser template row — same shape, no Test (we re-use the
+        # idle Test runner since it now reports both states).
+        ask_row = QHBoxLayout()
+        ask_row.setSpacing(8)
+        ask_lbl = BodyLabel("Question")
+        ask_lbl.setMinimumWidth(56)
+        ask_row.addWidget(ask_lbl)
+        self._bridge_askuser_thumb = QLabel()
+        self._bridge_askuser_thumb.setFixedSize(120, 50)
+        self._bridge_askuser_thumb.setAlignment(Qt.AlignCenter)
+        self._bridge_askuser_thumb.setStyleSheet(
+            "border: 1px dashed #555; border-radius: 6px; "
+            "background: #1f2129; color: #6f7180; font-size: 11px;"
+        )
+        self._bridge_askuser_thumb.setText("(optional)")
+        ask_row.addWidget(self._bridge_askuser_thumb)
+        capture_ask_btn = PushButton(FIF.CAMERA, "Capture")
+        capture_ask_btn.setToolTip(
+            "Capture a marker for the AskUserQuestion multi-choice prompt"
+        )
+        capture_ask_btn.clicked.connect(self._capture_bridge_askuser_template)
+        ask_row.addWidget(capture_ask_btn)
+        ask_row.addStretch(1)
+        tpl_body.addLayout(ask_row)
 
         thr_row = QHBoxLayout()
         thr_row.setSpacing(8)
@@ -1781,13 +1816,27 @@ class MainWindow(QMainWindow):
         view.appendPlainText(f"{_dt.now().strftime('%H:%M:%S')}  {msg}")
 
     def _refresh_bridge_template_view(self) -> None:
-        thumb = getattr(self, "_bridge_template_thumb", None)
+        bridge = self._cfg.get("bridge") or {}
+        self._refresh_template_thumb(
+            getattr(self, "_bridge_template_thumb", None),
+            bridge.get("idle_template_path"),
+            empty_label="(no template)",
+        )
+        self._refresh_template_thumb(
+            getattr(self, "_bridge_askuser_thumb", None),
+            bridge.get("askuser_template_path"),
+            empty_label="(optional)",
+        )
+
+    def _refresh_template_thumb(self, thumb, path, empty_label="(no template)") -> None:
+        """Render ``path`` into ``thumb`` (a QLabel), or the empty
+        placeholder text if path is None/missing/unreadable. Factored
+        so both detection templates use the same render path."""
         if thumb is None:
             return
-        path = (self._cfg.get("bridge") or {}).get("idle_template_path")
         if not path:
             thumb.clear()
-            thumb.setText("(no template)")
+            thumb.setText(empty_label)
             return
         full = resolve_template_path(path)
         if not full or not full.exists():
@@ -1827,9 +1876,14 @@ class MainWindow(QMainWindow):
             if not state.get("configured"):
                 self._bridge_log(f"  • {state['name']}: not configured (no region)")
                 continue
-            verdict = "idle" if state["idle"] else "busy"
+            if state.get("asking"):
+                verdict = "asking"
+            elif state["idle"]:
+                verdict = "idle"
+            else:
+                verdict = "busy"
             self._bridge_log(
-                f"  • {state['name']}: {verdict} (score {state['score']:.3f})"
+                f"  • {state['name']}: {verdict} (idle-score {state['score']:.3f})"
             )
 
     def _capture_bridge_idle_template(self) -> None:
@@ -1853,6 +1907,34 @@ class MainWindow(QMainWindow):
             self._refresh_bridge_template_view()
             self._bridge_log(
                 f"captured idle template → {stored} ({bbox[2]}×{bbox[3]} px)"
+            )
+        except Exception as exc:
+            self._bridge_log(f"capture failed: {exc}")
+
+    def _capture_bridge_askuser_template(self) -> None:
+        """Same flow as the idle template capture, but writes to the
+        askuser slot. Optional template — leaving it empty means the
+        bridge never reports "asking" state."""
+        try:
+            ensure_vision()
+        except Exception as exc:
+            self._bridge_log(f"capture failed: {exc}")
+            return
+        bbox = capture_drag_bbox(self)
+        if not bbox:
+            self._bridge_log("askuser template capture cancelled")
+            return
+        try:
+            gray = capture_screen_gray(tuple(bbox))
+            path = template_asset_path("bridge_askuser.png")
+            save_gray_image(str(path), gray)
+            stored = serialize_template_path(path)
+            with self._cfg_lock:
+                self._cfg["bridge"]["askuser_template_path"] = stored
+            self._persist()
+            self._refresh_bridge_template_view()
+            self._bridge_log(
+                f"captured askuser template → {stored} ({bbox[2]}×{bbox[3]} px)"
             )
         except Exception as exc:
             self._bridge_log(f"capture failed: {exc}")

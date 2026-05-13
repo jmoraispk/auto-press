@@ -1,7 +1,18 @@
 // auto-press phone bridge — vanilla JS, no build step.
 //
-// Lists configured Cursor windows with idle/busy status from SSE; tap
-// in for snapshot thumbnails (click to expand) and a send composer.
+// Lists configured Cursor windows with idle / asking / busy status from
+// SSE; tap in for snapshot thumbnails (click to expand) and a send
+// composer.
+
+// Resolve a window's tri-state from the bridge's flags. Asking
+// (multiple-choice question pending) takes precedence over idle,
+// otherwise it's busy.
+function windowState(w) {
+  if (!w) return "busy";
+  if (w.asking) return "asking";
+  if (w.idle) return "idle";
+  return "busy";
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -143,9 +154,9 @@ function renderWindows() {
   for (const w of all) {
     const li = document.createElement("li");
     const isSelected = state.current === w.id;
+    const stateName = windowState(w);
     li.className =
-      "window " +
-      (w.idle ? "idle" : "busy") +
+      "window " + stateName +
       (isSelected ? " selected" : "");
     li.dataset.id = w.id;
     const pendingTag =
@@ -158,7 +169,7 @@ function renderWindows() {
         <div class="name"></div>
         <button class="window-rename" title="Rename" aria-label="Rename">✎</button>
       </div>
-      <div class="sub">${w.idle ? "idle" : "busy"}${pendingTag}</div>
+      <div class="sub">${stateName}${pendingTag}</div>
     `;
     li.querySelector(".name").textContent = w.name || w.id;
     li.querySelector(".window-rename").addEventListener("click", (e) => {
@@ -242,7 +253,11 @@ function renderWindowDetail(refetchSnapshots) {
   // the heading instead — "Window Name (Busy)" — to spend the row on
   // the name and keep the status legible at a glance.
   const name = w ? (w.name || id) : id;
-  const status = w ? (w.idle ? "Idle" : "Busy") : "";
+  // Same tri-state precedence as the window list: asking > idle > busy.
+  const stateName = w ? windowState(w) : "";
+  const status = stateName
+    ? stateName.charAt(0).toUpperCase() + stateName.slice(1)
+    : "";
   $("snap-window-name").textContent = status ? `${name} (${status})` : name;
   renderQueue();
   if (refetchSnapshots) renderSnapshots();
