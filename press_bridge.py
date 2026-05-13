@@ -946,10 +946,11 @@ def build_app(service: BridgeService):
 
     @app.post("/api/windows/{window_id}/scroll")
     async def window_scroll(window_id: str, payload: dict) -> JSONResponse:
-        """Scroll the window's chat panel by ``amount`` wheel notches
-        (positive = up). Captures a fresh snapshot a moment later so the
-        phone shows the new visible region without waiting for the next
-        engine tick."""
+        """Scroll the window's chat panel by ``amount`` arrow-key
+        presses. Positive = scroll up (older messages into view),
+        negative = scroll down (newer messages). Captures a fresh
+        snapshot a moment later so the phone shows the new visible
+        region without waiting for the next engine tick."""
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="amount (int) required")
         try:

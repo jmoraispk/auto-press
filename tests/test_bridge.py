@@ -834,6 +834,21 @@ def test_window_scroll_endpoint_calls_callback_with_centered_point(fastapi_clien
     assert amount == 3
 
 
+def test_window_scroll_endpoint_accepts_negative_amount(fastapi_client):
+    """Negative amount = scroll down (newer messages); the endpoint
+    forwards it as-is and the desktop callback interprets the sign."""
+    client, service, calls = fastapi_client
+    calls["cfg"]["bridge"] = {
+        "windows": [{"id": "w1", "name": "X", "region": [100, 200, 800, 600]}]
+    }
+    res = client.post("/api/windows/w1/scroll", json={"amount": -8})
+    assert res.status_code == 200
+    assert res.json() == {"scrolled": -8}
+    assert len(calls["window_scroll"]) == 1
+    _, amount = calls["window_scroll"][0]
+    assert amount == -8
+
+
 def test_window_scroll_endpoint_400_for_zero_amount(fastapi_client):
     client, service, calls = fastapi_client
     calls["cfg"]["bridge"] = {

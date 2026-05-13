@@ -3249,7 +3249,9 @@ class MainWindow(QMainWindow):
         self, window: dict, amount: int, bridge_cfg: dict
     ) -> None:
         """Focus Cursor's chat history with a slow double-click and press
-        the Up arrow ``amount`` times to scroll roughly one screen.
+        the arrow key ``|amount|`` times to scroll roughly one screen.
+        Positive ``amount`` scrolls up (older messages into view),
+        negative scrolls down (newer messages).
 
         Click target is 5% in from the left edge, 50% down — sits hard
         against the gutter, well outside the chat text where a double-
@@ -3258,14 +3260,15 @@ class MainWindow(QMainWindow):
         endpoint then schedules a snapshot recapture so the phone
         shows the scrolled view.
         """
-        from press_core import focus_and_press_up
+        from press_core import focus_and_press_arrow
 
         region = window.get("region")
         if not region or len(region) != 4:
             return
         x, y, w, h = (int(region[0]), int(region[1]), int(region[2]), int(region[3]))
         target = (x + int(w * 0.05), y + h // 2)
-        focus_and_press_up(target, int(amount))
+        direction = "down" if int(amount) < 0 else "up"
+        focus_and_press_arrow(target, direction, abs(int(amount)))
 
     def _bridge_is_rules_running(self) -> bool:
         """Read the engine running flag — called from the bridge's request

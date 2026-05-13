@@ -112,9 +112,15 @@ def click_point(point: tuple[int, int]) -> None:
     pyautogui.click()
 
 
-def focus_and_press_up(point: tuple[int, int], presses: int = 15) -> None:
-    """Focus the panel at ``point`` with two slow clicks, then press Up
-    arrow ``presses`` times to scroll Cursor's chat history.
+def focus_and_press_arrow(
+    point: tuple[int, int],
+    direction: str = "up",
+    presses: int = 15,
+) -> None:
+    """Focus the panel at ``point`` with two slow clicks, then press the
+    Up or Down arrow ``presses`` times to scroll Cursor's chat history.
+
+    ``direction`` is "up" or "down". Anything else is treated as "up".
 
     Why double-click with a delay:
       - A single click in Cursor often lands the caret in the chat
@@ -125,10 +131,11 @@ def focus_and_press_up(point: tuple[int, int], presses: int = 15) -> None:
         settle between the two events.
 
     Arrow keys instead of mouse wheel: pyautogui.scroll's wheel events
-    behave inconsistently across Cursor's nested electron views; Up-
+    behave inconsistently across Cursor's nested electron views;
     arrow keystrokes are reliable and predictable. ~15 presses moves
     roughly one screenful in Cursor's chat at default zoom.
     """
+    key = "down" if direction == "down" else "up"
     _pin_thread_v2_dpi()
     x, y = int(point[0]), int(point[1])
     pyautogui.moveTo(x, y, duration=0)
@@ -137,10 +144,16 @@ def focus_and_press_up(point: tuple[int, int], presses: int = 15) -> None:
     pyautogui.click()
     time.sleep(0.1)
     for _ in range(max(0, int(presses))):
-        pyautogui.press("up")
+        pyautogui.press(key)
         # Tiny gap so each keystroke is processed as a discrete event
         # — with no delay Cursor sometimes coalesces them.
         time.sleep(0.02)
+
+
+def focus_and_press_up(point: tuple[int, int], presses: int = 15) -> None:
+    """Back-compat shim — kept so existing callers don't break. New
+    code should call focus_and_press_arrow(point, "up", presses)."""
+    focus_and_press_arrow(point, "up", presses)
 
 
 def get_clipboard_text() -> str:

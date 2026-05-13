@@ -886,7 +886,10 @@ window.addEventListener(
     _overscrollAccum += -e.deltaY;
     if (_overscrollAccum >= _OVERSCROLL_TRIGGER_PX) {
       _overscrollAccum = 0;
-      const btn = document.querySelector(".scroll-btn");
+      // Target the positive-amount button specifically — the
+      // overscroll pull-up gesture should always trigger an up-scroll
+      // even if the DOM order of the scroll-down button ever changes.
+      const btn = document.querySelector('.scroll-btn[data-amount="15"]');
       if (btn && !btn.disabled) scrollWindow(15, btn);
     }
   },

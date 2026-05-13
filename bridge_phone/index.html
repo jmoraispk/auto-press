@@ -9,7 +9,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=23">
+  <link rel="stylesheet" href="/static/style.css?v=24">
   <title>auto-press</title>
 </head>
 <body>
@@ -72,13 +72,16 @@
       </div>
 
       <div id="scroll-controls">
-        <button class="primary scroll-btn" data-amount="15">
+        <button class="primary scroll-btn" data-amount="15" aria-label="Scroll up and screenshot">
           <span class="arrow" aria-hidden="true">↑</span>
-          <span>Scroll up &amp; screenshot</span>
+          <span>Scroll up</span>
         </button>
-        <button id="recapture-btn" class="ghost scroll-btn" title="Capture a fresh screenshot without scrolling">
+        <button class="primary scroll-btn" data-amount="-15" aria-label="Scroll down and screenshot">
+          <span class="arrow" aria-hidden="true">↓</span>
+          <span>Scroll down</span>
+        </button>
+        <button id="recapture-btn" class="ghost icon-only" title="New screenshot — capture without scrolling" aria-label="Capture a fresh screenshot without scrolling">
           <span class="arrow" aria-hidden="true">↻</span>
-          <span>New screenshot</span>
         </button>
       </div>
 
@@ -98,6 +101,6 @@
     <img id="lightbox-img" alt="">
   </div>
 
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>
